@@ -307,6 +307,18 @@ pub fn browser_prompt(
     )
 }
 
+/// `taskmaster revise`: the current file plus the student's requested changes.
+pub fn revise_request(current: &str, changes: &str) -> String {
+    format!(
+        "Here is my current curriculum:\n<curriculum>\n{current}\n</curriculum>\n\n\
+         Revise it: {changes}\n\n\
+         Keep everything I did not ask to change. Ask a question only if my request is ambiguous. \
+         Check the result against the review list below, then reply with <changes>a short bullet \
+         list of what you changed and why</changes> followed by <curriculum>the complete revised \
+         curriculum file</curriculum>.\n\n{REVIEW_CHECKLIST}"
+    )
+}
+
 pub fn review_request() -> String {
     format!(
         "{REVIEW_CHECKLIST}\n\nReply with <changes>a short bullet list of what you changed and why</changes> \

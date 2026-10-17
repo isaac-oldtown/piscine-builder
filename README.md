@@ -27,6 +27,9 @@ taskmaster import curriculum.md --course my-course     # --paste: errors as a bl
 # Terminal: a short guided conversation (uses the LLM).
 taskmaster new "learn C pointers" --from syllabus.txt --course my-course
 
+# Change an existing curriculum.md through the planner (uses the LLM).
+taskmaster revise "add a drill on structs before p01" --course my-course
+
 # Then generate everything (uses the LLM), and start.
 taskmaster build --course my-course
 cd my-course && skillcheck next

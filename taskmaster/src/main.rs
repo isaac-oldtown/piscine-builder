@@ -20,13 +20,15 @@ taskmaster: creates levelup courses. The only part of levelup that uses an LLM.
         validate a curriculum, show it, and approve it into the course folder
   taskmaster new \"<what you want to learn>\" [--from FILE]... [--course DIR] [--yes]
         plan a curriculum in a short terminal conversation (uses the LLM)
+  taskmaster revise \"<changes>\" [--course DIR] [--yes]
+        have the planner rewrite curriculum.md with your changes (uses the LLM)
   taskmaster env
         show the environment taskmaster assumes the student has (detected here,
         or declared with `environment:` in the curriculum front matter)
   taskmaster build [--course DIR] [--yes] [--tests | --no-tests] [--only ID]... [--retries N]
         write the unit specs, notes, tests and hidden references (uses the LLM)
 
-LLM options (build, new): --provider anthropic|meridian|openai  --base-url URL  --model NAME
+LLM options (build, new, revise): --provider anthropic|meridian|openai  --base-url URL  --model NAME
   --api-key-env VAR. Defaults come from LEVELUP_* variables, then the config file,
   then: provider anthropic, model claude-sonnet-5-5. Run `taskmaster config` to see the file path.";
 
@@ -144,6 +146,7 @@ fn main() -> ExitCode {
         Some("prompt") => cmd_prompt(&raw[1..]),
         Some("import") => cmd_import(&raw[1..]),
         Some("new") => guided::cmd_new(&raw[1..]),
+        Some("revise") => guided::cmd_revise(&raw[1..]),
         Some("build") => cmd_build(&raw[1..]),
         Some("env") => {
             let declared = std::fs::read_to_string(PathBuf::from("curriculum.md"))

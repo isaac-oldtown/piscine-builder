@@ -8,13 +8,14 @@
 //! before the student sees it.
 
 use crate::curriculum::{self, Plan};
-use crate::llm::{self, Msg};
+use crate::llm::{self, Llm, Msg};
 use crate::prompts;
 use crate::{Args, LLM_OPTS, read_line};
 use serde::Deserialize;
 use skillcheck::ask::{self, Answer};
 use std::collections::BTreeSet;
 use std::io::IsTerminal;
+use std::path::Path;
 
 const MAX_AUTOFIX: usize = 3;
 /// Questions in a whole conversation, asked one per planner reply.
@@ -156,6 +157,64 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
     let interactive = std::io::stdin().is_terminal() && !a.has("yes");
     let llm = a.llm()?;
     eprintln!("model {} at {}", llm.model, llm.base_url);
+    converse(&course, &llm, intake, interactive, None)
+}
+
+/// `taskmaster revise` : the planner rewrites the current curriculum.md.
+pub fn cmd_revise(raw: &[String]) -> Result<bool, String> {
+    let mut valued = vec!["course"];
+    valued.extend(LLM_OPTS);
+    let a = Args::parse(raw, &valued, &["yes"])?;
+    let changes = a.positional.join(" ");
+    if changes.trim().is_empty() {
+        return Err("say what to change: taskmaster revise \"split p01.4 into two stages\"".into());
+    }
+    let course = a.course();
+    let file = course.join("curriculum.md");
+    let text = std::fs::read_to_string(&file).map_err(|_| {
+        format!(
+            "no curriculum at {}: run `taskmaster new` or `taskmaster import` first",
+            file.display()
+        )
+    })?;
+    let plan = curriculum::parse(&text).map_err(|p| {
+        format!(
+            "curriculum.md does not parse; fix it by hand or with `taskmaster import curriculum.md`:\n{}",
+            curriculum::report(&p)
+        )
+    })?;
+    // The draft replaces curriculum.md while you review it: keep the old one.
+    let backup = course
+        .join(".skillcheck")
+        .join("taskmaster")
+        .join("curriculum.previous.md");
+    if let Some(d) = backup.parent() {
+        std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(&backup, &text).map_err(|e| format!("{}: {e}", backup.display()))?;
+    let interactive = std::io::stdin().is_terminal() && !a.has("yes");
+    let llm = a.llm()?;
+    eprintln!("model {} at {}", llm.model, llm.base_url);
+    eprintln!("previous version saved to {}", backup.display());
+    converse(
+        &course,
+        &llm,
+        prompts::revise_request(&text, &changes),
+        interactive,
+        Some(&plan),
+    )
+}
+
+/// The planning loop shared by `new` and `revise`. With `current` (a
+/// revision), its ids are the baseline of the change list and the separate
+/// self-review is skipped: the revision request already includes it.
+fn converse(
+    course: &Path,
+    llm: &Llm,
+    intake: String,
+    interactive: bool,
+    current: Option<&Plan>,
+) -> Result<bool, String> {
     let system = format!(
         "{}\n\n{}\n## Example\n\n{}\n\n{}",
         prompts::GUIDED_SYSTEM,
@@ -167,11 +226,11 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
     let mut asked = 0;
     let mut fixes = 0;
     let mut bad_questions = false;
-    let mut reviewed = false;
+    let mut reviewed = current.is_some();
     // The self-review's list of changes, kept until a draft is shown: the
     // reviewed draft may still need validator fixes first.
     let mut review_notes: Option<String> = None;
-    let mut previous: Option<BTreeSet<String>> = None;
+    let mut previous: Option<BTreeSet<String>> = current.map(ids);
     loop {
         eprintln!("thinking...");
         let reply = llm.chat(&messages)?;
@@ -232,10 +291,11 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
             format!("<curriculum>\n{text}\n</curriculum>")
         };
         let problems = curriculum::problems_of(&text);
-        curriculum::log_validation(&course, "new", &fixed, &problems);
+        let source = if current.is_some() { "revise" } else { "new" };
+        curriculum::log_validation(course, source, &fixed, &problems);
         if problems.iter().any(|p| !p.warning) {
             if fixes >= MAX_AUTOFIX {
-                std::fs::create_dir_all(&course).map_err(|e| e.to_string())?;
+                std::fs::create_dir_all(course).map_err(|e| e.to_string())?;
                 std::fs::write(course.join("curriculum.md"), &text).map_err(|e| e.to_string())?;
                 println!("{}", curriculum::report(&problems));
                 return Err("the planner could not produce a valid curriculum; the last draft is in curriculum.md".into());
@@ -276,11 +336,11 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
             }
         }
         if !interactive {
-            let ok = crate::review(&course, text, true)?.is_some();
+            let ok = crate::review(course, text, true)?.is_some();
             eprintln!("{}", llm.usage_line());
             return Ok(ok);
         }
-        std::fs::create_dir_all(&course).map_err(|e| e.to_string())?;
+        std::fs::create_dir_all(course).map_err(|e| e.to_string())?;
         std::fs::write(course.join("curriculum.md"), &text).map_err(|e| e.to_string())?;
         // Already validated above; this prints the environment warnings.
         let Some(plan) = crate::check_plan(&text, false) else {
@@ -293,7 +353,7 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
         previous = Some(ids(&plan));
         match decide() {
             Decision::Approve => {
-                crate::approve(&course, &text)?;
+                crate::approve(course, &text)?;
                 println!(
                     "Approved: {}. Next: taskmaster build",
                     course.join("curriculum.md").display()
@@ -302,7 +362,7 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
                 return Ok(true);
             }
             Decision::Edit => {
-                let ok = crate::review(&course, text, false)?.is_some();
+                let ok = crate::review(course, text, false)?.is_some();
                 eprintln!("{}", llm.usage_line());
                 return Ok(ok);
             }
