@@ -2,7 +2,8 @@
 //! with the same curriculum file the browser path produces, so both go
 //! through one validator and one approval step.
 //!
-//! The planner asks its questions as multiple choice, shown one at a time.
+//! The planner asks one multiple-choice question per reply, so each question
+//! can build on the previous answers.
 //! Its first valid draft gets one self-review against the planning checklist
 //! before the student sees it.
 
@@ -15,9 +16,9 @@ use skillcheck::ask::{self, Answer};
 use std::collections::BTreeSet;
 use std::io::IsTerminal;
 
-const MAX_QUESTION_ROUNDS: usize = 2;
 const MAX_AUTOFIX: usize = 3;
-const MAX_QUESTIONS: usize = 4;
+/// Questions in a whole conversation, asked one per planner reply.
+const MAX_QUESTIONS: usize = 6;
 const OTHER: &str = "Something else: type your own answer";
 
 #[derive(Deserialize, Debug, PartialEq)]
@@ -65,18 +66,18 @@ fn answers_message(qs: &[Question], answers: &[String]) -> String {
     s
 }
 
-/// Asks each question in turn. Without a terminal, or with `--yes`, the
-/// recommended options are taken.
-fn ask_all(qs: &[Question], interactive: bool) -> Vec<String> {
-    let total = qs.len();
+/// Asks each question in turn; `first` is how many were asked before.
+/// Without a terminal, or with `--yes`, the recommended options are taken.
+fn ask_all(qs: &[Question], interactive: bool, first: usize) -> Vec<String> {
     qs.iter()
         .enumerate()
         .map(|(i, q)| {
+            let n = first + i + 1;
             if q.options.is_empty() {
                 if !interactive {
                     return "No preference, use your judgement.".to_string();
                 }
-                println!("\n? ({}/{total}) {}", i + 1, q.question);
+                println!("\n? Question {n}: {}", q.question);
                 let a = read_line("Your answer (Enter: no preference): ");
                 return if a.is_empty() {
                     "No preference, use your judgement.".to_string()
@@ -87,7 +88,7 @@ fn ask_all(qs: &[Question], interactive: bool) -> Vec<String> {
             if !interactive {
                 return q.options[q.recommended].clone();
             }
-            let title = format!("({}/{total}) {}", i + 1, q.question);
+            let title = format!("Question {n}: {}", q.question);
             ask::choose(&title, &q.options, q.recommended, Some(OTHER)).text(&q.options)
         })
         .collect()
@@ -167,10 +168,13 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
         crate::env::detect(None).prompt_block()
     );
     let mut messages = vec![Msg::system(system), Msg::user(intake)];
-    let mut rounds = 0;
+    let mut asked = 0;
     let mut fixes = 0;
     let mut bad_questions = false;
     let mut reviewed = false;
+    // The self-review's list of changes, kept until a draft is shown: the
+    // reviewed draft may still need validator fixes first.
+    let mut review_notes: Option<String> = None;
     let mut previous: Option<BTreeSet<String>> = None;
     loop {
         eprintln!("thinking...");
@@ -180,14 +184,17 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
             llm::block(&reply, "curriculum"),
         ) {
             messages.push(Msg::assistant(reply));
-            if rounds >= MAX_QUESTION_ROUNDS {
+            if asked >= MAX_QUESTIONS {
                 messages.push(Msg::user(
                     "Use your recommended options and write the curriculum now.",
                 ));
                 continue;
             }
             let qs = match parse_questions(&q) {
-                Ok(qs) => qs,
+                Ok(mut qs) => {
+                    qs.truncate(MAX_QUESTIONS - asked);
+                    qs
+                }
                 Err(e) if !bad_questions => {
                     bad_questions = true;
                     messages.push(Msg::user(format!(
@@ -203,15 +210,20 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
                     continue;
                 }
             };
-            rounds += 1;
-            if interactive {
+            if interactive && asked == 0 {
                 println!(
                     "\nA few questions first. Enter keeps the recommended option; type a letter, or your own answer."
                 );
             }
-            let answers = ask_all(&qs, interactive);
+            let answers = ask_all(&qs, interactive, asked);
+            asked += qs.len();
             messages.push(Msg::user(answers_message(&qs, &answers)));
             continue;
+        }
+        if let Some(changes) = llm::block(&reply, "changes")
+            && !changes.trim().is_empty()
+        {
+            review_notes = Some(changes.trim().to_string());
         }
         let text = crate::unwrap_curriculum(&reply);
         let problems = match curriculum::parse(&text) {
@@ -243,10 +255,8 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
             messages.push(Msg::user(prompts::review_request()));
             continue;
         }
-        if let Some(changes) = llm::block(&reply, "changes")
-            && !changes.trim().is_empty()
-        {
-            println!("\nPlanner review:\n{}", changes.trim());
+        if let Some(notes) = review_notes.take() {
+            println!("\nPlanner review:\n{notes}");
         }
         if let (Some(before), Ok(plan)) = (&previous, curriculum::parse(&text)) {
             let after = ids(&plan);
@@ -267,19 +277,12 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
         }
         std::fs::create_dir_all(&course).map_err(|e| e.to_string())?;
         std::fs::write(course.join("curriculum.md"), &text).map_err(|e| e.to_string())?;
+        // Already validated above; this prints the environment warnings.
         let Some(plan) = crate::check_plan(&text, false) else {
-            // Only the environment preflight can fail here: let the planner adapt.
-            messages.push(Msg::assistant(reply));
-            messages.push(Msg::user(
-                "The student's environment cannot run part of this curriculum (see the environment section). \
-                 Adapt it and send the complete file again."
-                    .to_string(),
-            ));
-            fixes += 1;
-            if fixes > MAX_AUTOFIX {
-                return Err("the planner could not fit the curriculum to this environment; the last draft is in curriculum.md".into());
-            }
-            continue;
+            return Err(
+                "internal: a validated curriculum failed to load; the draft is in curriculum.md"
+                    .into(),
+            );
         };
         println!("\n{}\n{}", plan.meta.title, curriculum::table(&plan));
         previous = Some(ids(&plan));
@@ -360,7 +363,7 @@ mod tests {
             r#"[{"question": "Q1", "options": ["x", "y"], "recommended": 1}, {"question": "Q2"}]"#,
         )
         .unwrap();
-        let a = ask_all(&qs, false);
+        let a = ask_all(&qs, false, 0);
         assert_eq!(a[0], "y");
         assert!(a[1].contains("No preference"));
         assert!(answers_message(&qs, &a).contains("- Q1 -> y"));

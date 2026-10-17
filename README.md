@@ -32,9 +32,10 @@ taskmaster build --course my-course
 cd my-course && skillcheck next
 ```
 
-`new` asks the planner's questions one at a time, as multiple choice with a
-recommended option (Enter takes it, a letter picks another, any other text is
-your own answer). The planner then reviews its first valid draft against a
+`new` asks the planner's questions one at a time (at most 6), as multiple
+choice with a recommended option (Enter takes it, a letter picks another, any
+other text is your own answer). The planner writes each question after seeing
+the previous answers. The planner then reviews its first valid draft against a
 checklist (prerequisites, testing introduced early, workload, finales split
 into required and stretch stages, difficulty spread, design decisions written
 down) and lists what it changed. `import` and `new` show the plan as a table

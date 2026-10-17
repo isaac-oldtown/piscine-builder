@@ -163,21 +163,21 @@ pub fn render(c: &CourseDir, events: &[Event]) -> String {
             n => format!(", {n} stretch goal(s) skipped"),
         }
     );
-    if let Some(cur) = &state.current {
+    let current_done = state.current.as_deref().is_some_and(|id| state.done(id));
+    if current_done {
+        let next = match state.next_locked(c) {
+            Some(u) => format!("`{}` (run `skillcheck next` to unlock it)", u.id),
+            None => "none: the course is complete".into(),
+        };
+        let _ = writeln!(s, "| Next | {next} |");
+    } else if let Some(cur) = &state.current {
         let since = st
             .units
             .get(cur)
             .and_then(|u| u.unlocked)
             .map(date)
             .unwrap_or_default();
-        let status = if state.passed.contains(cur) {
-            "passed"
-        } else if state.skipped.contains(cur) {
-            "skipped"
-        } else {
-            "in progress"
-        };
-        let _ = writeln!(s, "| Current | `{cur}` ({status}, since {since}) |");
+        let _ = writeln!(s, "| Current | `{cur}` (in progress, since {since}) |");
     }
     let _ = writeln!(
         s,

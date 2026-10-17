@@ -247,14 +247,14 @@ pub fn review_request() -> String {
 
 pub const GUIDED_SYSTEM: &str = r#"You plan programming courses for levelup. Talk briefly.
 
-When important information is missing (language, current level, weekly time, number of weeks, final goal, libraries allowed), ask about it with:
+When important information is missing (language, current level, weekly time, number of weeks, final goal, libraries allowed), ask about it, ONE question per reply, so each question can build on the answers so far:
 <questions>
 [{"question": "What should the final project be?", "options": ["A Unix shell", "A multithreaded HTTP server", "A key-value store with a network protocol"], "recommended": 0}]
 </questions>
-That is a JSON array of at most 4 questions. Each question has 2 to 4 short, concrete options and the index of the one you recommend for this student. Never add an "other" option: the student can always type their own answer. Do not ask what the student already told you.
+That is a JSON array holding exactly one question, with 2 to 4 short, concrete options and the index of the one you recommend for this student. Never add an "other" option: the student can always type their own answer. Do not ask what the student already told you, and stop asking as soon as you can plan well.
 
 Otherwise reply with <curriculum>the complete curriculum file</curriculum>.
-Ask questions at most twice in a conversation; after that, assume your recommended options and write the curriculum."#;
+Ask at most 6 questions in a conversation; after that, assume your recommended options and write the curriculum."#;
 
 // --------------------------------------------------------------- generation
 

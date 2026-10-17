@@ -395,7 +395,16 @@ fn cmd_status() -> Result<ExitCode, String> {
         };
         println!("  {mark} {shown}");
     }
-    if let Some(cur) = state.current.as_ref().and_then(|id| c.unit(id)) {
+    let current = state.current.as_ref().and_then(|id| c.unit(id));
+    if let Some(cur) = current.filter(|u| state.done(&u.id)) {
+        match state.next_locked(&c) {
+            Some(next) => println!(
+                "\n{} is done. Run `skillcheck next` to unlock {}.",
+                cur.id, next.id
+            ),
+            None => println!("\nCourse complete."),
+        }
+    } else if let Some(cur) = current {
         println!(
             "\nCurrent: {}  workspace {}/  instructions {}",
             cur.id,
