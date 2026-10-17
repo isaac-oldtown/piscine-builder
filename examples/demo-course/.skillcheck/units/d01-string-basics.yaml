@@ -1,0 +1,46 @@
+id: d01-string-basics
+title: String Basics
+language: c
+difficulty: 2
+concepts: [NUL termination, pointer arithmetic, manual allocation]
+target: function
+stubs: src/str_basics.c
+goal: Re-implement three small string helpers using only raw memory and pointers.
+functions:
+  - { name: str_len, sig: "size_t str_len(const char *s)", returns: bytes before the terminating NUL }
+  - { name: str_dup, sig: "char *str_dup(const char *s)", returns: "an owned copy, or NULL if allocation fails" }
+  - { name: str_split, sig: "char **str_split(const char *s, char sep)", returns: NULL-terminated array of owned words }
+files:
+  - { path: include/str_basics.h, note: declares the three prototypes }
+  - { path: "src/*.c", rule: one_or_more, note: "any names, any split into files" }
+requirements:
+  - "Words are the maximal runs of characters other than `sep`: `str_split(\"a,,b\", ',')` yields `a` and `b`."
+  - "An empty string, or one made only of separators, yields an array holding just `NULL`."
+  - On allocation failure, free everything already allocated and return `NULL`.
+allowed: [stdlib.h, stddef.h, malloc, free]
+extra_flags: [-Dmalloc=sc_malloc]
+support: [support/d01-string-basics/fail_alloc.c]
+helpers:
+  - { name: fail_alloc_after, sig: "void fail_alloc_after(int n)" }
+cases: |
+  str_len("") == 0
+  str_len("abc") == 3
+  str_dup("") == ""
+  str_dup("hello") == "hello"
+  str_split("a,,b", ',') == ["a", "b"]
+  str_split("", ',') == []
+  str_split(",,,", ',') == []
+  then(fail_alloc_after(0), str_dup("abc")) == null
+  then(fail_alloc_after(0), str_split("a,b", ',')) == null
+  then(fail_alloc_after(2), str_split("a,b", ',')) == null
+random:
+  fuzz:
+    - str_len
+    - str_dup
+    - { fn: str_split, args: { s: 'string "ab," 0..30', sep: "lit ','" } }
+  laws:
+    - name: split keeps the non-empty fields
+      gen: { s: 'string "ab, " 0..40' }
+      check:
+        - 'str_split(s, '','') == nonempty(split(s, ","))'
+        - "str_len(s) == bytes(s)"

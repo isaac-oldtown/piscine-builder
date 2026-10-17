@@ -1,0 +1,34 @@
+id: p01.1-parsing
+title: Parsing
+project: p01-logstat
+difficulty: 2
+concepts: [string methods, dictionaries]
+target: function
+stubs: logstat/__init__.py
+goal: Turn one raw log line into a structured entry.
+functions:
+  - { name: logstat.parse_line, sig: "def parse_line(line: str) -> dict | None", returns: "`{\"time\": ..., \"level\": ..., \"msg\": ...}`, or `None` for a malformed line" }
+files:
+  - { path: logstat/__init__.py, note: "exposes `parse_line`" }
+  - { path: "**", rule: free, note: organize the rest as you like }
+requirements:
+  - "A line is `YYYY-MM-DD HH:MM:SS LEVEL message`; `time` holds the first two fields joined by one space."
+  - "Malformed means: fewer than four fields, a date not shaped `YYYY-MM-DD` with digits, a time not shaped `HH:MM:SS` with digits, or a level other than `INFO`, `WARN`, `ERROR`."
+  - The message is everything after the level, stripped of surrounding whitespace.
+allowed: []
+cases: |
+  logstat.parse_line("2026-01-02 10:00:00 INFO start") == {"time": "2026-01-02 10:00:00", "level": "INFO", "msg": "start"}
+  logstat.parse_line("2026-01-02 10:00:00 ERROR disk is  full\n").msg == "disk is  full"
+  logstat.parse_line("garbage") == null
+  logstat.parse_line("2026-01-02 10:00:00 DEBUG x") == null
+  logstat.parse_line("2026-01-02 10:00:00 INFO") == null
+  logstat.parse_line("2026-1-02 10:00:00 INFO x") == null
+random:
+  fuzz:
+    - logstat.parse_line
+  laws:
+    - name: generated lines parse back
+      gen: { line: log_line }
+      check:
+        - "logstat.parse_line(line).level == words(line)[2]"
+        - 'join([logstat.parse_line(line).time, logstat.parse_line(line).level, logstat.parse_line(line).msg], " ") == line'

@@ -1,0 +1,32 @@
+id: d03-longest-word
+title: Longest Word
+language: rust
+difficulty: 2
+concepts: [string slices, lifetimes, Option]
+target: function
+stubs: src/lib.rs
+goal: Find the longest word of a text and return it as a slice of the input.
+functions:
+  - { name: longest_word, sig: "pub fn longest_word(text: &str) -> Option<&str>", returns: "the longest word, or `None` when there is none" }
+  - { name: word_count, sig: "pub fn word_count(text: &str) -> usize", returns: number of words }
+files:
+  - { path: Cargo.toml, note: "package `longest_word`" }
+  - { path: "src/**/*.rs", rule: one_or_more, note: "library in `src/lib.rs`" }
+requirements:
+  - "A word is a maximal run of non-whitespace characters (`char::is_whitespace`)."
+  - "Length counts `char`s, not bytes. On a tie, the first word wins."
+allowed: []
+cases: |
+  longest_word("") == null
+  longest_word("a bb ccc") == "ccc"
+  longest_word("aa bb") == "aa"
+  word_count("  hello \t world  ") == 2
+random:
+  fuzz:
+    - { fn: longest_word, args: { text: 'string "ab é\t\n" 0..40' } }
+    - word_count
+  laws:
+    - name: counts agree
+      gen: { text: 'string "ab \n" 0..40' }
+      check:
+        - "word_count(text) == len(words(text))"

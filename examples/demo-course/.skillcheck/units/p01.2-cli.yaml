@@ -1,0 +1,30 @@
+id: p01.2-cli
+title: Command Line
+project: p01-logstat
+difficulty: 3
+concepts: [standard input, exit codes, python -m]
+target: program
+run: python -m logstat
+goal: Read a log on standard input and print how many entries each level has.
+files:
+  - { path: logstat/__init__.py }
+  - { path: logstat/__main__.py, note: "makes `python -m logstat` work" }
+  - { path: "**", rule: free }
+requirements:
+  - "Print one line per level that appears, as `LEVEL count`, in the order INFO, WARN, ERROR."
+  - Empty lines are ignored. Other malformed lines are skipped.
+  - "When lines were skipped, print `skipped N malformed line(s)` on stderr and exit with 1; otherwise exit with 0."
+allowed: [sys]
+cases: |
+  <<< "2026-01-02 10:00:00 INFO a\n2026-01-02 10:00:01 ERROR b\n2026-01-02 10:00:02 INFO c\n" => out == "INFO 2\nERROR 1\n" exit 0
+  <<< "" => out empty exit 0
+  <<< "garbage\n2026-01-02 10:00:00 WARN w\n" => out == "WARN 1\n" err ~ "skipped 1 malformed line" exit 1
+random:
+  rounds: 20
+  laws:
+    - name: blank lines do not change the report
+      gen: { log: lines(log_line) 0..30 }
+      check:
+        - 'run(stdin=log).out == run(stdin="\n" + log + "\n").out'
+  fuzz:
+    - { name: report, stdin: "lines(log_line) 0..40" }

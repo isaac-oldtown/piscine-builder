@@ -1,0 +1,25 @@
+title: levelup demo course
+hours_per_week: 10
+units:
+  - d01-string-basics
+  - d02-word-count
+  - d03-longest-word
+  - d04-reverse-lines
+  - p01.1-parsing
+  - p01.2-cli
+projects:
+  p01-logstat:
+    title: Log Toolkit
+    goal: Build `logstat`, a command-line tool that reads a log and reports what happened in it.
+    language: python
+    difficulty: 3
+    prereqs: [d01-string-basics]
+    concepts: [parsing, command-line programs]
+languages:
+  perl:
+    name: Perl 5
+    build: perl -c main.pl
+    run: perl main.pl
+    imports: ['(?m)^\s*(?:use|require)\s+([A-Za-z][\w:]*)']
+    extensions: [pl, pm]
+    comment: "#"

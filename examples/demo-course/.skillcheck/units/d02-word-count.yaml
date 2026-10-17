@@ -1,0 +1,26 @@
+id: d02-word-count
+title: Word Count in Bash
+language: bash
+difficulty: 1
+concepts: [read, loops, arithmetic expansion]
+target: program
+scaffold: none
+run: bash wc.sh
+goal: Write a Bash script that counts the words it reads on standard input.
+files:
+  - { path: wc.sh, note: the script }
+requirements:
+  - Words are separated by spaces, tabs and newlines; leading and trailing blanks are ignored.
+  - Print the count followed by a newline, and exit with status 0.
+  - "With `-l` as first argument, print the number of lines instead: a line is counted when it ends with a newline."
+allowed: []
+cases: |
+  <<< "" => out == "0\n" exit 0
+  <<< "hello world\n" => out == "2\n" exit 0
+  <<< "  a\tb \n\n c  " => out == "3\n"
+  -l <<< "a\nb\nc\n" => out == "3\n"
+random:
+  rounds: 25
+  fuzz:
+    - { name: words, stdin: 'string "ab \n\t" 0..60' }
+    - { name: lines, argv: 'lit ["-l"]', stdin: 'string "ab \n" 0..60' }

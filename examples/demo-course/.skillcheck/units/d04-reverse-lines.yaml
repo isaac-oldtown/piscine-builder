@@ -1,0 +1,25 @@
+id: d04-reverse-lines
+title: Reverse Lines
+language: perl
+difficulty: 1
+concepts: [reading STDIN, chomp, reverse]
+target: program
+goal: Print every line of standard input reversed.
+files:
+  - { path: main.pl, note: the program }
+requirements:
+  - Each input line is printed reversed, followed by a newline, in input order.
+  - A last line without a trailing newline is still printed, with a newline.
+allowed: [strict, warnings]
+cases: |
+  <<< "" => out empty exit 0
+  <<< "abc\n" => out == "cba\n" exit 0
+  <<< "ab\ncd" => out == "ba\ndc\n"
+random:
+  rounds: 25
+  fuzz:
+    - { name: lines, stdin: 'lines(string "abc xyz" 0..12) 0..10' }
+  laws:
+    - name: reversing twice gives the input back
+      gen: { s: "lines(word) 0..8" }
+      check: ["run(stdin=run(stdin=s).out).out == s"]

@@ -1,0 +1,4 @@
+level: choice ["INFO", "WARN", "ERROR"]
+log_line:
+  fmt: "2026-01-{d} {h}:{m}:{s} {lvl} {msg}"
+  vars: { d: int 10..28, h: int 0..23 w2, m: int 0..59 w2, s: int 0..59 w2, lvl: level, msg: word }

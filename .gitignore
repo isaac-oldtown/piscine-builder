@@ -1,0 +1,12 @@
+/target
+.skillcheck/cache/
+Cargo.lock
+!/Cargo.lock
+
+# Student-side state created while playing a course (examples stay pristine).
+.skillcheck/journal.jsonl
+/examples/*/subjects/
+/examples/*/notes/
+/examples/*/PROGRESS.md
+/examples/*/d[0-9]*/
+/examples/*/p[0-9]*/
