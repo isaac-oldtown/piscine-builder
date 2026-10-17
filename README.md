@@ -38,7 +38,7 @@ other text is your own answer). The planner writes each question after seeing
 the previous answers. The planner then reviews its first valid draft against a
 checklist (prerequisites, testing introduced early, workload, finales split
 into required and stretch stages, difficulty spread, design decisions written
-down) and lists what it changed. Before validating, taskmaster fixes mechanical slips itself: drill and project numbers that do not grow, stages numbered out of sequence (references follow the new ids), and missing `hours` (filled from the difficulty). Fixes and validator problems are logged to `.skillcheck/taskmaster/validator.log`. `import` and `new` show the plan as a table
+down) and lists what it changed. Before validating, taskmaster fixes mechanical slips itself: drill and project numbers that do not grow, stages numbered out of sequence (references follow the new ids), missing `hours` (filled from the difficulty), and values YAML would misread (a title or list item containing `: `, a leading backtick, a comma inside `HashMap<K, V>`), which get quoted. Fixes and validator problems are logged to `.skillcheck/taskmaster/validator.log`. `import` and `new` show the plan as a table
 with hours per unit and a workload summary against the budget, then ask to
 approve, ask for changes, edit (opens `$EDITOR`) or quit. `build` refuses an
 unapproved or modified curriculum.
@@ -46,22 +46,29 @@ unapproved or modified curriculum.
 The curriculum file is markdown: front matter (`title`, `language`, `level`,
 `hours_per_week`, `weeks`), then one `## id: Title` section per drill (`dNN-slug`),
 project (`pNN-slug`) or note (`note-slug`), and `### pNN.k-slug` for stages, each
-with YAML keys (`goal`, `difficulty`, `hours`, `done_when`, `introduces`,
-`assumes`, `target`, `scaffold`, `allows`, `stretch`, `gradable`; notes:
-`teaches`, `with`) and a free-text brief. `taskmaster prompt` prints the full
+with YAML keys (`goal`, `concept_difficulty` and `difficulty` for understanding and
+implementation, `hours`, `done_when` as the exit criterion, `introduces`, `assumes`,
+`target`, `scaffold`, `allows`, `stretch`, `gradable`; projects add `minimum`, the
+minimum viable result; notes: `teaches`, `with`) and a free-text brief. `taskmaster prompt` prints the full
 specification. The validator enforces:
 
 - **Teach before use:** every `assumes` must be introduced by an earlier unit or
   taught by a note revealed by then.
 - **Workload:** every unit has `hours` (planning only, never shown to the
-  student); required hours must fit `hours_per_week` x `weeks` (warning above
-  100%, error above 120%).
+  student) and both difficulties; required hours must fit `hours_per_week` x
+  `weeks` with 10 to 15% left for debugging (warning above 88%, error above 100%).
 - **Stretch goals:** `stretch: true` units are optional. Nothing required may
-  assume what only a stretch goal introduces, and a project's first stage is
-  never a stretch goal.
+  assume what only a stretch goal introduces, a project's first stage is never a
+  stretch goal, and no required stage follows a stretch stage.
+- **Minimum viable result:** every project states its `minimum`; the required
+  stages deliver it, and the project overview shows it.
 - **Warnings:** a missing `done_when`, drills nothing later uses, a unit over 16
-  hours, too many units at difficulty 5 or at a single level.
-- **Wording:** no references to other schools or their programs.
+  hours, too many units at difficulty 5 or at a single level, a hard stage that
+  introduces three or more concepts or relies on one only a note covers.
+
+The planning prompt also asks for generous estimates on routinely underestimated topics,
+a small drill before each hard project stage, testing time inside every estimate, and a
+consolidation stage at the end (refactor, tests, documented limitations).
 
 `build` runs in two passes:
 
@@ -106,7 +113,7 @@ pass `--provider meridian`.
 | `skillcheck next` | Reveals the next unit: instructions, notes, workspace scaffold. Refuses while the current unit is not passed or skipped. |
 | `skillcheck skip` | Skips the current unit if it is a stretch goal, then offers the next one. Required units cannot be skipped; a skipped unit can still be checked later. |
 | `skillcheck status` | Course map: passed, skipped, current, locked (locked titles stay hidden). |
-| `skillcheck progress` | Regenerates `PROGRESS.md` and prints the dashboard. |
+| `skillcheck progress` | Regenerates `PROGRESS.md` and prints the dashboard. `PROGRESS.md` has a Schedule section (planned hours done vs expected by now) when units carry `hours` and the course has `weeks`. When a week ends, skillcheck writes `reviews/week-NN.md`: that week's numbers and three questions (what you can do alone, what is unclear, whether the schedule holds). |
 | `skillcheck explain [unit]` | Everything a check runs: generators, rounds, laws. |
 | `skillcheck validate` | Parses every unit without running anything. |
 | `skillcheck selftest [unit...]` | Course gate: each reference must pass, and every function must have a test that fails on an empty stub. |

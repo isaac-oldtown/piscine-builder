@@ -158,6 +158,9 @@ impl<'a> Builder<'a> {
         if let Some(h) = meta.hours_per_week {
             m.insert(s("hours_per_week"), Yaml::Number(h.into()));
         }
+        if let Some(w) = meta.weeks {
+            m.insert(s("weeks"), Yaml::Number(w.into()));
+        }
         m.insert(
             s("units"),
             seq(&units.iter().map(|u| u.id.clone()).collect::<Vec<_>>()),
@@ -167,6 +170,9 @@ impl<'a> Builder<'a> {
             let mut pm = Mapping::new();
             pm.insert(s("title"), s(&p.title));
             pm.insert(s("goal"), s(p.f.goal.as_deref().unwrap_or_default()));
+            if let Some(min) = p.f.minimum.as_deref() {
+                pm.insert(s("minimum"), s(min));
+            }
             pm.insert(s("language"), s(&self.plan.language(p)));
             if let Some(d) = p.f.difficulty {
                 pm.insert(s("difficulty"), Yaml::Number((d as u64).into()));
@@ -433,10 +439,11 @@ impl<'a> Builder<'a> {
             return String::new();
         };
         let mut s = format!(
-            "# Project {}: {}\nGoal: {}\nStages:\n",
+            "# Project {}: {}\nGoal: {}\nMinimum viable result (the required stages deliver exactly this): {}\nStages:\n",
             p.id,
             p.title,
-            p.f.goal.as_deref().unwrap_or_default()
+            p.f.goal.as_deref().unwrap_or_default(),
+            p.f.minimum.as_deref().unwrap_or("not stated")
         );
         for st in self.plan.stages(pid) {
             let mark = if st.id == u.id { "  <- this one" } else { "" };
@@ -462,6 +469,12 @@ impl<'a> Builder<'a> {
         m.insert(s("language"), s(&self.plan.language(u)));
         if let Some(d) = u.f.difficulty {
             m.insert(s("difficulty"), Yaml::Number((d as u64).into()));
+        }
+        if let Some(d) = u.f.concept_difficulty {
+            m.insert(s("concept_difficulty"), Yaml::Number((d as u64).into()));
+        }
+        if let Some(h) = u.f.hours {
+            m.insert(s("hours"), Yaml::Number(h.into()));
         }
         if u.parent.is_none() {
             m.insert(s("prereqs"), seq(&self.plan.prereqs(u)));
@@ -498,6 +511,8 @@ impl<'a> Builder<'a> {
             "notes",
             "scaffold",
             "stretch",
+            "concept_difficulty",
+            "hours",
             "cases",
             "random",
         ];

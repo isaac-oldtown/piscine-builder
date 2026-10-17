@@ -19,7 +19,8 @@ environment: <optional: where students will work if not on the build machine, e.
 ## 2. Entries, in teaching order
 
 Each entry is a heading `## <id>: <Title>` (`### ` for project stages), then
-`key: value` lines in YAML with NO blank line inside, then an optional free-text
+`key: value` lines in YAML with NO blank line inside (quote a value that starts with a backtick
+or contains `: `), then an optional free-text
 brief (scope, design decisions, pitfalls to target) for the exercise writer.
 
 Ids:
@@ -31,9 +32,11 @@ Numbers grow in teaching order; slugs are lowercase words joined by hyphens.
 
 Keys of a drill or stage:
 - goal: one sentence, what the student practises (required)
-- difficulty: 1 to 5 (required)
-- hours: estimated hours of implementation and debugging (required; for planning only, never shown to the student)
-- done_when: one line, the observable behaviour that means the unit is done (the tests are written from it)
+- concept_difficulty: 1 to 5, how hard the ideas are to understand (required)
+- difficulty: 1 to 5, how hard it is to implement and debug correctly (required)
+- hours: estimated hours of implementation, testing and debugging (required; for planning only, never shown to the student)
+- done_when: one line, the exit criterion: the observable behaviour showing the essential skills are there
+  (the tests are written from it). Optional details are not part of it, so the student can move on once it holds.
 - introduces: [concepts and tools this unit teaches]
 - assumes: [concepts and tools it needs]
 - target: function | program
@@ -42,7 +45,8 @@ Keys of a drill or stage:
 - stretch: true   (optional unit: the student may skip it)
 - gradable: false   (only if no program can check the result)
 - language: <only if different from the default>
-Keys of a project: goal, difficulty, assumes, language. Its brief states the scope: what is in, what is out.
+Keys of a project: goal, difficulty, assumes, language, and minimum (required): one line, what the
+project must do to count as a success. Its brief states the scope: what is in, what is out.
 Keys of a note: teaches: [...], with: <id of the drill or stage it is revealed with>.
 
 ## 3. Rules
@@ -55,37 +59,66 @@ Prerequisites
   control flow, the core collection types, printing and debug output, formatting
   traits or helpers, common annotations. The first drills introduce these
   explicitly, so later units can name them.
+- Covered, not just introduced: before a project stage relies on a concept, the student
+  has practised it in a graded drill or an earlier stage. A note can explain an easy
+  notion, but a hard stage never relies on something only read about.
 - A note is only for notions a short page can explain (what a Makefile is). Anything
   that needs practice gets its own drill or stage. Principles that recur (resource
   cleanup, error propagation) are repeated in the briefs where they apply, not taught once.
 
-Testing
+Progression
+- Never jump from first meeting a concept to building a major feature with it. Before
+  each project stage that needs a hard concept, a small drill checks the student
+  understands it. A stage introduces at most two new concepts.
+
+Testing and debugging
 - Introduce the language's unit-test tool within the first three units. From then on,
   every project stage's brief asks the student to ship tests with the code, and to add
-  a regression test for every bug they fix.
+  a regression test for every bug they fix. Testing and debugging time is part of
+  every stage's `hours`, not a separate unit.
 
 Purpose
 - Every drill serves a later unit: what it introduces appears in a later `assumes`.
   A topic nothing uses is cut, folded into another unit, or marked `stretch: true`.
 - Advanced or low-level topics (unsafe code, FFI, concurrency, metaprogramming) only
   when a later unit needs them, and scoped to that need.
+- The aim is a student who can explain, debug and extend their code, not one who
+  ticked every feature. Goals and briefs name skills, not feature counts.
 
 Workload
-- Estimate `hours` honestly for this student: implementation and debugging, not
-  reading. Required hours (stretch goals excluded) must fit hours_per_week x weeks,
-  with about 10% slack before the end.
-- Late or ambitious parts that could overrun are `stretch: true`. Nothing required may
-  assume what only a stretch goal introduces. The first stage of a project is never a stretch goal.
+- Estimate `hours` honestly for this student, including testing and debugging. Topics
+  that are routinely underestimated get more time or a higher difficulty: memory and
+  ownership models, data-structure and AST design, parsing, unsafe code and FFI,
+  processes, pipes and signals, concurrency. For those, take your first guess and add
+  half to all of it.
+- Required hours (stretch goals excluded) leave at least 10 to 15% of
+  hours_per_week x weeks free, for debugging and revisiting concepts. If the scope does
+  not fit, reduce the required scope or suggest more weeks; never squeeze estimates.
+- Students progress unevenly. Do not plan a schedule where every hour must go to plan.
 - A finale is ONE milestone. If it covers two hard topics, split it into a required
   stage and a stretch stage.
 - Size: a drill or a stage fits in one to two sittings (at most about 12 hours).
 
+Minimum viable project and stretch goals
+- Every project states its `minimum`: what it must do to count as a success. The
+  required stages deliver exactly that and nothing more; extra features are stretch
+  stages. This prevents feature creep and is the fallback when time runs short.
+- Stretch stages come after the required finale and are attempted only once the
+  required work is stable. They are not counted in the budget. Nothing required may
+  assume what only a stretch goal introduces. The first stage of a project is never a stretch goal.
+- Plan for consolidation: the last required unit of the course is a consolidation stage
+  of about 5 to 10% of the budget: refactor, improve the tests, document the known
+  limitations in a README, and revisit the concepts that caused the most friction.
+  Its done_when: the tests still pass and the README lists the limitations.
+- Weekly review checkpoints are added automatically by the grader; do not add units for them.
+
 Difficulty
-- Difficulty measures implementation and debugging effort, not how hard the idea
-  sounds: spawning a process is easy to learn, a correct pipeline is hard to build.
+- Track both scales. concept_difficulty is how hard the idea is to understand;
+  difficulty is how hard it is to implement and debug. They often differ: spawning a
+  process is easy to understand (concept 2) but a correct pipeline is hard to build
+  (difficulty 4).
 - Use the whole 1 to 5 scale so it carries information. 5 is rare: one or two units
   in a whole course.
-
 Design decisions
 - Look ahead. When a later stage depends on a representation chosen earlier, say so in
   the earlier stage's brief (for example: tokens keep their quoting, because a later
@@ -110,7 +143,6 @@ Fit
   essays). Prefer exercises with checkable results.
 - The student may use documentation and forums but no AI; exercises must be
   doable that way.
-- Never refer to other schools, bootcamps or their programs by name.
 "#;
 
 pub const PLAN_EXAMPLE: &str = r#"---
@@ -123,8 +155,9 @@ weeks: 2
 
 ## d01-hello: Hello, compiler
 goal: Compile and run a first program that prints to standard output.
+concept_difficulty: 1
 difficulty: 1
-hours: 1
+hours: 1.5
 done_when: the program prints its greeting and exits with status 0
 introduces: [compiling with cc, main, printf, if and loops]
 target: program
@@ -132,15 +165,28 @@ scaffold: full
 
 ## d02-strings: Strings by hand
 goal: Re-implement basic string helpers with pointers.
+concept_difficulty: 3
 difficulty: 2
-hours: 4
+hours: 5
 done_when: the helpers match the standard functions on empty, short and long strings
 introduces: [pointers, NUL termination, malloc, assert-based tests]
 assumes: [compiling with cc, if and loops]
 target: function
 allows: [malloc, free]
 
-Focus on off-by-one errors and empty strings.
+Focus on off-by-one errors and empty strings. Write assert-based tests for each helper.
+
+## d03-read-loop: Reading input
+goal: Read standard input byte by byte and handle end of file.
+concept_difficulty: 2
+difficulty: 2
+hours: 2
+done_when: the program echoes its input exactly, including a missing trailing newline
+introduces: [reading stdin, EOF]
+assumes: [main, if and loops]
+target: program
+
+A small check before the project: the first stage builds on this read loop.
 
 ## note-make: What a Makefile is
 teaches: [make]
@@ -148,60 +194,86 @@ with: p01.1-build
 
 ## p01-wc: Mini wc
 goal: Build a small clone of `wc` that counts lines, words and bytes.
+minimum: prints line, word and byte counts of stdin and of file arguments, like `wc`
 difficulty: 3
-assumes: [pointers]
+assumes: [pointers, reading stdin]
 
 In scope: stdin, file arguments, the three counts. Out of scope: GNU flags, locales.
 
 ### p01.1-build: Project setup
 goal: Organize the project with a Makefile and count bytes of standard input.
+concept_difficulty: 2
 difficulty: 2
-hours: 3
-done_when: `make` builds the binary and it prints the byte count of stdin
-assumes: [make, main, assert-based tests]
-introduces: [multi-file projects, reading stdin]
+hours: 3.5
+done_when: "`make` builds the binary and it prints the byte count of stdin"
+assumes: [make, reading stdin, assert-based tests]
+introduces: [multi-file projects]
 target: program
 
 Ship tests for the byte count. Decide now how input is read, the next stage reuses it.
 
 ### p01.2-finale: Words and lines
 goal: Add word and line counts and file arguments.
+concept_difficulty: 2
 difficulty: 3
-hours: 6
+hours: 7
 done_when: output matches `wc` on empty files, missing trailing newlines and several files
-assumes: [reading stdin]
+assumes: [reading stdin, multi-file projects]
 introduces: [argv, file I/O]
 target: program
 
-### p01.3-unicode: Characters
+### p01.3-consolidate: Consolidation
+goal: Refactor the counting code, strengthen the tests and document the limits of the tool.
+concept_difficulty: 1
+difficulty: 2
+hours: 2.5
+done_when: the tests still pass and the README lists the known limitations
+assumes: [file I/O, assert-based tests]
+target: program
+
+Revisit pointers and EOF handling, the concepts that caused the most friction.
+
+### p01.4-unicode: Characters
 goal: Add a character count that handles UTF-8 input.
+concept_difficulty: 3
 difficulty: 4
 hours: 5
 stretch: true
-done_when: `-m` counts characters, not bytes, on multi-byte input
+done_when: "`-m` counts characters, not bytes, on multi-byte input"
 assumes: [file I/O]
 introduces: [UTF-8 decoding]
 target: program
-"#;
 
+Only once the required stages are stable.
+"#;
 /// The planning review: a second look at a draft, by the planner itself.
 pub const REVIEW_CHECKLIST: &str = r#"Review the curriculum as a demanding teacher would, then fix it:
 1. Prerequisites: for every unit, list what it really needs, basics included (control
    flow, collections, printing and debug output, formatting, annotations). Anything not
-   introduced earlier is a gap: add it to an earlier unit's `introduces` or add a unit.
-2. Testing: is the test tool introduced in the first three units, and do project briefs
-   ask for tests and regression tests?
-3. Purpose: does every drill feed a later unit? Cut, merge or mark stretch the ones that don't.
-4. Workload: are the `hours` honest for this student? Do required hours fit the budget
-   with slack? Which units are most likely to overrun, and are their risky parts stretch goals?
-5. Finales: is any finale really two projects? Split it into a required and a stretch stage.
-6. Difficulty: is the scale spread out, with 5 kept for one or two units? Does each
-   rating reflect implementation and debugging effort?
-7. Design: for every project, are the scope, the grammar or format, the edge cases and
-   the decisions later stages depend on written in the briefs?
-8. Fit: does every unit only need what the student's environment provides?
-9. Missing concepts: what will the final project need that no unit teaches?"#;
-
+   introduced earlier is a gap. Anything a hard stage relies on must have been practised
+   in a graded unit, not only introduced or explained in a note.
+2. Progression: before each project stage that needs a hard concept, is there a small
+   drill that checks the concept first? Does any stage introduce more than two new concepts?
+3. Testing: is the test tool introduced in the first three units, do project briefs ask
+   for tests and regression tests, and do the `hours` include testing and debugging?
+4. Purpose: does every drill feed a later unit? Cut, merge or mark stretch the ones that don't.
+5. Workload: are the `hours` honest for this student? Are the routinely underestimated
+   topics (memory and ownership, AST and data-structure design, parsing, unsafe and FFI,
+   processes, pipes, signals, concurrency) given enough time? Do required hours leave
+   10 to 15% of the budget free? If not, cut required scope or suggest more weeks.
+6. Minimum viable projects: does every project state its `minimum`, and do its required
+   stages deliver exactly that? Are extra features stretch stages placed after the
+   required finale?
+7. Consolidation: does the course end with a consolidation stage (refactor, tests,
+   documented limitations, revisiting the hardest concepts)?
+8. Exit criteria: does each `done_when` describe the essential skills only, so the
+   student can move on while optional details remain?
+9. Difficulty: are concept_difficulty and difficulty both set and honest, with the scale
+   spread out and 5 kept for one or two units?
+10. Design: for every project, are the scope, the grammar or format, the edge cases and
+    the decisions later stages depend on written in the briefs?
+11. Fit: does every unit only need what the student's environment provides?
+12. Missing concepts: what will the final project need that no unit teaches?"#;
 pub fn browser_prompt(
     lang: Option<&str>,
     level: Option<&str>,
@@ -294,7 +366,7 @@ YAML with these keys (the tool adds id, title, language, difficulty, concepts, n
     Only when the student environment has the tool. A run whose wrapper reports a problem fails.
 - extra_flags: compiler flags added for this unit (C), e.g. [-fsanitize=address] when the environment says it works,
     or [-Dmalloc=sc_malloc] together with an allocation shim (see helpers).
-Writing style: plain, short sentences. Never use long dashes. Never mention tests, the grader's internals, AI, or other schools and their programs.
+Writing style: plain, short sentences. Never use long dashes. Never mention tests, the grader's internals, or AI.
 
 # Tests (the <tests> block)
 

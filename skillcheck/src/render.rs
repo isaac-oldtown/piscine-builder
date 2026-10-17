@@ -91,7 +91,11 @@ pub fn unit_md(c: &CourseDir, u: &Unit) -> String {
         ("Language", display_language(c, &lang)),
         (
             "Difficulty",
-            u.difficulty.map(|d| format!("{d} / 5")).unwrap_or_default(),
+            match (u.concept_difficulty, u.difficulty) {
+                (Some(c), Some(d)) => format!("concepts {c} / 5, implementation {d} / 5"),
+                (None, Some(d)) => format!("{d} / 5"),
+                _ => String::new(),
+            },
         ),
         (
             "Prerequisites",
@@ -337,13 +341,21 @@ pub fn overview_md(c: &CourseDir, pid: &str) -> String {
         ("Prerequisites", list_or_none(&p.prereqs)),
         ("Concepts", p.concepts.join(", ")),
     ]));
-    s.push_str(&format!("\n## Goal\n\n{}\n\n## Stages\n\n", p.goal.trim()));
+    s.push_str(&format!("\n## Goal\n\n{}\n", p.goal.trim()));
+    if let Some(m) = p.minimum.as_deref().filter(|m| !m.trim().is_empty()) {
+        s.push_str(&format!(
+            "\n## Minimum viable result\n\n{}\n\nThe required stages deliver this. Stretch stages add to it, only once it is stable.\n",
+            m.trim()
+        ));
+    }
+    s.push_str("\n## Stages\n\n");
     for u in &stages {
         s.push_str(&format!(
-            "- {} {}: {}\n",
+            "- {} {}: {}{}\n",
             label(u),
             u.title.trim(),
-            first_sentence(&u.goal)
+            first_sentence(&u.goal),
+            if u.stretch { " (stretch goal)" } else { "" }
         ));
     }
     s.push_str(&format!(

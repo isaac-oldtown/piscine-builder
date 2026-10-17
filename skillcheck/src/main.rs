@@ -190,6 +190,17 @@ fn offer_next(root: &Path, after: Option<&str>, prompt: bool) -> Result<(), Stri
     }
 }
 
+/// At the start of a new week, writes the review of the week that ended.
+fn review_reminder(c: &CourseDir) {
+    if let Ok(Some(path)) = progress::weekly_review(c, journal::now()) {
+        let style = Style::detect();
+        println!(
+            "{} take five minutes for {path}: what you can do on your own, what is still unclear, whether the schedule holds.",
+            style.bold("A week has ended:")
+        );
+    }
+}
+
 fn cmd_skip() -> Result<ExitCode, String> {
     let c = course()?;
     let state = c.state();
@@ -213,6 +224,7 @@ fn cmd_skip() -> Result<ExitCode, String> {
         target.id, target.id
     );
     progress::write(&CourseDir::load(&c.root)?)?;
+    review_reminder(&c);
     offer_next(&c.root, Some(&target.id), true)?;
     Ok(ExitCode::SUCCESS)
 }
@@ -293,6 +305,7 @@ fn cmd_check(args: &[String]) -> Result<ExitCode, String> {
     }
     let c = CourseDir::load(&c.root)?;
     progress::write(&c)?;
+    review_reminder(&c);
     if newly_passed {
         offer_next(&c.root, Some(&u.id), prompt)?;
     }
@@ -358,6 +371,7 @@ fn cmd_next(args: &[String]) -> Result<ExitCode, String> {
             print_reveal(&c, next, &r);
             let c = CourseDir::load(&c.root)?;
             progress::write(&c)?;
+            review_reminder(&c);
             Ok(ExitCode::SUCCESS)
         }
     }

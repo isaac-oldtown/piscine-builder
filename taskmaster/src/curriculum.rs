@@ -78,6 +78,13 @@ pub struct Fields {
     /// One line: the observable behaviour that means the unit is done.
     #[serde(default)]
     pub done_when: Option<String>,
+    /// How hard the ideas are to understand (`difficulty` is how hard they
+    /// are to implement and debug).
+    #[serde(default)]
+    pub concept_difficulty: Option<u8>,
+    /// Projects: what the project must do to count as a success.
+    #[serde(default)]
+    pub minimum: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -620,6 +627,11 @@ impl Plan {
                 )),
                 _ => {}
             }
+            match u.f.concept_difficulty {
+                None => p.push(Problem::err(u.line, id, "needs `concept_difficulty` (1 to 5): how hard the ideas are to understand, next to `difficulty` for implementation")),
+                Some(d) if !(1..=5).contains(&d) => p.push(Problem::err(u.line, id, "`concept_difficulty` must be 1 to 5")),
+                _ => {}
+            }
             if u.f.done_when.as_deref().is_none_or(|d| d.trim().is_empty()) {
                 p.push(Problem::warn(
                     u.line,
@@ -631,10 +643,11 @@ impl Plan {
         // Budget.
         if let Some(budget) = self.budget() {
             let req = self.required_hours();
-            if req > budget * 1.2 {
-                p.push(Problem::err(1, None, format!("required units total {req:.0} h for a budget of {budget:.0} h (hours_per_week x weeks): cut units, shrink them, or mark some `stretch: true`")));
-            } else if req > budget {
-                p.push(Problem::warn(1, None, format!("required units total {req:.0} h, over the {budget:.0} h budget: leave some slack or mark more units as stretch goals")));
+            // At least 12% of the budget stays free for debugging and revisiting concepts.
+            if req > budget {
+                p.push(Problem::err(1, None, format!("required units total {req:.0} h for a budget of {budget:.0} h (hours_per_week x weeks): cut scope, mark units `stretch: true`, or extend the weeks")));
+            } else if req > budget * 0.88 {
+                p.push(Problem::warn(1, None, format!("required units total {req:.0} h of a {budget:.0} h budget: keep 10 to 15% free for debugging and revisiting concepts")));
             }
         }
         // Stretch goals: optional means nothing required may depend on them.
@@ -664,12 +677,44 @@ impl Plan {
         }
         for proj in self.entries.iter().filter(|e| e.kind == Kind::Project) {
             let stages = self.stages(&proj.id);
+            if proj
+                .f
+                .minimum
+                .as_deref()
+                .is_none_or(|m| m.trim().is_empty())
+            {
+                p.push(Problem::err(proj.line, Some(&proj.id), "a project needs `minimum`: one line saying what it must do to count as a success"));
+            }
+            if let Some(first_stretch) = stages.iter().position(|s| s.f.stretch)
+                && let Some(late) = stages[first_stretch..].iter().find(|s| !s.f.stretch)
+            {
+                p.push(Problem::err(late.line, Some(&late.id), "a required stage cannot follow a stretch stage: stretch stages come after the required finale"));
+            }
             if stages.first().is_some_and(|s| s.f.stretch) {
                 p.push(Problem::err(
                     stages[0].line,
                     Some(&stages[0].id),
                     "the first stage of a project cannot be a stretch goal",
                 ));
+            }
+        }
+        // Progression: hard stages do not stack new concepts, and rely on
+        // concepts practised in a unit, not only read about in a note.
+        let practised: BTreeSet<String> = units
+            .iter()
+            .flat_map(|u| u.f.introduces.iter().map(|c| norm(c)))
+            .collect();
+        for u in units
+            .iter()
+            .filter(|u| u.kind == Kind::Stage && u.f.difficulty.is_some_and(|d| d >= 4))
+        {
+            if u.f.introduces.len() >= 3 {
+                p.push(Problem::warn(u.line, Some(&u.id), format!("a hard stage introducing {} new concepts: practise some of them in a small drill first", u.f.introduces.len())));
+            }
+            for a in &u.f.assumes {
+                if !practised.contains(&norm(a)) {
+                    p.push(Problem::warn(u.line, Some(&u.id), format!("relies on `{a}`, which only a note covers: practise it in a drill before this hard stage")));
+                }
             }
         }
         // Units nothing uses: a drill must serve something later.
@@ -712,42 +757,6 @@ impl Plan {
                         p.push(Problem::warn(1, None, format!("{n} of {} units are at difficulty {level}: spread the scale so it carries information", diffs.len())));
                     }
                 }
-            }
-        }
-        // Wording.
-        let banned = Regex::new(r"(?i)\bno-school-names\b").expect("regex");
-        let mut texts: Vec<(usize, Option<&str>, String)> = vec![(
-            1,
-            None,
-            format!(
-                "{} {}",
-                self.meta.title,
-                self.meta.description.clone().unwrap_or_default()
-            ),
-        )];
-        for e in &self.entries {
-            texts.push((
-                e.line,
-                Some(e.id.as_str()),
-                format!(
-                    "{} {} {} {}",
-                    e.title,
-                    e.f.goal.clone().unwrap_or_default(),
-                    e.f.done_when.clone().unwrap_or_default(),
-                    e.brief
-                ),
-            ));
-        }
-        for (line, id, t) in texts {
-            if let Some(m) = banned.find(&t) {
-                p.push(Problem::err(
-                    line,
-                    id,
-                    format!(
-                        "do not refer to other schools or their programs (found `{}`)",
-                        m.as_str()
-                    ),
-                ));
             }
         }
         p
@@ -830,14 +839,108 @@ fn replace_id(text: &str, old: &str, new: &str) -> String {
     out
 }
 
+fn quoted(v: &str) -> String {
+    format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn is_quoted(v: &str) -> bool {
+    v.len() >= 2
+        && ((v.starts_with('"') && v.ends_with('"')) || (v.starts_with('\'') && v.ends_with('\'')))
+}
+
+/// A plain scalar YAML would misread: `a: b` becomes a map, a leading
+/// backtick or bracket is a syntax error, ` #` starts a comment.
+fn needs_quotes(v: &str, in_list: bool) -> bool {
+    if v.is_empty() || is_quoted(v) {
+        return false;
+    }
+    let starts_badly = v.starts_with(['`', '[', '{', '&', '*', '!', '|', '>', '%', '@', '\'', '"']);
+    let list_breakers = in_list && v.contains([',', '[', ']', '{', '}']);
+    starts_badly || v.contains(": ") || v.ends_with(':') || v.contains(" #") || list_breakers
+}
+
+/// Splits the inside of a flow list at top-level commas; commas inside
+/// `<...>`, `(...)`, `[...]` or backticks stay in their item (`HashMap<K, V>`).
+fn split_items(inner: &str) -> Vec<String> {
+    let mut items = Vec::new();
+    let mut cur = String::new();
+    let (mut depth, mut tick, mut quote) = (0i32, false, None::<char>);
+    for c in inner.chars() {
+        match c {
+            '"' | '\'' if !tick && (quote.is_none() || quote == Some(c)) => {
+                quote = if quote.is_some() { None } else { Some(c) };
+            }
+            '`' if quote.is_none() => tick = !tick,
+            '<' | '(' | '[' | '{' if quote.is_none() && !tick => depth += 1,
+            '>' | ')' | ']' | '}' if quote.is_none() && !tick => depth -= 1,
+            ',' if quote.is_none() && !tick && depth <= 0 => {
+                items.push(std::mem::take(&mut cur).trim().to_string());
+                continue;
+            }
+            _ => {}
+        }
+        cur.push(c);
+    }
+    if !cur.trim().is_empty() {
+        items.push(cur.trim().to_string());
+    }
+    items
+}
+
+/// Quotes values YAML would reject or misread, on the known keys: scalars
+/// (`title: Rust: the basics`) and items of lists
+/// (`introduces: [error policy: report and continue, HashMap<K, V>]`).
+fn quote_yaml_values(text: &str) -> (String, Vec<String>) {
+    let scalar =
+        Regex::new(r"^(title|description|environment|goal|done_when|minimum):[ \t]+(.+?)[ \t]*$")
+            .expect("regex");
+    let list =
+        Regex::new(r"^(introduces|assumes|allows|teaches):[ \t]+\[(.*)\][ \t]*$").expect("regex");
+    let mut fixes = Vec::new();
+    let lines: Vec<String> = text
+        .split('\n')
+        .enumerate()
+        .map(|(i, l)| {
+            if let Some(c) = scalar.captures(l)
+                && needs_quotes(&c[2], false)
+            {
+                fixes.push(format!("line {}: quoted the `{}` value", i + 1, &c[1]));
+                return format!("{}: {}", &c[1], quoted(&c[2]));
+            }
+            if let Some(c) = list.captures(l) {
+                let items = split_items(&c[2]);
+                if items.iter().any(|it| needs_quotes(it, true)) {
+                    let fixed: Vec<String> = items
+                        .iter()
+                        .map(|it| {
+                            if needs_quotes(it, true) {
+                                quoted(it)
+                            } else {
+                                it.clone()
+                            }
+                        })
+                        .collect();
+                    fixes.push(format!(
+                        "line {}: quoted items of the `{}` list",
+                        i + 1,
+                        &c[1]
+                    ));
+                    return format!("{}: [{}]", &c[1], fixed.join(", "));
+                }
+            }
+            l.to_string()
+        })
+        .collect();
+    (lines.join("\n"), fixes)
+}
 /// Mechanical corrections that are not worth an LLM call: drill and project
 /// numbers that do not grow, stages numbered out of sequence (references in
 /// `with:` and briefs follow the new ids), and missing `hours` (filled from
 /// the difficulty). Returns the fixed text and one line per correction.
 pub fn autofix(text: &str) -> (String, Vec<String>) {
-    let mut text = text.replace("\r\n", "\n");
+    let (mut text, mut fixes) = quote_yaml_values(&text.replace("\r\n", "\n"));
     let Ok(plan) = parse(&text) else {
-        return (text, Vec::new());
+        return (text, fixes);
     };
     let num = |id: &str| -> u32 {
         id[1..]
@@ -882,7 +985,6 @@ pub fn autofix(text: &str) -> (String, Vec<String>) {
         }
     }
     renames.retain(|(old, new)| old != new);
-    let mut fixes: Vec<String> = Vec::new();
     // Two phases, so a chain like d03 -> d02 and d02 -> d01 cannot collide.
     for (i, (old, _)) in renames.iter().enumerate() {
         text = replace_id(&text, old, &format!("\u{1}{i}\u{1}"));
@@ -994,12 +1096,18 @@ pub fn paste_block(problems: &[Problem]) -> String {
     )
 }
 
+/// `concept/implementation` difficulty, e.g. `2/4`.
+fn difficulties(e: &Entry) -> String {
+    let show = |d: Option<u8>| d.map(|d| d.to_string()).unwrap_or_else(|| "?".into());
+    format!("{}/{}", show(e.f.concept_difficulty), show(e.f.difficulty))
+}
+
 /// Compact plan table for approval.
 pub fn table(plan: &Plan) -> String {
     let mut rows: Vec<[String; 7]> = vec![[
         "unit".into(),
         "lang".into(),
-        "diff".into(),
+        "c/i".into(),
         "hours".into(),
         "target".into(),
         "introduces".into(),
@@ -1026,13 +1134,13 @@ pub fn table(plan: &Plan) -> String {
             Kind::Stage => (
                 format!("  {}{}", e.id, if e.f.stretch { " (stretch)" } else { "" }),
                 plan.language(e),
-                e.f.difficulty.map(|d| d.to_string()).unwrap_or_default(),
+                difficulties(e),
                 e.f.target.clone().unwrap_or_else(|| "auto".into()),
             ),
             Kind::Drill => (
                 format!("{}{}", e.id, if e.f.stretch { " (stretch)" } else { "" }),
                 plan.language(e),
-                e.f.difficulty.map(|d| d.to_string()).unwrap_or_default(),
+                difficulties(e),
                 e.f.target.clone().unwrap_or_else(|| "auto".into()),
             ),
         };
@@ -1122,7 +1230,10 @@ pub fn summary(plan: &Plan) -> String {
         .filter(|d| counts[*d] > 0)
         .map(|d| format!("{d}: {}", counts[d]))
         .collect();
-    s.push_str(&format!("\nDifficulty: {}\n", spread.join(", ")));
+    s.push_str(&format!(
+        "\nImplementation difficulty: {} (c/i column: concept / implementation)\n",
+        spread.join(", ")
+    ));
     s
 }
 
@@ -1130,7 +1241,7 @@ pub fn summary(plan: &Plan) -> String {
 mod tests {
     use super::*;
 
-    const GOOD: &str = "---\ntitle: T\nlanguage: c\n---\n\n## d01-hello: Hello\ngoal: Print.\ndifficulty: 1\nhours: 2\nintroduces: [compiling]\n\nBrief text.\n\n## note-make: Makefiles\nteaches: [make]\nwith: p01.1-build\n\n## p01-tool: Tool\ngoal: A tool.\nassumes: [compiling]\n\n### p01.1-build: Build\ngoal: Build it.\ndifficulty: 2\nhours: 3\nassumes: [make]\nintroduces: [linking]\n\n### p01.2-finale: Finale\ngoal: Finish.\ndifficulty: 3\nhours: 4\nassumes: [linking]\n";
+    const GOOD: &str = "---\ntitle: T\nlanguage: c\n---\n\n## d01-hello: Hello\ngoal: Print.\nconcept_difficulty: 2\ndifficulty: 1\nhours: 2\nintroduces: [compiling]\n\nBrief text.\n\n## note-make: Makefiles\nteaches: [make]\nwith: p01.1-build\n\n## p01-tool: Tool\ngoal: A tool.\nminimum: it builds and runs.\nassumes: [compiling]\n\n### p01.1-build: Build\ngoal: Build it.\nconcept_difficulty: 2\ndifficulty: 2\nhours: 3\nassumes: [make]\nintroduces: [linking]\n\n### p01.2-finale: Finale\ngoal: Finish.\nconcept_difficulty: 2\ndifficulty: 3\nhours: 4\nassumes: [linking]\n";
 
     #[test]
     fn parses_and_validates_a_good_plan() {
@@ -1182,6 +1293,69 @@ mod tests {
         assert!(fixed.contains("## d01-a: A"), "{fixed}");
         assert!(fixed.contains("## d02-ab: B"), "{fixed}");
         assert!(fixed.contains("See d01-a first."), "{fixed}");
+    }
+
+    #[test]
+    fn planning_rules_minimum_buffer_and_stretch_order() {
+        let errors = |t: &str| report(&problems_of(t));
+        // No minimum viable result, no concept difficulty.
+        let t = GOOD.replace("minimum: it builds and runs.\n", "").replacen(
+            "concept_difficulty: 2\n",
+            "",
+            1,
+        );
+        let r = errors(&t);
+        assert!(r.contains("needs `minimum`"), "{r}");
+        assert!(r.contains("needs `concept_difficulty`"), "{r}");
+        // 9 h required: over a 10 h budget's 88%, under the budget itself.
+        let t = GOOD.replace(
+            "language: c\n",
+            "language: c\nhours_per_week: 5\nweeks: 2\n",
+        );
+        let r = errors(&t);
+        assert!(r.contains("keep 10 to 15% free"), "{r}");
+        assert!(!r.contains("error, line 1"), "{r}");
+        // A stretch stage followed by a required one.
+        let t = GOOD.replace("assumes: [make]\n", "assumes: [make]\nstretch: true\n");
+        assert!(errors(&t).contains("cannot follow a stretch stage"));
+    }
+
+    #[test]
+    fn autofix_quotes_values_starting_with_a_backtick() {
+        let t = GOOD.replace("goal: Finish.", "goal: `make` runs \"all\".");
+        assert!(parse(&t).is_err());
+        let (fixed, notes) = autofix(&t);
+        assert!(fixed.contains(r#"goal: "`make` runs \"all\".""#), "{fixed}");
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(problems_of(&fixed).iter().all(|p| p.warning));
+    }
+
+    #[test]
+    fn autofix_quotes_colons_and_list_items() {
+        let t = GOOD
+            .replace("title: T\n", "title: Rust: the basics\n")
+            .replace(
+                "introduces: [linking]",
+                "introduces: [linking, error policy: report and continue, HashMap<K, V>, `?` operator]",
+            )
+            .replace("assumes: [linking]", "assumes: [linking, error policy: report and continue]");
+        assert!(parse(&t).is_err());
+        let (fixed, notes) = autofix(&t);
+        assert!(fixed.contains("title: \"Rust: the basics\""), "{fixed}");
+        assert!(
+            fixed.contains(r#"introduces: [linking, "error policy: report and continue", "HashMap<K, V>", "`?` operator"]"#),
+            "{fixed}"
+        );
+        assert_eq!(notes.len(), 3, "{notes:?}");
+        let problems = problems_of(&fixed);
+        assert!(problems.iter().all(|p| p.warning), "{}", report(&problems));
+        assert_eq!(autofix(&fixed).1.len(), 0, "quoting is idempotent");
+    }
+
+    #[test]
+    fn the_prompt_example_is_a_valid_curriculum() {
+        let problems = problems_of(crate::prompts::PLAN_EXAMPLE);
+        assert!(problems.iter().all(|p| p.warning), "{}", report(&problems));
     }
 
     #[test]

@@ -14,6 +14,8 @@ pub struct Course {
     pub language: Option<String>,
     #[serde(default)]
     pub hours_per_week: Option<f64>,
+    #[serde(default)]
+    pub weeks: Option<f64>,
     /// Unit ids in teaching order. Project stages appear in place.
     pub units: Vec<String>,
     #[serde(default)]
@@ -95,6 +97,9 @@ impl LangConfig {
 pub struct Project {
     pub title: String,
     pub goal: String,
+    /// What the project must do to count as a success.
+    #[serde(default)]
+    pub minimum: Option<String>,
     #[serde(default)]
     pub language: Option<String>,
     #[serde(default)]
@@ -248,6 +253,12 @@ pub struct Unit {
     /// Note files (in `.skillcheck/notes/`) revealed with this unit.
     #[serde(default)]
     pub notes: Vec<String>,
+    /// How hard the ideas are to understand (`difficulty` is implementation).
+    #[serde(default)]
+    pub concept_difficulty: Option<u8>,
+    /// Planned hours, for the schedule in PROGRESS.md. Never shown in instructions.
+    #[serde(default)]
+    pub hours: Option<f64>,
     /// Optional unit: the student may skip it with `skillcheck skip`.
     #[serde(default)]
     pub stretch: bool,

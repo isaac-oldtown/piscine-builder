@@ -215,6 +215,9 @@ pub fn render(c: &CourseDir, events: &[Event]) -> String {
             hpw
         );
     }
+    if let Some(sc) = schedule(c, events, journal::now()) {
+        s.push_str(&schedule_md(&sc));
+    }
 
     let _ = writeln!(
         s,
@@ -411,6 +414,157 @@ pub fn render(c: &CourseDir, events: &[Event]) -> String {
         }
     }
     s
+}
+
+const WEEK: u64 = 7 * 86_400;
+
+/// Where the student stands against the planned hours of the required units.
+pub struct Schedule {
+    /// 1-based week of the course, counted from the first unlock.
+    pub week: u64,
+    pub weeks: Option<f64>,
+    pub planned: f64,
+    /// Planned hours of the required units already passed.
+    pub done: f64,
+    /// Planned hours the schedule expected by now.
+    pub expected: Option<f64>,
+}
+
+impl Schedule {
+    /// "on track", "ahead by about 4 h" or "behind by about 9 h".
+    pub fn status(&self) -> String {
+        let Some(expected) = self.expected else {
+            return "no schedule: the course has no `weeks`".into();
+        };
+        let gap = self.done - expected;
+        let slack = (self.planned * 0.05).max(2.0);
+        if gap.abs() < slack {
+            "on track".into()
+        } else if gap > 0.0 {
+            format!("ahead by about {:.0} h", gap)
+        } else {
+            format!("behind by about {:.0} h", -gap)
+        }
+    }
+
+    pub fn behind(&self) -> bool {
+        self.status().starts_with("behind")
+    }
+}
+
+pub fn schedule(c: &CourseDir, events: &[Event], now: u64) -> Option<Schedule> {
+    let state = c.state();
+    let required = || c.units.iter().filter(|u| !u.stretch);
+    let planned: f64 = required().filter_map(|u| u.hours).sum();
+    if planned <= 0.0 {
+        return None;
+    }
+    let done: f64 = required()
+        .filter(|u| state.passed.contains(&u.id))
+        .filter_map(|u| u.hours)
+        .sum();
+    let start = events.iter().map(|e| e.t).min()?;
+    let elapsed = now.saturating_sub(start);
+    let weeks = c.course.weeks.filter(|w| *w > 0.0);
+    Some(Schedule {
+        week: elapsed / WEEK + 1,
+        weeks,
+        planned,
+        done,
+        expected: weeks.map(|w| planned * (elapsed as f64 / (w * WEEK as f64)).min(1.0)),
+    })
+}
+
+fn schedule_md(sc: &Schedule) -> String {
+    let mut s = String::from("\n## Schedule\n\n| Metric | Value |\n|--------|-------|\n");
+    let week = match sc.weeks {
+        Some(w) => format!("{} of {w}", sc.week),
+        None => sc.week.to_string(),
+    };
+    let _ = writeln!(s, "| Week | {week} |");
+    let _ = writeln!(
+        s,
+        "| Planned work done | {:.0} h of {:.0} h required ({}) |",
+        sc.done,
+        sc.planned,
+        pct(sc.done.round() as usize, sc.planned.round() as usize)
+    );
+    if let Some(e) = sc.expected {
+        let _ = writeln!(s, "| Expected by now | {e:.0} h |");
+    }
+    let _ = writeln!(s, "| Status | {} |", sc.status());
+    if sc.behind() {
+        s.push_str("\nBehind plan is normal, progress is uneven. Put each project's minimum viable result first, skip stretch goals (`skillcheck skip`), and revisit the concept that slowed you down before pushing on.\n");
+    }
+    s
+}
+
+/// At the start of a new week, writes `reviews/week-NN.md` for the week that
+/// just ended (never overwriting). Returns its path relative to the course.
+pub fn weekly_review(c: &CourseDir, now: u64) -> Result<Option<String>, String> {
+    let events = journal::read(&c.root);
+    let Some(start) = events.iter().map(|e| e.t).min() else {
+        return Ok(None);
+    };
+    let week = now.saturating_sub(start) / WEEK + 1;
+    if week < 2 {
+        return Ok(None);
+    }
+    let ended = week - 1;
+    let rel = format!("reviews/week-{ended:02}.md");
+    let path = c.root.join(&rel);
+    if path.exists() {
+        return Ok(None);
+    }
+    let (from, to) = (start + (ended - 1) * WEEK, start + ended * WEEK);
+    let in_week: Vec<&Event> = events.iter().filter(|e| e.t >= from && e.t < to).collect();
+    let passed: Vec<&str> = in_week
+        .iter()
+        .filter(|e| e.ev == "pass")
+        .map(|e| e.unit.as_str())
+        .collect();
+    let checks = in_week.iter().filter(|e| e.ev == "check").count();
+    let ok = in_week
+        .iter()
+        .filter(|e| e.ev == "check" && e.ok == Some(true))
+        .count();
+    let schedule = match schedule(c, &events, to) {
+        Some(sc) => match sc.expected {
+            Some(e) => format!(
+                "{} ({:.0} h of planned work done, {e:.0} h expected)",
+                sc.status(),
+                sc.done
+            ),
+            None => format!("{:.0} h of planned work done", sc.done),
+        },
+        None => "no planned hours in this course".into(),
+    };
+    let mut s = format!(
+        "# Week {ended} review\n\nWritten by skillcheck when week {ended} ended. Fill it in: it is for you, nothing grades it.\n\n| Metric | Value |\n|--------|-------|\n"
+    );
+    let _ = writeln!(
+        s,
+        "| Units passed | {} |",
+        if passed.is_empty() {
+            "none".to_string()
+        } else {
+            passed.join(", ")
+        }
+    );
+    let _ = writeln!(s, "| Checks run | {checks} ({ok} OK) |");
+    let _ = writeln!(s, "| Schedule | {schedule} |");
+    s.push_str(
+        "\n## What can you now implement on your own, without looking anything up?\n\n\n\
+         ## What is still unclear? Which concepts caused the most friction?\n\n\n\
+         ## Is the schedule still realistic? What changes next week?\n\n\
+         Options: revisit a concept before moving on, skip a stretch goal (`skillcheck skip`), \
+         or plan more time. Each project's minimum viable result comes first.\n",
+    );
+    if let Some(d) = path.parent() {
+        fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+    }
+    fs::write(&path, s).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(Some(rel))
 }
 
 pub fn write(c: &CourseDir) -> Result<(), String> {
