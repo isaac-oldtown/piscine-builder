@@ -1,0 +1,2 @@
+# Shell scripts and rustfmt need LF; keep the repo LF everywhere.
+* text=auto eol=lf
