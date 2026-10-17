@@ -38,7 +38,7 @@ other text is your own answer). The planner writes each question after seeing
 the previous answers. The planner then reviews its first valid draft against a
 checklist (prerequisites, testing introduced early, workload, finales split
 into required and stretch stages, difficulty spread, design decisions written
-down) and lists what it changed. `import` and `new` show the plan as a table
+down) and lists what it changed. Before validating, taskmaster fixes mechanical slips itself: drill and project numbers that do not grow, stages numbered out of sequence (references follow the new ids), and missing `hours` (filled from the difficulty). Fixes and validator problems are logged to `.skillcheck/taskmaster/validator.log`. `import` and `new` show the plan as a table
 with hours per unit and a workload summary against the budget, then ask to
 approve, ask for changes, edit (opens `$EDITOR`) or quit. `build` refuses an
 unapproved or modified curriculum.

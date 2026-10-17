@@ -225,11 +225,18 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
         {
             review_notes = Some(changes.trim().to_string());
         }
-        let text = crate::unwrap_curriculum(&reply);
-        let problems = match curriculum::parse(&text) {
-            Ok(plan) => plan.validate(),
-            Err(p) => p,
+        let (text, fixed) = curriculum::autofix(&crate::unwrap_curriculum(&reply));
+        for f in &fixed {
+            eprintln!("fixed: {f}");
+        }
+        // The planner continues from the corrected file, so later edits use the new ids.
+        let reply = if fixed.is_empty() {
+            reply
+        } else {
+            format!("<curriculum>\n{text}\n</curriculum>")
         };
+        let problems = curriculum::problems_of(&text);
+        curriculum::log_validation(&course, "new", &fixed, &problems);
         if problems.iter().any(|p| !p.warning) {
             if fixes >= MAX_AUTOFIX {
                 std::fs::create_dir_all(&course).map_err(|e| e.to_string())?;
@@ -238,9 +245,11 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
                 return Err("the planner could not produce a valid curriculum; the last draft is in curriculum.md".into());
             }
             fixes += 1;
+            let errors: Vec<curriculum::Problem> =
+                problems.iter().filter(|p| !p.warning).cloned().collect();
             eprintln!(
-                "draft rejected by the validator ({} problem(s)), asking for a fix",
-                problems.iter().filter(|p| !p.warning).count()
+                "draft rejected by the validator, asking the planner to fix:\n{}",
+                curriculum::report(&errors).trim_end()
             );
             messages.push(Msg::assistant(reply));
             messages.push(Msg::user(curriculum::paste_block(&problems)));

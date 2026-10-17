@@ -323,8 +323,18 @@ fn cmd_import(raw: &[String]) -> Result<bool, String> {
     let [file] = a.positional.as_slice() else {
         return Err("usage: taskmaster import <curriculum.md> [--course DIR]".into());
     };
-    let text =
+    let raw =
         unwrap_curriculum(&std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?);
+    let (text, fixed) = curriculum::autofix(&raw);
+    for f in &fixed {
+        println!("fixed: {f}");
+    }
+    curriculum::log_validation(
+        &a.course(),
+        "import",
+        &fixed,
+        &curriculum::problems_of(&text),
+    );
     if a.has("paste") && check_plan(&text, true).is_none() {
         return Ok(false);
     }

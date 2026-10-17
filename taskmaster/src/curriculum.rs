@@ -799,6 +799,179 @@ impl Plan {
     }
 }
 
+/// Rough planning hours for a difficulty, used when `hours` is missing.
+fn default_hours(difficulty: u8) -> f64 {
+    match difficulty {
+        0 | 1 => 1.5,
+        2 => 3.0,
+        3 => 5.0,
+        4 => 8.0,
+        _ => 12.0,
+    }
+}
+
+/// Replaces whole ids only: `d02-a` must not match inside `d02-ab`.
+fn replace_id(text: &str, old: &str, new: &str) -> String {
+    let id_char = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find(old) {
+        let before = rest[..i].chars().next_back();
+        let after = rest[i + old.len()..].chars().next();
+        out.push_str(&rest[..i]);
+        if before.is_some_and(|c| id_char(c) || c == '.') || after.is_some_and(id_char) {
+            out.push_str(old);
+        } else {
+            out.push_str(new);
+        }
+        rest = &rest[i + old.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Mechanical corrections that are not worth an LLM call: drill and project
+/// numbers that do not grow, stages numbered out of sequence (references in
+/// `with:` and briefs follow the new ids), and missing `hours` (filled from
+/// the difficulty). Returns the fixed text and one line per correction.
+pub fn autofix(text: &str) -> (String, Vec<String>) {
+    let mut text = text.replace("\r\n", "\n");
+    let Ok(plan) = parse(&text) else {
+        return (text, Vec::new());
+    };
+    let num = |id: &str| -> u32 {
+        id[1..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect::<String>()
+            .parse()
+            .unwrap_or(0)
+    };
+    let slug = |id: &str| {
+        id.split_once('-')
+            .map(|(_, s)| s.to_string())
+            .unwrap_or_default()
+    };
+    let grows = |ids: &[&Entry]| ids.windows(2).all(|w| num(&w[1].id) > num(&w[0].id));
+    let mut renames: Vec<(String, String)> = Vec::new();
+    let drills: Vec<&Entry> = plan
+        .entries
+        .iter()
+        .filter(|e| e.kind == Kind::Drill)
+        .collect();
+    if !grows(&drills) {
+        for (i, d) in drills.iter().enumerate() {
+            renames.push((d.id.clone(), format!("d{:02}-{}", i + 1, slug(&d.id))));
+        }
+    }
+    let projects: Vec<&Entry> = plan
+        .entries
+        .iter()
+        .filter(|e| e.kind == Kind::Project)
+        .collect();
+    let renumber_projects = !grows(&projects);
+    for (i, p) in projects.iter().enumerate() {
+        let code = if renumber_projects {
+            format!("p{:02}", i + 1)
+        } else {
+            p.id.split('-').next().unwrap_or_default().to_string()
+        };
+        renames.push((p.id.clone(), format!("{code}-{}", slug(&p.id))));
+        for (k, s) in plan.stages(&p.id).iter().enumerate() {
+            renames.push((s.id.clone(), format!("{code}.{}-{}", k + 1, slug(&s.id))));
+        }
+    }
+    renames.retain(|(old, new)| old != new);
+    let mut fixes: Vec<String> = Vec::new();
+    // Two phases, so a chain like d03 -> d02 and d02 -> d01 cannot collide.
+    for (i, (old, _)) in renames.iter().enumerate() {
+        text = replace_id(&text, old, &format!("\u{1}{i}\u{1}"));
+    }
+    for (i, (old, new)) in renames.iter().enumerate() {
+        text = text.replace(&format!("\u{1}{i}\u{1}"), new);
+        fixes.push(format!("renumbered {old} to {new}"));
+    }
+    let Ok(plan) = parse(&text) else {
+        return (text, fixes);
+    };
+    let trailing = text.ends_with('\n');
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let missing: Vec<(usize, f64, String)> = plan
+        .units()
+        .iter()
+        .filter(|u| u.f.hours.is_none())
+        .filter_map(|u| {
+            u.f.difficulty
+                .map(|d| (u.line, default_hours(d), u.id.clone()))
+        })
+        .collect();
+    // Bottom to top, so earlier line numbers stay valid.
+    for (line, hours, id) in missing.into_iter().rev() {
+        let mut k = line;
+        while k < lines.len() && !lines[k].trim().is_empty() && !lines[k].starts_with('#') {
+            k += 1;
+        }
+        lines.insert(k, format!("hours: {hours}"));
+        fixes.push(format!("{id}: no `hours`, set {hours} from its difficulty"));
+    }
+    let mut out = lines.join("\n");
+    if trailing {
+        out.push('\n');
+    }
+    (out, fixes)
+}
+
+/// Parse problems or validation problems of a curriculum text.
+pub fn problems_of(text: &str) -> Vec<Problem> {
+    match parse(text) {
+        Ok(plan) => plan.validate(),
+        Err(p) => p,
+    }
+}
+
+/// Appends fixes and problems to `.skillcheck/taskmaster/validator.log`
+/// (JSON lines), to see which rules planners trip on most.
+pub fn log_validation(
+    course: &std::path::Path,
+    source: &str,
+    fixes: &[String],
+    problems: &[Problem],
+) {
+    if fixes.is_empty() && problems.is_empty() {
+        return;
+    }
+    let path = course
+        .join(".skillcheck")
+        .join("taskmaster")
+        .join("validator.log");
+    if let Some(d) = path.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let t = skillcheck::journal::now();
+    let mut out = String::new();
+    for f in fixes {
+        out.push_str(
+            &serde_json::json!({"t": t, "source": source, "level": "fixed", "msg": f}).to_string(),
+        );
+        out.push('\n');
+    }
+    for p in problems {
+        let level = if p.warning { "warning" } else { "error" };
+        out.push_str(
+            &serde_json::json!({"t": t, "source": source, "level": level, "id": p.id, "msg": p.msg}).to_string(),
+        );
+        out.push('\n');
+    }
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = f.write_all(out.as_bytes());
+    }
+}
+
 pub fn report(problems: &[Problem]) -> String {
     let mut s = String::new();
     for p in problems {
@@ -871,11 +1044,7 @@ pub fn table(plan: &Plan) -> String {
         let hours = match e.kind {
             Kind::Project => {
                 let h: f64 = plan.stages(&e.id).iter().filter_map(|s| s.f.hours).sum();
-                if h > 0.0 {
-                    format!("{h:.0}")
-                } else {
-                    String::new()
-                }
+                if h > 0.0 { round5(h) } else { String::new() }
             }
             _ => e.f.hours.map(|h| format!("{h}")).unwrap_or_default(),
         };
@@ -917,17 +1086,29 @@ pub fn table(plan: &Plan) -> String {
     s
 }
 
+/// Hours for display, to the nearest 5 (59 -> 60, 33 -> 35, 6 -> 5):
+/// estimates are not precise enough for more.
+pub fn round5(h: f64) -> String {
+    let r = (h / 5.0).round() * 5.0;
+    if h > 0.0 && r == 0.0 {
+        "under 5".into()
+    } else {
+        format!("{r:.0}")
+    }
+}
+
 /// Workload and difficulty in two lines, under the table.
 pub fn summary(plan: &Plan) -> String {
     let req = plan.required_hours();
     let stretch = plan.stretch_hours();
-    let mut s = format!("\nWorkload: {req:.0} h required");
+    let mut s = format!("\nWorkload: about {} h required", round5(req));
     if stretch > 0.0 {
-        s.push_str(&format!(" + {stretch:.0} h of stretch goals"));
+        s.push_str(&format!(" + {} h of stretch goals", round5(stretch)));
     }
     if let Some(b) = plan.budget() {
         s.push_str(&format!(
-            " for a budget of {b:.0} h ({:.0}%)",
+            " for a budget of {} h ({:.0}%)",
+            round5(b),
             req * 100.0 / b.max(1.0)
         ));
     }
@@ -960,6 +1141,55 @@ mod tests {
         let problems = plan.validate();
         assert!(problems.iter().all(|p| p.warning), "{}", report(&problems));
         assert_eq!(plan.prereqs(&plan.entries[2]), vec!["d01-hello"]);
+    }
+
+    #[test]
+    fn autofix_renumbers_and_fills_hours() {
+        // Stages numbered 2 and 3, a note pointing at the old id, no hours on d01.
+        let messy = GOOD
+            .replace("p01.1-build", "p01.2-build")
+            .replace("p01.2-finale", "p01.3-finale")
+            .replace("difficulty: 1\nhours: 2\n", "difficulty: 1\n");
+        assert!(report(&problems_of(&messy)).contains("must be numbered"));
+        let (fixed, notes) = autofix(&messy);
+        assert!(fixed.contains("### p01.1-build: Build"), "{fixed}");
+        assert!(fixed.contains("### p01.2-finale: Finale"), "{fixed}");
+        assert!(
+            fixed.contains("with: p01.1-build"),
+            "the note follows the rename"
+        );
+        assert!(
+            fixed.contains("introduces: [compiling]\nhours: 1.5\n\nBrief text."),
+            "{fixed}"
+        );
+        assert_eq!(notes.len(), 3, "{notes:?}");
+        assert!(
+            problems_of(&fixed).iter().all(|p| p.warning),
+            "{}",
+            report(&problems_of(&fixed))
+        );
+        assert_eq!(
+            autofix(&fixed).1.len(),
+            0,
+            "a fixed file needs no more fixes"
+        );
+    }
+
+    #[test]
+    fn drills_renumber_without_touching_longer_ids() {
+        let text = "---\ntitle: T\nlanguage: c\n---\n\n## d03-a: A\ngoal: g.\ndifficulty: 1\nhours: 1\nintroduces: [x]\n\n## d02-ab: B\ngoal: g.\ndifficulty: 1\nhours: 1\nassumes: [x]\n\nSee d03-a first.\n";
+        let (fixed, _) = autofix(text);
+        assert!(fixed.contains("## d01-a: A"), "{fixed}");
+        assert!(fixed.contains("## d02-ab: B"), "{fixed}");
+        assert!(fixed.contains("See d01-a first."), "{fixed}");
+    }
+
+    #[test]
+    fn hours_round_to_the_nearest_five() {
+        assert_eq!(round5(59.0), "60");
+        assert_eq!(round5(33.0), "35");
+        assert_eq!(round5(6.0), "5");
+        assert_eq!(round5(2.0), "under 5");
     }
 
     #[test]
