@@ -32,17 +32,35 @@ taskmaster build --course my-course
 cd my-course && skillcheck next
 ```
 
-`import` and `new` show the plan as a table and ask to approve, edit (opens
-`$EDITOR`) or quit. `build` refuses an unapproved or modified curriculum.
+`new` asks the planner's questions one at a time, as multiple choice with a
+recommended option (Enter takes it, a letter picks another, any other text is
+your own answer). The planner then reviews its first valid draft against a
+checklist (prerequisites, testing introduced early, workload, finales split
+into required and stretch stages, difficulty spread, design decisions written
+down) and lists what it changed. `import` and `new` show the plan as a table
+with hours per unit and a workload summary against the budget, then ask to
+approve, ask for changes, edit (opens `$EDITOR`) or quit. `build` refuses an
+unapproved or modified curriculum.
 
 The curriculum file is markdown: front matter (`title`, `language`, `level`,
-`hours_per_week`), then one `## id: Title` section per drill (`dNN-slug`),
+`hours_per_week`, `weeks`), then one `## id: Title` section per drill (`dNN-slug`),
 project (`pNN-slug`) or note (`note-slug`), and `### pNN.k-slug` for stages, each
-with YAML keys (`goal`, `difficulty`, `introduces`, `assumes`, `target`,
-`scaffold`, `allows`, `gradable`; notes: `teaches`, `with`) and a free-text
-brief. `taskmaster prompt` prints the full specification. The validator
-enforces teach-before-use: every `assumes` must be introduced by an earlier unit
-or taught by a note revealed by then.
+with YAML keys (`goal`, `difficulty`, `hours`, `done_when`, `introduces`,
+`assumes`, `target`, `scaffold`, `allows`, `stretch`, `gradable`; notes:
+`teaches`, `with`) and a free-text brief. `taskmaster prompt` prints the full
+specification. The validator enforces:
+
+- **Teach before use:** every `assumes` must be introduced by an earlier unit or
+  taught by a note revealed by then.
+- **Workload:** every unit has `hours` (planning only, never shown to the
+  student); required hours must fit `hours_per_week` x `weeks` (warning above
+  100%, error above 120%).
+- **Stretch goals:** `stretch: true` units are optional. Nothing required may
+  assume what only a stretch goal introduces, and a project's first stage is
+  never a stretch goal.
+- **Warnings:** a missing `done_when`, drills nothing later uses, a unit over 16
+  hours, too many units at difficulty 5 or at a single level.
+- **Wording:** no references to other schools or their programs.
 
 `build` runs in two passes:
 
@@ -84,8 +102,9 @@ pass `--provider meridian`.
 | Command | What it does |
 |---------|--------------|
 | `skillcheck check [unit] [--seed HEX] [--verbose] [--no-prompt]` | Live report, then `OK n/m` or `KO <item>: <reason>`. Exit 0 / 1 / 2. On a first pass, asks whether to unlock the next unit. |
-| `skillcheck next` | Reveals the next unit: instructions, notes, workspace scaffold. Refuses while the current unit is not passed. |
-| `skillcheck status` | Course map: passed, current, locked (locked titles stay hidden). |
+| `skillcheck next` | Reveals the next unit: instructions, notes, workspace scaffold. Refuses while the current unit is not passed or skipped. |
+| `skillcheck skip` | Skips the current unit if it is a stretch goal, then offers the next one. Required units cannot be skipped; a skipped unit can still be checked later. |
+| `skillcheck status` | Course map: passed, skipped, current, locked (locked titles stay hidden). |
 | `skillcheck progress` | Regenerates `PROGRESS.md` and prints the dashboard. |
 | `skillcheck explain [unit]` | Everything a check runs: generators, rounds, laws. |
 | `skillcheck validate` | Parses every unit without running anything. |
@@ -120,6 +139,7 @@ title: String Basics
 language: c                    # c, python, rust, bash, js, ts, go, java, ruby, or any name
 difficulty: 2
 concepts: [pointer arithmetic]
+stretch: false                 # true: optional, `skillcheck skip` moves past it
 target: function               # function: skillcheck's own main calls yours | program: your program is run
 scaffold: minimal              # none (student creates everything) | minimal | full
 stubs: src/str_basics.c        # where empty mandatory functions are written on unlock

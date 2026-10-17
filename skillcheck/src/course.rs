@@ -291,7 +291,9 @@ impl State {
         let current = c
             .units
             .iter()
-            .find(|u| unlocked.contains(&u.id) && !passed.contains(&u.id) && !skipped.contains(&u.id))
+            .find(|u| {
+                unlocked.contains(&u.id) && !passed.contains(&u.id) && !skipped.contains(&u.id)
+            })
             .or_else(|| c.units.iter().rev().find(|u| unlocked.contains(&u.id)))
             .map(|u| u.id.clone());
         State {

@@ -279,6 +279,7 @@ YAML with these keys (the tool adds id, title, language, difficulty, concepts, n
     projects add {path: "**", rule: free} unless the layout must be exact. Build output is ignored automatically.
 - requirements: at most 6 short bullets of BEHAVIOUR: edge cases, formats, errors, exit codes. Every behaviour your
     tests check must be stated here or follow directly from the functions table. Never restate the table.
+    When the unit has a done_when line, the requirements and the tests together must establish it.
 - allowed: strict whitelist of what the student may use besides their own code. Language built-ins are implicit
     and never listed: C keywords and operators (NOT headers or libc functions: list each header and each function),
     Python built-in functions (list every module, e.g. sys, re, collections), Rust prelude (list std paths like

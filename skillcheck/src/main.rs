@@ -92,9 +92,7 @@ fn pick<'a>(c: &'a CourseDir, state: &State, explicit: Option<&str>) -> Result<&
         // Inside a project workspace, prefer the first stage not passed yet.
         let wsn = c.workspace_name(u);
         let pending = c.units.iter().find(|x| {
-            c.workspace_name(x) == wsn
-                && state.unlocked.contains(&x.id)
-                && !state.done(&x.id)
+            c.workspace_name(x) == wsn && state.unlocked.contains(&x.id) && !state.done(&x.id)
         });
         return Ok(pending.unwrap_or(u));
     }
@@ -129,11 +127,21 @@ fn offer_next(root: &Path, after: Option<&str>, prompt: bool) -> Result<(), Stri
             println!("{}", style.green("Course complete. Well played."));
             return Ok(());
         };
-        let same_project = next.is_stage() && after.and_then(|a| c.unit(a)).is_some_and(|u| u.project == next.project);
+        let same_project = next.is_stage()
+            && after
+                .and_then(|a| c.unit(a))
+                .is_some_and(|u| u.project == next.project);
         let label = if same_project { "stage" } else { "exercise" };
         if !prompt || !ask::interactive() {
-            let hint = if next.stretch { " (a stretch goal: `skillcheck skip` skips it)" } else { "" };
-            println!("Run `skillcheck next` when you are ready for {}{hint}.", next.id);
+            let hint = if next.stretch {
+                " (a stretch goal: `skillcheck skip` skips it)"
+            } else {
+                ""
+            };
+            println!(
+                "Run `skillcheck next` when you are ready for {}{hint}.",
+                next.id
+            );
             return Ok(());
         }
         if next.stretch {
@@ -142,7 +150,15 @@ fn offer_next(root: &Path, after: Option<&str>, prompt: bool) -> Result<(), Stri
                 "Skip it: it is an optional stretch goal".to_string(),
                 "Not now".to_string(),
             ];
-            match ask::choose(&format!("The next {label}, {}, is a stretch goal. What now?", next.id), &options, 0, None) {
+            match ask::choose(
+                &format!(
+                    "The next {label}, {}, is a stretch goal. What now?",
+                    next.id
+                ),
+                &options,
+                0,
+                None,
+            ) {
                 ask::Answer::Pick(0) => {
                     print_reveal(&c, next, &scaffold::unlock(&c, next)?);
                     return Ok(());
@@ -192,7 +208,10 @@ fn cmd_skip() -> Result<ExitCode, String> {
         record(&c, "unlock", &target.id)?;
     }
     record(&c, "skip", &target.id)?;
-    println!("Skipped {} (stretch goal). You can still come back to it with `skillcheck check {}`.", target.id, target.id);
+    println!(
+        "Skipped {} (stretch goal). You can still come back to it with `skillcheck check {}`.",
+        target.id, target.id
+    );
     progress::write(&CourseDir::load(&c.root)?)?;
     offer_next(&c.root, Some(&target.id), true)?;
     Ok(ExitCode::SUCCESS)
@@ -322,7 +341,11 @@ fn cmd_next(args: &[String]) -> Result<ExitCode, String> {
         let stretch = c.unit(cur).is_some_and(|u| u.stretch);
         return Err(format!(
             "finish `{cur}` first: `skillcheck check` must print OK{}",
-            if stretch { " (it is a stretch goal: `skillcheck skip` skips it)" } else { "" }
+            if stretch {
+                " (it is a stretch goal: `skillcheck skip` skips it)"
+            } else {
+                ""
+            }
         ));
     }
     match state.next_locked(&c) {
@@ -361,7 +384,12 @@ fn cmd_status() -> Result<ExitCode, String> {
             style.dim("locked  ")
         };
         let shown = if state.unlocked.contains(&u.id) {
-            format!("{}: {}{}", u.id, u.title, if u.stretch { " (stretch)" } else { "" })
+            format!(
+                "{}: {}{}",
+                u.id,
+                u.title,
+                if u.stretch { " (stretch)" } else { "" }
+            )
         } else {
             style.dim("?")
         };

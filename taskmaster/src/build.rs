@@ -404,6 +404,12 @@ impl<'a> Builder<'a> {
         if let Some(t) = &f.target {
             s.push_str(&format!("target: {t} (fixed)\n"));
         }
+        if let Some(d) = f.done_when.as_deref().filter(|d| !d.trim().is_empty()) {
+            s.push_str(&format!("done_when: {d}\n"));
+        }
+        if f.stretch {
+            s.push_str("stretch: true (optional unit; the student may skip it)\n");
+        }
         let notes: Vec<String> = self
             .plan
             .notes_for(&u.id)
@@ -476,6 +482,9 @@ impl<'a> Builder<'a> {
             s("scaffold"),
             s(u.f.scaffold.as_deref().unwrap_or("minimal")),
         );
+        if u.f.stretch {
+            m.insert(s("stretch"), Yaml::Bool(true));
+        }
         let fixed = [
             "id",
             "title",
@@ -488,6 +497,7 @@ impl<'a> Builder<'a> {
             "assumes",
             "notes",
             "scaffold",
+            "stretch",
             "cases",
             "random",
         ];

@@ -607,13 +607,25 @@ impl Plan {
         for u in &units {
             let id = Some(u.id.as_str());
             match u.f.hours {
-                None => p.push(Problem::err(u.line, id, "needs `hours`: an honest estimate of implementation and debugging time")),
+                None => p.push(Problem::err(
+                    u.line,
+                    id,
+                    "needs `hours`: an honest estimate of implementation and debugging time",
+                )),
                 Some(h) if h <= 0.0 => p.push(Problem::err(u.line, id, "`hours` must be positive")),
-                Some(h) if h > 16.0 => p.push(Problem::warn(u.line, id, format!("{h} hours is more than two days of work: split it into smaller units"))),
+                Some(h) if h > 16.0 => p.push(Problem::warn(
+                    u.line,
+                    id,
+                    format!("{h} hours is more than two days of work: split it into smaller units"),
+                )),
                 _ => {}
             }
             if u.f.done_when.as_deref().is_none_or(|d| d.trim().is_empty()) {
-                p.push(Problem::warn(u.line, id, "no `done_when`: say in one line what behaviour means the unit is done"));
+                p.push(Problem::warn(
+                    u.line,
+                    id,
+                    "no `done_when`: say in one line what behaviour means the unit is done",
+                ));
             }
         }
         // Budget.
@@ -653,7 +665,11 @@ impl Plan {
         for proj in self.entries.iter().filter(|e| e.kind == Kind::Project) {
             let stages = self.stages(&proj.id);
             if stages.first().is_some_and(|s| s.f.stretch) {
-                p.push(Problem::err(stages[0].line, Some(&stages[0].id), "the first stage of a project cannot be a stretch goal"));
+                p.push(Problem::err(
+                    stages[0].line,
+                    Some(&stages[0].id),
+                    "the first stage of a project cannot be a stretch goal",
+                ));
             }
         }
         // Units nothing uses: a drill must serve something later.
@@ -667,8 +683,17 @@ impl Plan {
             }
             let used = u.f.introduces.iter().any(|c| {
                 let c = norm(c);
-                later.iter().any(|l| l.f.assumes.iter().any(|a| norm(a) == c))
-            }) || self.entries.iter().any(|e| e.kind == Kind::Project && e.line > u.line && e.f.assumes.iter().any(|a| u.f.introduces.iter().any(|c| norm(c) == norm(a))));
+                later
+                    .iter()
+                    .any(|l| l.f.assumes.iter().any(|a| norm(a) == c))
+            }) || self.entries.iter().any(|e| {
+                e.kind == Kind::Project
+                    && e.line > u.line
+                    && e.f
+                        .assumes
+                        .iter()
+                        .any(|a| u.f.introduces.iter().any(|c| norm(c) == norm(a)))
+            });
             if !used {
                 p.push(Problem::warn(u.line, Some(&u.id), "nothing later assumes what this drill introduces: tie it to a later unit, fold it into another one, or mark it stretch"));
             }
@@ -691,13 +716,38 @@ impl Plan {
         }
         // Wording.
         let banned = Regex::new(r"(?i)\bno-school-names\b").expect("regex");
-        let mut texts: Vec<(usize, Option<&str>, String)> = vec![(1, None, format!("{} {}", self.meta.title, self.meta.description.clone().unwrap_or_default()))];
+        let mut texts: Vec<(usize, Option<&str>, String)> = vec![(
+            1,
+            None,
+            format!(
+                "{} {}",
+                self.meta.title,
+                self.meta.description.clone().unwrap_or_default()
+            ),
+        )];
         for e in &self.entries {
-            texts.push((e.line, Some(e.id.as_str()), format!("{} {} {} {}", e.title, e.f.goal.clone().unwrap_or_default(), e.f.done_when.clone().unwrap_or_default(), e.brief)));
+            texts.push((
+                e.line,
+                Some(e.id.as_str()),
+                format!(
+                    "{} {} {} {}",
+                    e.title,
+                    e.f.goal.clone().unwrap_or_default(),
+                    e.f.done_when.clone().unwrap_or_default(),
+                    e.brief
+                ),
+            ));
         }
         for (line, id, t) in texts {
             if let Some(m) = banned.find(&t) {
-                p.push(Problem::err(line, id, format!("do not refer to other schools or their programs (found `{}`)", m.as_str())));
+                p.push(Problem::err(
+                    line,
+                    id,
+                    format!(
+                        "do not refer to other schools or their programs (found `{}`)",
+                        m.as_str()
+                    ),
+                ));
             }
         }
         p
@@ -821,7 +871,11 @@ pub fn table(plan: &Plan) -> String {
         let hours = match e.kind {
             Kind::Project => {
                 let h: f64 = plan.stages(&e.id).iter().filter_map(|s| s.f.hours).sum();
-                if h > 0.0 { format!("{h:.0}") } else { String::new() }
+                if h > 0.0 {
+                    format!("{h:.0}")
+                } else {
+                    String::new()
+                }
             }
             _ => e.f.hours.map(|h| format!("{h}")).unwrap_or_default(),
         };
@@ -872,7 +926,10 @@ pub fn summary(plan: &Plan) -> String {
         s.push_str(&format!(" + {stretch:.0} h of stretch goals"));
     }
     if let Some(b) = plan.budget() {
-        s.push_str(&format!(" for a budget of {b:.0} h ({:.0}%)", req * 100.0 / b.max(1.0)));
+        s.push_str(&format!(
+            " for a budget of {b:.0} h ({:.0}%)",
+            req * 100.0 / b.max(1.0)
+        ));
     }
     let mut counts = [0usize; 6];
     for u in plan.units() {
@@ -880,7 +937,10 @@ pub fn summary(plan: &Plan) -> String {
             counts[(d as usize).min(5)] += 1;
         }
     }
-    let spread: Vec<String> = (1..=5).filter(|d| counts[*d] > 0).map(|d| format!("{d}: {}", counts[d])).collect();
+    let spread: Vec<String> = (1..=5)
+        .filter(|d| counts[*d] > 0)
+        .map(|d| format!("{d}: {}", counts[d]))
+        .collect();
     s.push_str(&format!("\nDifficulty: {}\n", spread.join(", ")));
     s
 }

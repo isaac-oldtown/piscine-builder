@@ -51,14 +51,23 @@ fn read_line(prompt: &str) -> Option<String> {
 /// Asks one question. `other` is the label of the free-answer line (for
 /// example "Something else: type your own answer"), or `None` when only the
 /// listed options make sense.
-pub fn choose(question: &str, options: &[String], recommended: usize, other: Option<&str>) -> Answer {
+pub fn choose(
+    question: &str,
+    options: &[String],
+    recommended: usize,
+    other: Option<&str>,
+) -> Answer {
     let recommended = recommended.min(options.len().saturating_sub(1));
     if !interactive() || options.is_empty() {
         return Answer::Pick(recommended);
     }
     println!("\n? {question}");
     for (i, o) in options.iter().enumerate() {
-        let tag = if i == recommended { " (recommended)" } else { "" };
+        let tag = if i == recommended {
+            " (recommended)"
+        } else {
+            ""
+        };
         println!("  {}) {o}{tag}", letter(i));
     }
     let other_letter = letter(options.len());
@@ -86,14 +95,22 @@ pub fn choose(question: &str, options: &[String], recommended: usize, other: Opt
         }
         if other.is_some() && lower == other_letter.to_string() {
             match read_line("Your answer: ") {
-                Some(t) if !t.is_empty() => return Answer::Other(t),
+                Some(t) if !t.is_empty() => {
+                    println!("  -> {t}");
+                    return Answer::Other(t);
+                }
                 _ => continue,
             }
         }
         if other.is_some() && input.chars().count() > 1 {
+            println!("  -> {input}");
             return Answer::Other(input);
         }
-        let last = if other.is_some() { other_letter } else { letter(options.len() - 1) };
+        let last = if other.is_some() {
+            other_letter
+        } else {
+            letter(options.len() - 1)
+        };
         println!("  Type a letter from a to {last}, or press Enter for the recommended one.");
     }
 }
@@ -101,5 +118,8 @@ pub fn choose(question: &str, options: &[String], recommended: usize, other: Opt
 /// A yes/no question as two options, "yes" recommended unless `default_no`.
 pub fn yes_no(question: &str, yes: &str, no: &str, default_no: bool) -> bool {
     let options = [yes.to_string(), no.to_string()];
-    matches!(choose(question, &options, usize::from(default_no), None), Answer::Pick(0))
+    matches!(
+        choose(question, &options, usize::from(default_no), None),
+        Answer::Pick(0)
+    )
 }
