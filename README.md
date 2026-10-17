@@ -30,6 +30,9 @@ taskmaster new "learn C pointers" --from syllabus.txt --course my-course
 # Change an existing curriculum.md through the planner (uses the LLM).
 taskmaster revise "add a drill on structs before p01" --course my-course
 
+# Read the whole plan: units, hours, both difficulties, prerequisites, approval (no LLM).
+taskmaster show --course my-course          # --full adds briefs, Allowed lists, scaffolds
+
 # Then generate everything (uses the LLM), and start.
 taskmaster build --course my-course
 cd my-course && skillcheck next

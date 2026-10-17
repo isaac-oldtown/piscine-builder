@@ -5,6 +5,7 @@ mod env;
 mod guided;
 mod llm;
 mod prompts;
+mod show;
 
 use curriculum::Plan;
 use std::io::{BufRead, IsTerminal, Write};
@@ -22,6 +23,8 @@ taskmaster: creates levelup courses. The only part of levelup that uses an LLM.
         plan a curriculum in a short terminal conversation (uses the LLM)
   taskmaster revise \"<changes>\" [--course DIR] [--yes]
         have the planner rewrite curriculum.md with your changes (uses the LLM)
+  taskmaster show [curriculum.md] [--course DIR] [--full]
+        display the curriculum: units, hours, difficulties, prerequisites, approval
   taskmaster env
         show the environment taskmaster assumes the student has (detected here,
         or declared with `environment:` in the curriculum front matter)
@@ -147,6 +150,7 @@ fn main() -> ExitCode {
         Some("import") => cmd_import(&raw[1..]),
         Some("new") => guided::cmd_new(&raw[1..]),
         Some("revise") => guided::cmd_revise(&raw[1..]),
+        Some("show" | "display") => show::cmd_show(&raw[1..]),
         Some("build") => cmd_build(&raw[1..]),
         Some("env") => {
             let declared = std::fs::read_to_string(PathBuf::from("curriculum.md"))
