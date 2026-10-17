@@ -120,12 +120,8 @@ fn decide() -> Decision {
         "Edit curriculum.md myself".to_string(),
         "Quit and keep the draft".to_string(),
     ];
-    match ask::choose(
-        "What do you want to do with this curriculum?",
-        &options,
-        0,
-        Some("Something else: type the changes you want"),
-    ) {
+    // Typing the changes directly at the prompt also works (same as b).
+    match ask::choose_or_type("What do you want to do with this curriculum?", &options, 0) {
         Answer::Pick(0) => Decision::Approve,
         Answer::Pick(1) => {
             let c = read_line("Changes you want: ");

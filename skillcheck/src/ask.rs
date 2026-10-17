@@ -57,6 +57,23 @@ pub fn choose(
     recommended: usize,
     other: Option<&str>,
 ) -> Answer {
+    ask(question, options, recommended, other, other.is_some())
+}
+
+/// Like `choose` without a free-answer line, but text typed instead of a
+/// letter is still taken as the answer (for menus where an option already
+/// asks for text).
+pub fn choose_or_type(question: &str, options: &[String], recommended: usize) -> Answer {
+    ask(question, options, recommended, None, true)
+}
+
+fn ask(
+    question: &str,
+    options: &[String],
+    recommended: usize,
+    other: Option<&str>,
+    accept_text: bool,
+) -> Answer {
     let recommended = recommended.min(options.len().saturating_sub(1));
     if !interactive() || options.is_empty() {
         return Answer::Pick(recommended);
@@ -102,7 +119,7 @@ pub fn choose(
                 _ => continue,
             }
         }
-        if other.is_some() && input.chars().count() > 1 {
+        if accept_text && input.chars().count() > 1 {
             println!("  -> {input}");
             return Answer::Other(input);
         }
@@ -111,7 +128,12 @@ pub fn choose(
         } else {
             letter(options.len() - 1)
         };
-        println!("  Type a letter from a to {last}, or press Enter for the recommended one.");
+        let text = if accept_text && other.is_none() {
+            ", your own text"
+        } else {
+            ""
+        };
+        println!("  Type a letter from a to {last}{text}, or press Enter for the recommended one.");
     }
 }
 
