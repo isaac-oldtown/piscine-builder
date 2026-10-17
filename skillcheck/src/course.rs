@@ -263,7 +263,9 @@ pub fn strip_verbatim(p: &Path) -> PathBuf {
 pub struct State {
     pub unlocked: BTreeSet<String>,
     pub passed: BTreeSet<String>,
-    /// First unlocked-but-not-passed unit in course order, else the last unlocked.
+    /// Stretch units the student chose to skip.
+    pub skipped: BTreeSet<String>,
+    /// First unlocked unit neither passed nor skipped, else the last unlocked.
     pub current: Option<String>,
 }
 
@@ -271,6 +273,7 @@ impl State {
     pub fn from_events(events: &[Event], c: &CourseDir) -> State {
         let mut unlocked = BTreeSet::new();
         let mut passed = BTreeSet::new();
+        let mut skipped = BTreeSet::new();
         for e in events {
             match e.ev.as_str() {
                 "unlock" => {
@@ -279,20 +282,29 @@ impl State {
                 "pass" => {
                     passed.insert(e.unit.clone());
                 }
+                "skip" => {
+                    skipped.insert(e.unit.clone());
+                }
                 _ => {}
             }
         }
         let current = c
             .units
             .iter()
-            .find(|u| unlocked.contains(&u.id) && !passed.contains(&u.id))
+            .find(|u| unlocked.contains(&u.id) && !passed.contains(&u.id) && !skipped.contains(&u.id))
             .or_else(|| c.units.iter().rev().find(|u| unlocked.contains(&u.id)))
             .map(|u| u.id.clone());
         State {
             unlocked,
             passed,
+            skipped,
             current,
         }
+    }
+
+    /// Passed, or skipped as a stretch goal.
+    pub fn done(&self, id: &str) -> bool {
+        self.passed.contains(id) || self.skipped.contains(id)
     }
 
     /// The unit `next` would unlock, if the current one is done.

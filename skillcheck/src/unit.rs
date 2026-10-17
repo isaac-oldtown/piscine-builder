@@ -60,7 +60,7 @@ pub struct LangConfig {
     #[serde(default)]
     pub timeout_ms: Option<u64>,
     /// Command prefix for every run of student code, e.g.
-    /// `valgrind --leak-check=full --error-exitcode=42`.
+    /// `valgrind --leak-check=full --error-exitcode=99`.
     #[serde(default)]
     pub wrap: Option<String>,
     /// Course files (relative to `.skillcheck/`) built together with the
@@ -248,6 +248,9 @@ pub struct Unit {
     /// Note files (in `.skillcheck/notes/`) revealed with this unit.
     #[serde(default)]
     pub notes: Vec<String>,
+    /// Optional unit: the student may skip it with `skillcheck skip`.
+    #[serde(default)]
+    pub stretch: bool,
     #[serde(default)]
     pub scaffold: Scaffold,
     #[serde(default)]

@@ -12,6 +12,7 @@ title: <course title>
 language: <default language: c, python, rust, bash, go, javascript, any name>
 level: <beginner | intermediate | advanced>
 hours_per_week: <number>
+weeks: <number>
 environment: <optional: where students will work if not on the build machine, e.g. "Ubuntu 24.04, gcc, valgrind, make">
 ---
 
@@ -19,35 +20,82 @@ environment: <optional: where students will work if not on the build machine, e.
 
 Each entry is a heading `## <id>: <Title>` (`### ` for project stages), then
 `key: value` lines in YAML with NO blank line inside, then an optional free-text
-brief (scope, ideas, pitfalls to target) for the exercise writer.
+brief (scope, design decisions, pitfalls to target) for the exercise writer.
 
 Ids:
 - `dNN-slug`   drill: small, one concept, one sitting.
 - `pNN-slug`   project: app-sized, built in stages. Its stages follow it.
-- `pNN.k-slug` stage k of project pNN, heading `###`, k = 1, 2, 3... The last stage is the finale.
+- `pNN.k-slug` stage k of project pNN, heading `###`, k = 1, 2, 3... The last required stage is the finale.
 - `note-slug`  note: half a page explaining an easy notion, revealed together with a unit.
 Numbers grow in teaching order; slugs are lowercase words joined by hyphens.
 
 Keys of a drill or stage:
 - goal: one sentence, what the student practises (required)
 - difficulty: 1 to 5 (required)
+- hours: estimated hours of implementation and debugging (required; for planning only, never shown to the student)
+- done_when: one line, the observable behaviour that means the unit is done (the tests are written from it)
 - introduces: [concepts and tools this unit teaches]
 - assumes: [concepts and tools it needs]
 - target: function | program
 - scaffold: none | minimal | full
 - allows: [libraries, modules or functions the student may use besides their own code]
+- stretch: true   (optional unit: the student may skip it)
 - gradable: false   (only if no program can check the result)
 - language: <only if different from the default>
-Keys of a project: goal, difficulty, assumes, language.
+Keys of a project: goal, difficulty, assumes, language. Its brief states the scope: what is in, what is out.
 Keys of a note: teaches: [...], with: <id of the drill or stage it is revealed with>.
 
 ## 3. Rules
 
+Prerequisites
 - Teach before use. Every item of `assumes` must appear in the `introduces` of an
   EARLIER unit, or in the `teaches` of a note revealed with this unit or earlier.
   This covers tools too: a Makefile, a debugger, a build system, a test framework.
+- `assumes` lists EVERYTHING a unit needs, including basics that are easy to forget:
+  control flow, the core collection types, printing and debug output, formatting
+  traits or helpers, common annotations. The first drills introduce these
+  explicitly, so later units can name them.
 - A note is only for notions a short page can explain (what a Makefile is). Anything
-  that needs practice gets its own drill or stage.
+  that needs practice gets its own drill or stage. Principles that recur (resource
+  cleanup, error propagation) are repeated in the briefs where they apply, not taught once.
+
+Testing
+- Introduce the language's unit-test tool within the first three units. From then on,
+  every project stage's brief asks the student to ship tests with the code, and to add
+  a regression test for every bug they fix.
+
+Purpose
+- Every drill serves a later unit: what it introduces appears in a later `assumes`.
+  A topic nothing uses is cut, folded into another unit, or marked `stretch: true`.
+- Advanced or low-level topics (unsafe code, FFI, concurrency, metaprogramming) only
+  when a later unit needs them, and scoped to that need.
+
+Workload
+- Estimate `hours` honestly for this student: implementation and debugging, not
+  reading. Required hours (stretch goals excluded) must fit hours_per_week x weeks,
+  with about 10% slack before the end.
+- Late or ambitious parts that could overrun are `stretch: true`. Nothing required may
+  assume what only a stretch goal introduces. The first stage of a project is never a stretch goal.
+- A finale is ONE milestone. If it covers two hard topics, split it into a required
+  stage and a stretch stage.
+- Size: a drill or a stage fits in one to two sittings (at most about 12 hours).
+
+Difficulty
+- Difficulty measures implementation and debugging effort, not how hard the idea
+  sounds: spawning a process is easy to learn, a correct pipeline is hard to build.
+- Use the whole 1 to 5 scale so it carries information. 5 is rare: one or two units
+  in a whole course.
+
+Design decisions
+- Look ahead. When a later stage depends on a representation chosen earlier, say so in
+  the earlier stage's brief (for example: tokens keep their quoting, because a later
+  expansion stage needs it).
+- Decide in the brief whatever drives the design: the project scope, the grammar of a
+  parser or protocol (written before the parser stage), the output order of concurrent
+  programs, and the edge cases (empty input, missing trailing newline, unreadable
+  files, invalid encodings).
+
+Fit
 - target: function when the exercise is about writing given functions (the grader
   calls them with its own main; available for c, python and rust only). program when
   the whole program is graded (arguments, output, exit code), and always for other
@@ -55,13 +103,14 @@ Keys of a note: teaches: [...], with: <id of the drill or stage it is revealed w
 - scaffold: none when creating the files and folders is part of the lesson (shell or
   filesystem basics); minimal by default; full only for the very first drills. Big
   projects use minimal: the student organizes the project.
-- Size: a drill or a stage fits in one sitting. Split bigger topics. Projects have
-  2 to 10 stages and difficulty grows gradually across the course.
+- Operating-system features only when the student's environment provides them; if
+  they don't, choose an alternative or make the unit a stretch goal.
 - Alternate drills and projects: a project integrates the drills before it.
 - gradable: false only when nothing can be checked by a program (visual design,
   essays). Prefer exercises with checkable results.
 - The student may use documentation and forums but no AI; exercises must be
   doable that way.
+- Never refer to other schools, bootcamps or their programs by name.
 "#;
 
 pub const PLAN_EXAMPLE: &str = r#"---
@@ -69,20 +118,25 @@ title: C from scratch
 language: c
 level: beginner
 hours_per_week: 15
+weeks: 2
 ---
 
 ## d01-hello: Hello, compiler
 goal: Compile and run a first program that prints to standard output.
 difficulty: 1
-introduces: [compiling with cc, main, printf]
+hours: 1
+done_when: the program prints its greeting and exits with status 0
+introduces: [compiling with cc, main, printf, if and loops]
 target: program
 scaffold: full
 
 ## d02-strings: Strings by hand
 goal: Re-implement basic string helpers with pointers.
 difficulty: 2
-introduces: [pointers, NUL termination, malloc]
-assumes: [compiling with cc]
+hours: 4
+done_when: the helpers match the standard functions on empty, short and long strings
+introduces: [pointers, NUL termination, malloc, assert-based tests]
+assumes: [compiling with cc, if and loops]
 target: function
 allows: [malloc, free]
 
@@ -97,20 +151,56 @@ goal: Build a small clone of `wc` that counts lines, words and bytes.
 difficulty: 3
 assumes: [pointers]
 
+In scope: stdin, file arguments, the three counts. Out of scope: GNU flags, locales.
+
 ### p01.1-build: Project setup
 goal: Organize the project with a Makefile and count bytes of standard input.
 difficulty: 2
-assumes: [make, main]
+hours: 3
+done_when: `make` builds the binary and it prints the byte count of stdin
+assumes: [make, main, assert-based tests]
 introduces: [multi-file projects, reading stdin]
 target: program
+
+Ship tests for the byte count. Decide now how input is read, the next stage reuses it.
 
 ### p01.2-finale: Words and lines
 goal: Add word and line counts and file arguments.
 difficulty: 3
+hours: 6
+done_when: output matches `wc` on empty files, missing trailing newlines and several files
 assumes: [reading stdin]
 introduces: [argv, file I/O]
 target: program
+
+### p01.3-unicode: Characters
+goal: Add a character count that handles UTF-8 input.
+difficulty: 4
+hours: 5
+stretch: true
+done_when: `-m` counts characters, not bytes, on multi-byte input
+assumes: [file I/O]
+introduces: [UTF-8 decoding]
+target: program
 "#;
+
+/// The planning review: a second look at a draft, by the planner itself.
+pub const REVIEW_CHECKLIST: &str = r#"Review the curriculum as a demanding teacher would, then fix it:
+1. Prerequisites: for every unit, list what it really needs, basics included (control
+   flow, collections, printing and debug output, formatting, annotations). Anything not
+   introduced earlier is a gap: add it to an earlier unit's `introduces` or add a unit.
+2. Testing: is the test tool introduced in the first three units, and do project briefs
+   ask for tests and regression tests?
+3. Purpose: does every drill feed a later unit? Cut, merge or mark stretch the ones that don't.
+4. Workload: are the `hours` honest for this student? Do required hours fit the budget
+   with slack? Which units are most likely to overrun, and are their risky parts stretch goals?
+5. Finales: is any finale really two projects? Split it into a required and a stretch stage.
+6. Difficulty: is the scale spread out, with 5 kept for one or two units? Does each
+   rating reflect implementation and debugging effort?
+7. Design: for every project, are the scope, the grammar or format, the edge cases and
+   the decisions later stages depend on written in the briefs?
+8. Fit: does every unit only need what the student's environment provides?
+9. Missing concepts: what will the final project need that no unit teaches?"#;
 
 pub fn browser_prompt(
     lang: Option<&str>,
@@ -132,22 +222,39 @@ pub fn browser_prompt(
         wishes.push_str("- (Ask me what I want to learn, my level and my weekly time.)\n");
     }
     format!(
-        "You are helping me plan an intensive, hands-on programming course: \
-         short exercises (drills) and bigger projects built in stages, each graded by \
-         an automatic checker. Ask me clarifying questions first if anything important \
-         is missing, then propose the curriculum and refine it with me. When I say it \
-         is final, output the complete curriculum in the exact format below, as one \
-         markdown code block, with nothing else.\n\nWhat I want:\n{wishes}\n## My machine (detected; plan only with tools listed as available, or tell me what to install)\n\n{env}\n{PLAN_FORMAT}\n## 4. Example\n\n{PLAN_EXAMPLE}"
+        "You are helping me plan an intensive, hands-on programming course: short \
+         exercises (drills) and bigger projects built in stages, each graded by an \
+         automatic checker. Ask me clarifying questions first if anything important is \
+         missing, one at a time, each with a few lettered options and the one you \
+         recommend. Then propose the curriculum and refine it with me. Before showing \
+         any version, check it against the review list below and fix what it finds. \
+         When I say it is final, output the complete curriculum in the exact format \
+         below, as one markdown code block, with nothing else.\n\nWhat I want:\n{wishes}\n\
+         ## My machine (detected; plan only with tools listed as available, or tell me what to install)\n\n{env}\n\
+         {PLAN_FORMAT}\n## 4. Example\n\n{PLAN_EXAMPLE}\n## 5. Review list\n\n{REVIEW_CHECKLIST}\n"
+    )
+}
+
+pub fn review_request() -> String {
+    format!(
+        "{REVIEW_CHECKLIST}\n\nReply with <changes>a short bullet list of what you changed and why</changes> \
+         followed by <curriculum>the complete revised curriculum file</curriculum>. If nothing needs to change, \
+         say so in <changes> and send the file unchanged."
     )
 }
 
 // ------------------------------------------------------------------ guided
 
-pub const GUIDED_SYSTEM: &str = "You plan programming courses for levelup. Talk briefly. \
-When important information is missing (language, level, weekly time, goal, size of the final project), \
-reply with <questions>a numbered list of at most 4 short questions, each with a suggested default</questions>. \
-Otherwise reply with <curriculum>the complete curriculum file</curriculum>. \
-Ask questions at most twice in a conversation; after that, assume sensible defaults and write the curriculum.";
+pub const GUIDED_SYSTEM: &str = r#"You plan programming courses for levelup. Talk briefly.
+
+When important information is missing (language, current level, weekly time, number of weeks, final goal, libraries allowed), ask about it with:
+<questions>
+[{"question": "What should the final project be?", "options": ["A Unix shell", "A multithreaded HTTP server", "A key-value store with a network protocol"], "recommended": 0}]
+</questions>
+That is a JSON array of at most 4 questions. Each question has 2 to 4 short, concrete options and the index of the one you recommend for this student. Never add an "other" option: the student can always type their own answer. Do not ask what the student already told you.
+
+Otherwise reply with <curriculum>the complete curriculum file</curriculum>.
+Ask questions at most twice in a conversation; after that, assume your recommended options and write the curriculum."#;
 
 // --------------------------------------------------------------- generation
 
@@ -182,11 +289,11 @@ YAML with these keys (the tool adds id, title, language, difficulty, concepts, n
 - run: program target only, when the language has no default: how to run it, e.g. "python -m logstat", "bash wc.sh".
 - module: python only, if function names are not dotted.
 - environment: one line, only if the student must install or set something unusual.
-- wrap: prefix for every run of the student's code, e.g. "valgrind --leak-check=full --error-exitcode=42" for leak checks.
+- wrap: prefix for every run of the student's code, e.g. "valgrind --leak-check=full --error-exitcode=99" for leak checks.
     Only when the student environment has the tool. A run whose wrapper reports a problem fails.
 - extra_flags: compiler flags added for this unit (C), e.g. [-fsanitize=address] when the environment says it works,
     or [-Dmalloc=sc_malloc] together with an allocation shim (see helpers).
-Writing style: plain, short sentences. Never use long dashes. Never mention tests, the grader's internals, or AI.
+Writing style: plain, short sentences. Never use long dashes. Never mention tests, the grader's internals, AI, or other schools and their programs.
 
 # Tests (the <tests> block)
 

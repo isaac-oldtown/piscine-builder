@@ -2,6 +2,7 @@
 //! course's hidden `.skillcheck/` directory and checks the student's work
 //! with no network and no LLM.
 
+pub mod ask;
 pub mod course;
 pub mod defaults;
 pub mod engine;

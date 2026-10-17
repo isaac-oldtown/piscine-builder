@@ -154,10 +154,14 @@ pub fn render(c: &CourseDir, events: &[Event]) -> String {
     let _ = writeln!(s, "## Dashboard\n\n| Metric | Value |\n|--------|-------|");
     let _ = writeln!(
         s,
-        "| Completion | {} / {} units ({}) |",
+        "| Completion | {} / {} units ({}){} |",
         passed.len(),
         total_units,
-        pct(passed.len(), total_units)
+        pct(passed.len(), total_units),
+        match state.skipped.len() {
+            0 => String::new(),
+            n => format!(", {n} stretch goal(s) skipped"),
+        }
     );
     if let Some(cur) = &state.current {
         let since = st
@@ -168,6 +172,8 @@ pub fn render(c: &CourseDir, events: &[Event]) -> String {
             .unwrap_or_default();
         let status = if state.passed.contains(cur) {
             "passed"
+        } else if state.skipped.contains(cur) {
+            "skipped"
         } else {
             "in progress"
         };
@@ -219,7 +225,9 @@ pub fn render(c: &CourseDir, events: &[Event]) -> String {
             continue;
         }
         let us = st.units.get(&u.id);
-        let status = if state.passed.contains(&u.id) {
+        let status = if state.skipped.contains(&u.id) {
+            "skipped (stretch)"
+        } else if state.passed.contains(&u.id) {
             "passed"
         } else {
             "in progress"

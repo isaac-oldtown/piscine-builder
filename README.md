@@ -210,7 +210,7 @@ languages:
     timeout_ms: 5000
     compiler: gcc                      # C-family builds
     flags: [-std=c11, -Wall, -Werror]  # program build and function harness
-    wrap: valgrind --leak-check=full --error-exitcode=42   # prefix for every run of student code
+    wrap: valgrind --leak-check=full --error-exitcode=99   # prefix for every run of student code
     support: [support/common/shim.c]   # course files built in with the student's code
 ```
 

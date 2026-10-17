@@ -30,6 +30,9 @@ pub struct Meta {
     pub level: Option<String>,
     #[serde(default)]
     pub hours_per_week: Option<f64>,
+    /// Course length; with `hours_per_week` it sets the hour budget.
+    #[serde(default)]
+    pub weeks: Option<f64>,
     #[serde(default)]
     pub description: Option<String>,
     /// Where students will follow the course, when it differs from the
@@ -65,6 +68,16 @@ pub struct Fields {
     pub teaches: Vec<String>,
     #[serde(default)]
     pub with: Option<String>,
+    /// Planning estimate of implementation and debugging time. Never shown
+    /// in the instructions.
+    #[serde(default)]
+    pub hours: Option<f64>,
+    /// Optional unit, skippable by the student.
+    #[serde(default)]
+    pub stretch: bool,
+    /// One line: the observable behaviour that means the unit is done.
+    #[serde(default)]
+    pub done_when: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -561,6 +574,132 @@ impl Plan {
                 "the curriculum has no drill or stage",
             ));
         }
+        p.extend(self.quality());
+        p
+    }
+
+    /// Hours of the required units (stretch goals excluded).
+    pub fn required_hours(&self) -> f64 {
+        self.units()
+            .iter()
+            .filter(|u| !u.f.stretch)
+            .filter_map(|u| u.f.hours)
+            .sum()
+    }
+
+    pub fn stretch_hours(&self) -> f64 {
+        self.units()
+            .iter()
+            .filter(|u| u.f.stretch)
+            .filter_map(|u| u.f.hours)
+            .sum()
+    }
+
+    pub fn budget(&self) -> Option<f64> {
+        Some(self.meta.hours_per_week? * self.meta.weeks?)
+    }
+
+    /// Planning checks beyond the format: workload, stretch goals, units that
+    /// nothing uses, difficulty spread, wording.
+    fn quality(&self) -> Vec<Problem> {
+        let mut p = Vec::new();
+        let units = self.units();
+        for u in &units {
+            let id = Some(u.id.as_str());
+            match u.f.hours {
+                None => p.push(Problem::err(u.line, id, "needs `hours`: an honest estimate of implementation and debugging time")),
+                Some(h) if h <= 0.0 => p.push(Problem::err(u.line, id, "`hours` must be positive")),
+                Some(h) if h > 16.0 => p.push(Problem::warn(u.line, id, format!("{h} hours is more than two days of work: split it into smaller units"))),
+                _ => {}
+            }
+            if u.f.done_when.as_deref().is_none_or(|d| d.trim().is_empty()) {
+                p.push(Problem::warn(u.line, id, "no `done_when`: say in one line what behaviour means the unit is done"));
+            }
+        }
+        // Budget.
+        if let Some(budget) = self.budget() {
+            let req = self.required_hours();
+            if req > budget * 1.2 {
+                p.push(Problem::err(1, None, format!("required units total {req:.0} h for a budget of {budget:.0} h (hours_per_week x weeks): cut units, shrink them, or mark some `stretch: true`")));
+            } else if req > budget {
+                p.push(Problem::warn(1, None, format!("required units total {req:.0} h, over the {budget:.0} h budget: leave some slack or mark more units as stretch goals")));
+            }
+        }
+        // Stretch goals: optional means nothing required may depend on them.
+        let mut stretch_only: BTreeMap<String, String> = BTreeMap::new();
+        let mut required_known: BTreeSet<String> = BTreeSet::new();
+        for u in &units {
+            for n in self.notes_for(&u.id) {
+                required_known.extend(n.f.teaches.iter().map(|c| norm(c)));
+            }
+            if !u.f.stretch {
+                for a in &u.f.assumes {
+                    let a = norm(a);
+                    if !required_known.contains(&a)
+                        && let Some(by) = stretch_only.get(&a)
+                    {
+                        p.push(Problem::err(u.line, Some(&u.id), format!("assumes `{a}`, which only the stretch goal {by} introduces; a skipped stretch goal would leave a gap")));
+                    }
+                }
+            }
+            for c in &u.f.introduces {
+                if u.f.stretch {
+                    stretch_only.entry(norm(c)).or_insert_with(|| u.id.clone());
+                } else {
+                    required_known.insert(norm(c));
+                }
+            }
+        }
+        for proj in self.entries.iter().filter(|e| e.kind == Kind::Project) {
+            let stages = self.stages(&proj.id);
+            if stages.first().is_some_and(|s| s.f.stretch) {
+                p.push(Problem::err(stages[0].line, Some(&stages[0].id), "the first stage of a project cannot be a stretch goal"));
+            }
+        }
+        // Units nothing uses: a drill must serve something later.
+        for (i, u) in units.iter().enumerate() {
+            if u.kind != Kind::Drill || u.f.stretch || u.f.introduces.is_empty() {
+                continue;
+            }
+            let later = &units[i + 1..];
+            if later.is_empty() {
+                continue;
+            }
+            let used = u.f.introduces.iter().any(|c| {
+                let c = norm(c);
+                later.iter().any(|l| l.f.assumes.iter().any(|a| norm(a) == c))
+            }) || self.entries.iter().any(|e| e.kind == Kind::Project && e.line > u.line && e.f.assumes.iter().any(|a| u.f.introduces.iter().any(|c| norm(c) == norm(a))));
+            if !used {
+                p.push(Problem::warn(u.line, Some(&u.id), "nothing later assumes what this drill introduces: tie it to a later unit, fold it into another one, or mark it stretch"));
+            }
+        }
+        // Difficulty spread: 5 stays rare, and one level must not dominate.
+        let diffs: Vec<u8> = units.iter().filter_map(|u| u.f.difficulty).collect();
+        if !diffs.is_empty() {
+            let fives = diffs.iter().filter(|d| **d == 5).count();
+            if fives > (diffs.len() / 10).max(1) {
+                p.push(Problem::warn(1, None, format!("{fives} units at difficulty 5: keep 5 for the one or two hardest units of the course")));
+            }
+            if diffs.len() >= 8 {
+                for level in 1..=5u8 {
+                    let n = diffs.iter().filter(|d| **d == level).count();
+                    if n * 100 > diffs.len() * 55 {
+                        p.push(Problem::warn(1, None, format!("{n} of {} units are at difficulty {level}: spread the scale so it carries information", diffs.len())));
+                    }
+                }
+            }
+        }
+        // Wording.
+        let banned = Regex::new(r"(?i)\bno-school-names\b").expect("regex");
+        let mut texts: Vec<(usize, Option<&str>, String)> = vec![(1, None, format!("{} {}", self.meta.title, self.meta.description.clone().unwrap_or_default()))];
+        for e in &self.entries {
+            texts.push((e.line, Some(e.id.as_str()), format!("{} {} {} {}", e.title, e.f.goal.clone().unwrap_or_default(), e.f.done_when.clone().unwrap_or_default(), e.brief)));
+        }
+        for (line, id, t) in texts {
+            if let Some(m) = banned.find(&t) {
+                p.push(Problem::err(line, id, format!("do not refer to other schools or their programs (found `{}`)", m.as_str())));
+            }
+        }
         p
     }
 
@@ -634,10 +773,11 @@ pub fn paste_block(problems: &[Problem]) -> String {
 
 /// Compact plan table for approval.
 pub fn table(plan: &Plan) -> String {
-    let mut rows: Vec<[String; 6]> = vec![[
+    let mut rows: Vec<[String; 7]> = vec![[
         "unit".into(),
         "lang".into(),
         "diff".into(),
+        "hours".into(),
         "target".into(),
         "introduces".into(),
         "assumes".into(),
@@ -661,13 +801,13 @@ pub fn table(plan: &Plan) -> String {
                 String::new(),
             ),
             Kind::Stage => (
-                format!("  {}", e.id),
+                format!("  {}{}", e.id, if e.f.stretch { " (stretch)" } else { "" }),
                 plan.language(e),
                 e.f.difficulty.map(|d| d.to_string()).unwrap_or_default(),
                 e.f.target.clone().unwrap_or_else(|| "auto".into()),
             ),
             Kind::Drill => (
-                e.id.clone(),
+                format!("{}{}", e.id, if e.f.stretch { " (stretch)" } else { "" }),
                 plan.language(e),
                 e.f.difficulty.map(|d| d.to_string()).unwrap_or_default(),
                 e.f.target.clone().unwrap_or_else(|| "auto".into()),
@@ -678,15 +818,22 @@ pub fn table(plan: &Plan) -> String {
         } else {
             e.f.introduces.join(", ")
         };
-        rows.push([id, lang, diff, target, intro, e.f.assumes.join(", ")]);
+        let hours = match e.kind {
+            Kind::Project => {
+                let h: f64 = plan.stages(&e.id).iter().filter_map(|s| s.f.hours).sum();
+                if h > 0.0 { format!("{h:.0}") } else { String::new() }
+            }
+            _ => e.f.hours.map(|h| format!("{h}")).unwrap_or_default(),
+        };
+        rows.push([id, lang, diff, hours, target, intro, e.f.assumes.join(", ")]);
     }
-    let widths: Vec<usize> = (0..6)
+    let widths: Vec<usize> = (0..7)
         .map(|c| {
             rows.iter()
                 .map(|r| r[c].chars().count())
                 .max()
                 .unwrap_or(0)
-                .min(if c >= 4 { 40 } else { 44 })
+                .min(if c >= 5 { 40 } else { 50 })
         })
         .collect();
     let mut s = String::new();
@@ -712,6 +859,29 @@ pub fn table(plan: &Plan) -> String {
             s.push('\n');
         }
     }
+    s.push_str(&summary(plan));
+    s
+}
+
+/// Workload and difficulty in two lines, under the table.
+pub fn summary(plan: &Plan) -> String {
+    let req = plan.required_hours();
+    let stretch = plan.stretch_hours();
+    let mut s = format!("\nWorkload: {req:.0} h required");
+    if stretch > 0.0 {
+        s.push_str(&format!(" + {stretch:.0} h of stretch goals"));
+    }
+    if let Some(b) = plan.budget() {
+        s.push_str(&format!(" for a budget of {b:.0} h ({:.0}%)", req * 100.0 / b.max(1.0)));
+    }
+    let mut counts = [0usize; 6];
+    for u in plan.units() {
+        if let Some(d) = u.f.difficulty {
+            counts[(d as usize).min(5)] += 1;
+        }
+    }
+    let spread: Vec<String> = (1..=5).filter(|d| counts[*d] > 0).map(|d| format!("{d}: {}", counts[d])).collect();
+    s.push_str(&format!("\nDifficulty: {}\n", spread.join(", ")));
     s
 }
 
@@ -719,7 +889,7 @@ pub fn table(plan: &Plan) -> String {
 mod tests {
     use super::*;
 
-    const GOOD: &str = "---\ntitle: T\nlanguage: c\n---\n\n## d01-hello: Hello\ngoal: Print.\ndifficulty: 1\nintroduces: [compiling]\n\nBrief text.\n\n## note-make: Makefiles\nteaches: [make]\nwith: p01.1-build\n\n## p01-tool: Tool\ngoal: A tool.\nassumes: [compiling]\n\n### p01.1-build: Build\ngoal: Build it.\ndifficulty: 2\nassumes: [make]\nintroduces: [linking]\n\n### p01.2-finale: Finale\ngoal: Finish.\ndifficulty: 3\nassumes: [linking]\n";
+    const GOOD: &str = "---\ntitle: T\nlanguage: c\n---\n\n## d01-hello: Hello\ngoal: Print.\ndifficulty: 1\nhours: 2\nintroduces: [compiling]\n\nBrief text.\n\n## note-make: Makefiles\nteaches: [make]\nwith: p01.1-build\n\n## p01-tool: Tool\ngoal: A tool.\nassumes: [compiling]\n\n### p01.1-build: Build\ngoal: Build it.\ndifficulty: 2\nhours: 3\nassumes: [make]\nintroduces: [linking]\n\n### p01.2-finale: Finale\ngoal: Finish.\ndifficulty: 3\nhours: 4\nassumes: [linking]\n";
 
     #[test]
     fn parses_and_validates_a_good_plan() {

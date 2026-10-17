@@ -4,8 +4,7 @@ use skillcheck::gens;
 use skillcheck::journal::{self, Event};
 use skillcheck::report::{self, Style, Term};
 use skillcheck::unit::Unit;
-use skillcheck::{progress, scaffold, selftest};
-use std::io::{BufRead, IsTerminal, Write};
+use skillcheck::{ask, progress, scaffold, selftest};
 use std::path::Path;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -16,6 +15,7 @@ skillcheck: levelup's grader. Works offline, never calls an LLM.
   skillcheck check [unit] [--seed HEX] [--verbose] [--no-prompt]
                                check your work (default: the current unit)
   skillcheck next              reveal the next unit once the current one passes
+  skillcheck skip              skip the current unit if it is a stretch goal (optional)
   skillcheck status            where you are in the course
   skillcheck progress          regenerate and summarize PROGRESS.md
   skillcheck explain [unit]    show exactly what the checks run (generators, rounds)
@@ -33,6 +33,7 @@ fn main() -> ExitCode {
         }
         Some("check") => cmd_check(&args[1..]),
         Some("next" | "start") => cmd_next(&args[1..]),
+        Some("skip") => cmd_skip(),
         Some("status") => cmd_status(),
         Some("progress") => cmd_progress(),
         Some("explain") => cmd_explain(&args[1..]),
@@ -93,7 +94,7 @@ fn pick<'a>(c: &'a CourseDir, state: &State, explicit: Option<&str>) -> Result<&
         let pending = c.units.iter().find(|x| {
             c.workspace_name(x) == wsn
                 && state.unlocked.contains(&x.id)
-                && !state.passed.contains(&x.id)
+                && !state.done(&x.id)
         });
         return Ok(pending.unwrap_or(u));
     }
@@ -105,20 +106,97 @@ fn pick<'a>(c: &'a CourseDir, state: &State, explicit: Option<&str>) -> Result<&
     }
 }
 
-fn ask_yes(question: &str) -> bool {
-    if !std::io::stdin().is_terminal() {
-        return false;
-    }
-    print!("{question} [Y/n] ");
-    let _ = std::io::stdout().flush();
-    let mut line = String::new();
-    if std::io::stdin().lock().read_line(&mut line).is_err() {
-        return false;
-    }
-    let a = line.trim().to_lowercase();
-    a.is_empty() || a == "y" || a == "yes"
+fn record(c: &CourseDir, ev: &str, unit: &str) -> Result<(), String> {
+    journal::append(
+        &c.root,
+        &Event {
+            t: journal::now(),
+            ev: ev.into(),
+            unit: unit.into(),
+            ..Default::default()
+        },
+    )
 }
 
+/// After a pass or a skip: offers the next unit. Stretch goals can be skipped
+/// on the spot, in which case the one after is offered.
+fn offer_next(root: &Path, after: Option<&str>, prompt: bool) -> Result<(), String> {
+    loop {
+        let c = CourseDir::load(root)?;
+        let state = c.state();
+        let style = Style::detect();
+        let Some(next) = state.next_locked(&c) else {
+            println!("{}", style.green("Course complete. Well played."));
+            return Ok(());
+        };
+        let same_project = next.is_stage() && after.and_then(|a| c.unit(a)).is_some_and(|u| u.project == next.project);
+        let label = if same_project { "stage" } else { "exercise" };
+        if !prompt || !ask::interactive() {
+            let hint = if next.stretch { " (a stretch goal: `skillcheck skip` skips it)" } else { "" };
+            println!("Run `skillcheck next` when you are ready for {}{hint}.", next.id);
+            return Ok(());
+        }
+        if next.stretch {
+            let options = vec![
+                format!("Start {}", next.id),
+                "Skip it: it is an optional stretch goal".to_string(),
+                "Not now".to_string(),
+            ];
+            match ask::choose(&format!("The next {label}, {}, is a stretch goal. What now?", next.id), &options, 0, None) {
+                ask::Answer::Pick(0) => {
+                    print_reveal(&c, next, &scaffold::unlock(&c, next)?);
+                    return Ok(());
+                }
+                ask::Answer::Pick(1) => {
+                    record(&c, "unlock", &next.id)?;
+                    record(&c, "skip", &next.id)?;
+                    println!("Skipped {}.", next.id);
+                    progress::write(&CourseDir::load(root)?)?;
+                    continue;
+                }
+                _ => {
+                    println!("Run `skillcheck next` when you are ready for {}.", next.id);
+                    return Ok(());
+                }
+            }
+        }
+        if ask::yes_no(
+            &format!("Go to the next {label} ({})?", next.id),
+            "Yes, unlock it now",
+            "Not now",
+            false,
+        ) {
+            print_reveal(&c, next, &scaffold::unlock(&c, next)?);
+        } else {
+            println!("Run `skillcheck next` when you are ready for {}.", next.id);
+        }
+        return Ok(());
+    }
+}
+
+fn cmd_skip() -> Result<ExitCode, String> {
+    let c = course()?;
+    let state = c.state();
+    let target = match state.current.as_ref().and_then(|id| c.unit(id)) {
+        Some(u) if !state.done(&u.id) => u,
+        // Current unit done: skipping applies to the next one, still locked.
+        _ => state.next_locked(&c).ok_or("nothing left to skip")?,
+    };
+    if !target.stretch {
+        return Err(format!(
+            "`{}` is required; only units marked as stretch goals can be skipped",
+            target.id
+        ));
+    }
+    if !state.unlocked.contains(&target.id) {
+        record(&c, "unlock", &target.id)?;
+    }
+    record(&c, "skip", &target.id)?;
+    println!("Skipped {} (stretch goal). You can still come back to it with `skillcheck check {}`.", target.id, target.id);
+    progress::write(&CourseDir::load(&c.root)?)?;
+    offer_next(&c.root, Some(&target.id), true)?;
+    Ok(ExitCode::SUCCESS)
+}
 fn cmd_check(args: &[String]) -> Result<ExitCode, String> {
     let mut seed = None;
     let mut verbose = false;
@@ -197,22 +275,7 @@ fn cmd_check(args: &[String]) -> Result<ExitCode, String> {
     let c = CourseDir::load(&c.root)?;
     progress::write(&c)?;
     if newly_passed {
-        let state = c.state();
-        match state.next_locked(&c) {
-            None => println!("{}", term.style.green("Course complete. Well played.")),
-            Some(next) => {
-                let label = if next.is_stage() && next.project == u.project {
-                    "stage"
-                } else {
-                    "exercise"
-                };
-                if prompt && ask_yes(&format!("Go to the next {label} ({})?", next.id)) {
-                    print_reveal(&c, next, &scaffold::unlock(&c, next)?);
-                } else {
-                    println!("Run `skillcheck next` when you are ready for {}.", next.id);
-                }
-            }
-        }
+        offer_next(&c.root, Some(&u.id), prompt)?;
     }
     Ok(if v.ok {
         ExitCode::SUCCESS
@@ -253,11 +316,13 @@ fn cmd_next(args: &[String]) -> Result<ExitCode, String> {
     let c = course()?;
     let state = c.state();
     if let Some(cur) = &state.current
-        && !state.passed.contains(cur)
+        && !state.done(cur)
         && !force
     {
+        let stretch = c.unit(cur).is_some_and(|u| u.stretch);
         return Err(format!(
-            "finish `{cur}` first: `skillcheck check` must print OK"
+            "finish `{cur}` first: `skillcheck check` must print OK{}",
+            if stretch { " (it is a stretch goal: `skillcheck skip` skips it)" } else { "" }
         ));
     }
     match state.next_locked(&c) {
@@ -288,13 +353,15 @@ fn cmd_status() -> Result<ExitCode, String> {
     for u in &c.units {
         let mark = if state.passed.contains(&u.id) {
             style.green("passed  ")
+        } else if state.skipped.contains(&u.id) {
+            style.dim("skipped ")
         } else if state.unlocked.contains(&u.id) {
             style.yellow("current ")
         } else {
             style.dim("locked  ")
         };
         let shown = if state.unlocked.contains(&u.id) {
-            format!("{}: {}", u.id, u.title)
+            format!("{}: {}{}", u.id, u.title, if u.stretch { " (stretch)" } else { "" })
         } else {
             style.dim("?")
         };

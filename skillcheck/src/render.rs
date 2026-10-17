@@ -102,6 +102,14 @@ pub fn unit_md(c: &CourseDir, u: &Unit) -> String {
             },
         ),
         ("Concepts", u.concepts.join(", ")),
+        (
+            "Status",
+            if u.stretch {
+                "Stretch goal: optional, `skillcheck skip` moves on without it".to_string()
+            } else {
+                String::new()
+            },
+        ),
     ]));
     s.push_str(&format!("\n## Goal\n\n{}\n", u.goal.trim()));
 
