@@ -1,332 +1,215 @@
 # levelup
 
-Intensive, hands-on courses in any language, built once with an LLM and then
-practised offline.
+Intensive, hands-on programming courses in any language: planned and generated once
+with an LLM, then practised offline with an automatic grader.
 
-- **taskmaster** creates a course (curriculum, unit specs, tests, hidden
-  reference solutions). It is the only part that talks to an LLM.
-- **skillcheck** is what the student uses. It reveals units one at a time,
-  grades the work, and keeps `PROGRESS.md`. No network, no API key, no LLM.
+levelup has two tools:
+
+- **taskmaster** creates a course: it plans the curriculum with you, then writes every
+  unit's instructions, tests and a hidden reference solution, and keeps only what passes
+  its quality gate. It is the only part that talks to an LLM.
+- **skillcheck** is what the student uses: it reveals units one at a time, grades the work
+  on the spot and tracks progress. No network, no API key, no LLM.
+
+## Features
+
+**Planning (taskmaster)**
+- A short guided conversation in the terminal (`taskmaster new`): one multiple-choice
+  question at a time, a recommended answer for each, your own answer always possible.
+  Or plan in any chat assistant with a prompt taskmaster prints, then import the result.
+- The planner sees your machine: installed tools and versions, what really works
+  (AddressSanitizer, a POSIX shell), and whether Linux APIs are native or reachable
+  through Docker or WSL. It prefers portable projects and asks when a goal could go
+  either way.
+- A validator checks every plan: each concept is taught before it is used, the workload
+  fits your weekly hours with a 10 to 15% buffer, every project states its minimum viable
+  result, stretch goals stay optional, project stages build one program. Mechanical slips
+  are fixed automatically.
+- The planner reviews its own first draft against a teaching checklist before you see it,
+  and `taskmaster revise` changes an existing plan through the planner.
+
+**Generation (taskmaster)**
+- Every unit's tests and reference solution must pass skillcheck's self-test before they
+  are kept: the reference passes every check, and every function has a test that fails on
+  an empty stub. Rejections go back to the model with the exact error, and retries ask for
+  the fix only.
+- Interrupted builds resume where they stopped; every reply is cached, so a re-run only
+  pays for what changed. Units that already passed are kept.
+- Units that need Linux (fork, signals, process groups) are verified in an Ubuntu container,
+  so a Linux course can be built from Windows or macOS.
+
+**Practice (skillcheck)**
+- One unit at a time, with instructions, notes and a workspace scaffold revealed on unlock.
+- A live report for every check: file layout, expected prototypes, allowed functions and
+  modules, build and lint, fixed cases, fuzzing against the hidden reference with shrunk
+  counterexamples, invariants, and regression on earlier project stages.
+- Languages: C, Python and Rust (functions called directly, or whole programs), Bash,
+  JavaScript, TypeScript, Go, Java, Ruby, and any other language declared as data.
+- `PROGRESS.md` with a dashboard, a schedule against the planned hours, and a weekly review.
+- Stretch goals that can be skipped, and `skillcheck shell` to run Linux units by hand.
+
+## Install
+
+You need [Rust](https://rustup.rs) (stable). From this folder:
 
 ```
-cargo build --release      # target/release/skillcheck(.exe)
+cargo install --path skillcheck
+cargo install --path taskmaster
+```
+
+Also needed, depending on the course:
+
+- The compilers or interpreters of the course's languages (for example `cc`, `python3`).
+- **Docker Desktop**, only for units marked `platform: linux` on Windows or macOS.
+  `taskmaster setup` can install or start it for you.
+- **An LLM**, only to create courses: an Anthropic or OpenAI API key, any
+  OpenAI-compatible server, or a Claude Code login through
+  [Meridian](https://github.com/rynfar/meridian). Students never need one.
+
+Keep this folder where it is after installing: skillcheck builds its Linux image from
+this source.
+
+## Quickstart
+
+### Try a course (no LLM)
+
+The demo course has small units in C, Bash, Rust, Perl and a two-stage Python project:
+
+```
 cd examples/demo-course
-skillcheck next            # unlock the first unit
-skillcheck check           # from inside the unit's workspace
+skillcheck next              # unlock the first unit: subjects/d01-string-basics.md
+cd d01-string-basics         # your workspace
+# ...write the code the instructions ask for...
+skillcheck check             # grade it: a live report, then OK n/m or KO <reason>
 ```
 
-## Creating a course with taskmaster
+When a unit passes, skillcheck offers the next one. `skillcheck status` shows the
+course map and `skillcheck progress` the dashboard.
 
-Two ways to get a curriculum, one format, one validator:
+### Create your own course
+
+Use a folder of its own for each course, outside this repository:
 
 ```
-# Browser: paste the prompt into any chat assistant, plan there, save its answer.
-taskmaster prompt --lang c --level beginner --hours 10 > prompt.txt
-taskmaster import curriculum.md --course my-course     # --paste: errors as a block to paste back
-
-# Terminal: a short guided conversation (uses the LLM).
-taskmaster new "learn C pointers" --from syllabus.txt --course my-course
-
-# Change an existing curriculum.md through the planner (uses the LLM).
-taskmaster revise "add a drill on structs before p01" --course my-course
-
-# Read the whole plan: units, hours, both difficulties, prerequisites, approval (no LLM).
-taskmaster show --course my-course          # --full adds briefs, Allowed lists, scaffolds
-
-# Units that need Linux on Windows or macOS: set up Docker Desktop or WSL (no LLM).
-taskmaster setup --course my-course
-
-# Then generate everything (uses the LLM), and start.
-taskmaster build --course my-course
-cd my-course && skillcheck next
+mkdir my-course && cd my-course
+taskmaster new "learn C pointers, then write a small HTTP server" --provider meridian
+taskmaster build --tests --provider meridian
+skillcheck next
 ```
 
-`new` first scans the machine (tools, and whether Linux APIs are native or reachable
-through Docker or WSL) and gives the planner that scan: it prefers portable projects,
-marks the units that need Linux `platform: linux`, and when a goal can be met either
-way it asks which variant you want. Once the plan is approved, if it has Linux units
-on a machine that is not Linux, taskmaster lists them with their share of the hours and
-offers a way to run them: Docker Desktop (installed with winget or Homebrew, or
-started, then skillcheck's image built ahead of time), WSL Ubuntu (installed with `wsl
---install`, with the steps to follow the course inside it), or later. Nothing is
-installed without a terminal and an explicit yes. `taskmaster setup` offers the same
-for an existing curriculum.
+`new` scans your machine, asks a few questions, shows the plan as a table with hours and
+difficulties, and lets you approve it, ask for changes or edit it yourself. If the plan has
+Linux units and your machine is not Linux, it offers to set up Docker Desktop or WSL.
+`build` then writes the course. It can take a while for a big course, and it can be
+stopped and resumed at any time.
 
-`new` asks the planner's questions one at a time (at most 6), as multiple
-choice with a recommended option (Enter takes it, a letter picks another, any
-other text is your own answer). The planner writes each question after seeing
-the previous answers. The planner then reviews its first valid draft against a
-checklist (prerequisites, testing introduced early, workload, finales split
-into required and stretch stages, difficulty spread, design decisions written
-down) and lists what it changed. Before validating, taskmaster fixes mechanical slips itself: drill and project numbers that do not grow, stages numbered out of sequence (references follow the new ids), missing `hours` (filled from the difficulty), and values YAML would misread (a title or list item containing `: `, a leading backtick, a comma inside `HashMap<K, V>`), which get quoted. Fixes and validator problems are logged to `.skillcheck/taskmaster/validator.log`. `import` and `new` show the plan as a table
-with hours per unit and a workload summary against the budget, then ask to
-approve, ask for changes, edit (opens `$EDITOR`) or quit. `build` refuses an
-unapproved or modified curriculum.
+## User manual
 
-The curriculum file is markdown: front matter (`title`, `language`, `level`,
-`hours_per_week`, `weeks`), then one `## id: Title` section per drill (`dNN-slug`),
-project (`pNN-slug`) or note (`note-slug`), and `### pNN.k-slug` for stages, each
-with YAML keys (`goal`, `concept_difficulty` and `difficulty` for understanding and
-implementation, `hours`, `done_when` as the exit criterion, `introduces`, `assumes`,
-`target`, `scaffold`, `allows`, `stretch`, `platform`, `gradable`; projects add `minimum`, the
-minimum viable result; notes: `teaches`, `with`) and a free-text brief. `taskmaster prompt` prints the full
-specification. The validator enforces:
+### The course lifecycle
 
-- **Teach before use:** every `assumes` must be introduced by an earlier unit or
-  taught by a note revealed by then.
-- **Workload:** every unit has `hours` (planning only, never shown to the
-  student) and both difficulties; required hours must fit `hours_per_week` x
-  `weeks` with 10 to 15% left for debugging (warning above 88%, error above 100%).
-- **Stretch goals:** `stretch: true` units are optional. Nothing required may
-  assume what only a stretch goal introduces, a project's first stage is never a
-  stretch goal, and no required stage follows a stretch stage.
-- **Minimum viable result:** every project states its `minimum`; the required
-  stages deliver it, and the project overview shows it.
-- **Stages:** every earlier stage is tested again at each later one, so a stage
-  never says what it does with a feature a later stage adds (a `not supported yet`
-  message is an error), and once a stage needs Linux every later stage does too.
-- **Warnings:** a missing `done_when`, drills nothing later uses, a unit over 16
-  hours, too many units at difficulty 5 or at a single level, a hard stage that
-  introduces three or more concepts or relies on one only a note covers.
+1. **Plan:** `taskmaster new` (terminal), or `taskmaster prompt` then `taskmaster import`
+   (any chat assistant). The result is `curriculum.md`: a readable markdown plan you can
+   edit by hand, change with `taskmaster revise`, and inspect with `taskmaster show`.
+2. **Approve:** taskmaster only builds a plan you approved; editing it asks again.
+3. **Build:** `taskmaster build` writes the unit specs and notes, then (with `--tests`, or
+   when you say yes) the correction suite: tests and hidden references, each gated.
+4. **Practise:** `skillcheck next`, work in the unit's workspace, `skillcheck check`,
+   repeat. Project stages share one workspace and are tested together.
 
-The planning prompt also asks for generous estimates on routinely underestimated topics,
-a small drill before each hard project stage, testing time inside every estimate, and a
-consolidation stage at the end (refactor, tests, documented limitations).
-
-`build` runs in two passes:
-
-1. **Contracts:** for each unit, the functions, files, requirements and Allowed
-   list (plus notes, and settings for languages without a preset). Each one is
-   checked mechanically: schema, signatures parse, harness-supported types,
-   stubs fit the files rules, no long dashes.
-2. **Correction suite (optional, asked):** tests, generators, the hidden reference
-   and scaffold files. A unit is kept only if `skillcheck selftest` passes: the
-   reference passes every check (including Allowed and warnings), and every
-   function has a test that fails on an empty stub. Rejections go back to the
-   model with the exact failure, up to `--retries` (default 3); a unit that never
-   passes keeps its contract but no tests, and the run exits non-zero.
-
-What is mechanical is done by taskmaster, not asked of the model: Rust references
-are run through `cargo fmt`; C and Rust programs run as built (the model never sets
-`run`, and a `run` into `target/` is rejected), and every stage of a project uses its
-first stage's command. A stage's request carries what the model cannot guess: the
-earlier stages' tests (they run again against it), and what the code may use with the
-earlier stages' Allowed entries merged. A retry asks for the fix only: the model sends
-the files it changes, the rest of its earlier reply is kept, so fixing one error does
-not break what worked. A stage whose previous stage has no suite is not generated
-(it would be written without the code it builds on); it waits for the next run. The
-generation prompt only holds the notes for the course's languages.
-
-Token use: the model returns data only (the instructions are rendered by
-skillcheck), every request starts with the same system prompt (cacheable), a unit
-request carries a one-line digest of earlier units instead of their files, and
-every reply is cached on disk by a hash of its request, so a re-run (or
-`--only <id>`) only pays for what changed. The run ends with a token count.
-
-**Environment:** taskmaster assumes students work on the machine that builds the course.
-`taskmaster env` shows what it detected: OS, about 25 tools with versions, and facts it tests
-for real (does AddressSanitizer work, is a POSIX bash available). The curriculum front matter can
-declare another environment (`environment: Ubuntu 24.04, gcc, valgrind, make`). The browser
-prompt, the guided planner and every generation request include it; `import` warns when a unit
-relies on a tool that is missing; tests are still verified on this machine before they are kept
-(Linux units in the Linux container, see below).
-
-**Linux units:** `platform: linux` marks a unit (or a whole project) that needs
-Linux APIs: fork, exec, pipes, signals, process groups, `/proc`. Everything else stays
-portable. On Windows or macOS, skillcheck runs those units in an Ubuntu 24.04 container
-by itself (Docker Desktop must be running): `check` and `selftest` rerun the same command
-there, and `taskmaster build` gates their references there too, so a Linux course can be
-built and followed from Windows. The image (Rust, clippy, rustfmt, gcc, python3, dash as
-`/bin/sh`, GNU coreutils, and skillcheck built from its own source) is built the first
-time it is needed and again after skillcheck changes. The course folder is mounted at
-`/course`; build caches stay in Docker volumes, apart from the native ones.
-
-**LLM settings:** `--provider anthropic|meridian|openai`, `--base-url` (any
-OpenAI-compatible server), `--model` (default `claude-sonnet-5-5`), `--api-key-env
-VAR`. Defaults come from `LEVELUP_PROVIDER`, `LEVELUP_BASE_URL`, `LEVELUP_MODEL`,
-`LEVELUP_API_KEY`, then the provider's usual variable (`ANTHROPIC_API_KEY`,
-`OPENAI_API_KEY`), then the config file (`taskmaster config` prints its path:
-`provider`, `base_url`, `model`, `api_key_env`). Keys are never stored in files.
-To use a Claude Code login, run [Meridian](https://github.com/rynfar/meridian) and
-pass `--provider meridian`.
-
-## skillcheck commands
+### taskmaster commands
 
 | Command | What it does |
-|---------|--------------|
-| `skillcheck check [unit] [--seed HEX] [--verbose] [--no-prompt]` | Live report, then `OK n/m` or `KO <item>: <reason>`. Exit 0 / 1 / 2. On a first pass, asks whether to unlock the next unit. |
-| `skillcheck next` | Reveals the next unit: instructions, notes, workspace scaffold. Refuses while the current unit is not passed or skipped. |
-| `skillcheck skip` | Skips the current unit if it is a stretch goal, then offers the next one. Required units cannot be skipped; a skipped unit can still be checked later. |
-| `skillcheck status` | Course map: passed, skipped, current, locked (locked titles stay hidden). |
-| `skillcheck progress` | Regenerates `PROGRESS.md` and prints the dashboard. `PROGRESS.md` has a Schedule section (planned hours done vs expected by now) when units carry `hours` and the course has `weeks`. When a week ends, skillcheck writes `reviews/week-NN.md`: that week's numbers and three questions (what you can do alone, what is unclear, whether the schedule holds). |
-| `skillcheck explain [unit]` | Everything a check runs: generators, rounds, laws. |
-| `skillcheck shell [unit] [--port N]` | Linux units on another system: a bash terminal in the Linux container, in the unit's workspace, to run your program by hand. `--port N` publishes that port on `127.0.0.1` of your machine (start the server with `--bind 0.0.0.0`). |
-| `skillcheck validate` | Parses every unit without running anything. |
-| `skillcheck selftest [unit...]` | Course gate: each reference must pass, and every function must have a test that fails on an empty stub. |
-
-`NO_COLOR` disables colours, `SKILLCHECK_ASCII` replaces the check marks.
-
-## Course layout
-
-```
-course/
-  subjects/              revealed instructions (rendered by skillcheck, never by an LLM)
-  notes/                 revealed notes
-  PROGRESS.md            generated after every check
-  <workspace>/           one per drill, one per project (shared by its stages)
-  .skillcheck/
-    course.yaml          title, unit order, projects
-    units/<id>.yaml      one file per unit: contract and tests together
-    lib.yaml             shared generators
-    refs/<id>/           hidden reference solution (a full workspace tree)
-    scaffold/<id>/       files copied into a fresh workspace (never overwriting)
-    notes/<name>.md      notes revealed with the units that list them
-    journal.jsonl        event log; state and PROGRESS.md derive from it
-    cache/               build cache (safe to delete)
-```
-
-## Unit spec
-
-```yaml
-id: d01-string-basics          # pNN.k-slug for project stages, plus `project: pNN-name`
-title: String Basics
-language: c                    # c, python, rust, bash, js, ts, go, java, ruby, or any name
-difficulty: 2
-concepts: [pointer arithmetic]
-stretch: false                 # true: optional, `skillcheck skip` moves past it
-platform: linux                # optional: needs Linux; elsewhere it runs in a container (Docker)
-target: function               # function: skillcheck's own main calls yours | program: your program is run
-scaffold: minimal              # none (student creates everything) | minimal | full
-stubs: src/str_basics.c        # where empty mandatory functions are written on unlock
-goal: One sentence.
-functions:                     # "Expected functions (minimal)" in the instructions
-  - { name: str_len, sig: "size_t str_len(const char *s)", returns: bytes before the NUL }
-files:                         # the soft tree; listing any rule makes other files unexpected
-  - { path: include/str_basics.h, note: declares the prototypes }   # rule: required (default)
-  - { path: "src/*.c", rule: one_or_more }
-  - { path: "**", rule: free }                                      # allows anything else
-requirements: [Behaviour only, one bullet each.]
-allowed: [stdlib.h, malloc, free]   # strict whitelist; absent = unrestricted; [] = built-ins only
-                                    # an entry covers what is inside it (`std` = all of Rust's std)
-forbidden: [std::mem::swap]         # banned even though `allowed` covers it (needs `allowed`)
-                                    # neither applies to the student's own tests in tests/
-run: python -m logstat         # program target ({exe}, {python}, {cargo_bin} placeholders)
-env: { LC_ALL: C }             # set for builds and runs, listed in the instructions
-static: [{ name: lint, cmd: "ruff check ." }]
-timeout_ms: 10000
-cases: |
-  str_len("abc") == 3                       # function target: one boolean expression per line
-  raises(parse(""))
-  # program target: [args] [@file="..."] [<<< "stdin"] => out == "..." err ~ "re" exit 0
-random:
-  rounds: 200
-  fuzz:                        # compared with the hidden reference on generated inputs
-    - str_len                  # generators derived from the parameter types
-    - { fn: str_split, args: { s: 'string "ab," 0..30', sep: "lit ','" } }
-    - { name: report, stdin: "lines(log_line) 0..40" }      # program target
-  laws:                        # invariants, no reference needed
-    - { name: counts agree, gen: { s: string }, check: ["word_count(s) == len(words(s))"] }
-    - { roundtrip: [encode, decode] }      # decode(encode(x)) == x
-    - { idempotent: normalize }            # f(f(x)) == f(x)
-    - { agree: [fast_sort, slow_sort] }
-```
-
-**Generators:** `int lo..hi [wN]`, `uint`, `float lo..hi`, `bool`, `char "abc"`,
-`string "alphabet" lo..hi`, `word`, `ascii`, `list(g) lo..hi`, `lines(g) lo..hi`,
-`opt(g)`, `choice [..]`, `lit <value>`, templates `{ fmt: "{h}:{m}", vars: {...} }`,
-and names from `lib.yaml`. Generators lean on edge cases (empty, boundaries,
-two-letter alphabets), and failures are shrunk before they are reported.
-
-**Expressions:** literals, `== != < <= > >= && || ! + - * / %`, `x.field`, `x[i]`,
-student functions (dotted names for Python modules), `run(args=[..], stdin="..")`
-for programs, and built-ins (`len bytes sorted reversed sum min max abs count contains
-join split words lines lower upper trim chars unique keys values get all any int float
-str is_sorted permutation repeat range slice starts_with ends_with matches replace
-nonempty concat flatten approx raises then`; `then(a, b)` evaluates in order and returns `b`;
-`all(xs, nonempty)` and `any(xs, p)` take a built-in's name as predicate). No user functions
-or lambdas, so a spec cannot hide a reference solution in its tests.
-
-Tests can be written in the habits of the course's language; they all mean the same thing:
-
-| Written | Means |
 |---|---|
-| `True`, `None`, `NULL`, `nil`, `undefined`, `x is None`, `===`, `and`, `not in` | `true`, `null`, `==`, `&&`, `!contains` |
-| `Ok(v)`, `Some(v)`, `Just(v)`, `String::from(v)`, `Box::new(v)` | `v` (harnesses unwrap them) |
-| `f(x) == Err(..)`, `f(x).is_err()`, `f(x).is_ok()` | `raises(f(x))`, `!raises(f(x))` (the error payload is not compared) |
-| `(a, b)`, `vec![..]`, `Vec::new()`, `{a: 1}`, `p.0` | lists, `[]`, maps, `p[0]` |
-| `&x`, `&mut x`, `*x`, `10u8`, `2.5f64`, `10L`, `r"raw"`, `r#"raw"#` | the plain value |
-| `\xHH`, `\uXXXX`, `\u{X}`, `\UXXXXXXXX`, octal `\101`, `\e` | the character |
-| `s.len()`, `xs.length`, `s.to_lowercase()`, `", ".join(xs)`, `x.clone()` | `len(s)`, `lower(s)`, `join(xs, ", ")`, `x` (built-ins only) |
+| `taskmaster new "<goal>" [--from FILE]... [--course DIR] [--yes]` | Plan a curriculum in a short conversation (LLM). `--from` adds a syllabus or notes. |
+| `taskmaster prompt [--lang L] [--level beginner] [--hours 10]` | Print a planning prompt for any chat assistant. |
+| `taskmaster import <file> [--course DIR] [--yes] [--paste]` | Validate a curriculum, fix mechanical slips, show it, approve it. `--paste` prints the errors as a block to paste back into the chat. |
+| `taskmaster revise "<changes>" [--course DIR] [--yes]` | Have the planner rewrite `curriculum.md` (LLM). The old version is kept in `.skillcheck/taskmaster/curriculum.previous.md`. |
+| `taskmaster show [file] [--course DIR] [--full]` | The plan: units, hours, both difficulties, prerequisites, approval. `--full` adds briefs and Allowed lists. |
+| `taskmaster env` | What taskmaster detected on this machine (tools, facts, Linux access). |
+| `taskmaster setup [--course DIR]` | For a plan with Linux units: install or start Docker Desktop, or install WSL Ubuntu. Asks before installing anything. |
+| `taskmaster build [--course DIR] [--tests \| --no-tests] [--only ID]... [--retries N] [--yes]` | Write the course (LLM). `--only` redoes the named units or projects; `--retries` defaults to 3. |
+| `taskmaster config` | Path of the config file. |
 
-Names are checked before anything runs: an unknown function, a wrong argument count or
-an unknown variable is reported with the closest valid name.
+**LLM options** (`new`, `revise`, `build`): `--provider anthropic|meridian|openai`,
+`--base-url URL` (any OpenAI-compatible server), `--model NAME` (default
+`claude-sonnet-5-5`), `--api-key-env VAR`. Defaults come from `LEVELUP_PROVIDER`,
+`LEVELUP_BASE_URL`, `LEVELUP_MODEL` and `LEVELUP_API_KEY`, then the provider's usual
+variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), then the config file (`provider`,
+`base_url`, `model`, `api_key_env`). Keys are never written to files.
 
-In-place functions: in C and Rust, a call to a function that returns nothing and
-takes a writable buffer (`char *` without `const`, or `&mut`) evaluates to that
-buffer after the call, so `reverse("abc") == "cba"` tests `void reverse(char *s)`.
+### skillcheck commands
 
-## Languages
+| Command | What it does |
+|---|---|
+| `skillcheck next` | Reveal the next unit: instructions, notes, workspace scaffold. Refuses while the current unit is not passed or skipped. |
+| `skillcheck check [unit] [--seed HEX] [--verbose] [--no-prompt]` | Grade the current unit (or the one whose workspace you are in). Exit 0 OK, 1 KO, 2 course or usage error. `--seed` replays a failing random run. |
+| `skillcheck skip` | Skip the current unit if it is a stretch goal. |
+| `skillcheck status` | Course map: passed, skipped, current, locked (locked titles stay hidden). |
+| `skillcheck progress` | Regenerate `PROGRESS.md` and print the dashboard. |
+| `skillcheck explain [unit]` | Exactly what a check runs: generators, rounds, laws. |
+| `skillcheck shell [unit] [--port N]` | Linux units on another system: a bash terminal in the Linux container, in the unit's workspace. `--port N` publishes that port on `127.0.0.1` (start your server with `--bind 0.0.0.0`). |
+| `skillcheck validate` | Course authors: parse every unit without running anything. |
+| `skillcheck selftest [unit...]` | Course authors: each reference must pass, and every function must have a test that fails on an empty stub. |
 
-| | function target (harness) | program target | Allowed scanner | build / static |
-|---|---|---|---|---|
-| C | yes (scalar, `char *`, `char **`) | yes | headers + calls | `cc -std=c11 -Wall -Wextra -Werror` |
-| Python | yes (any value; dataclasses and namedtuples become maps) | yes | imports | `compileall` |
-| Rust | yes (scalars, `&str`/`String`, `Vec`/slices, `Option`, `Result`) | yes | `use`, paths, Cargo deps | `cargo build`, `fmt --check`, `clippy -D warnings` |
-| Bash | no | yes | external commands | `bash -n` |
-| JS/TS, Go, Java, Ruby | no | yes | imports (regex) | `build:` command |
-| anything else | no | yes | `imports:` regexes in the spec | `build:` command |
+`NO_COLOR` disables colours; `SKILLCHECK_ASCII` replaces the check marks.
 
-On Windows, `bash` resolves to msys2 or Git Bash, never WSL's `System32\bash.exe`.
+### Progress and schedule
 
-### Language settings are data
+After every check, skillcheck rewrites `PROGRESS.md`: units passed, checks per unit,
+first-try rate, active time, the check each unit failed most, results by difficulty, weekly
+activity and, when the plan has hours and weeks, a schedule comparing the planned hours
+done with where you should be by now. When a week ends it writes
+`reviews/week-NN.md` with that week's numbers and three questions: what you can do on
+your own, what is still unclear, whether the schedule holds.
 
-The presets for C, C++, Python, Rust, Bash, JavaScript, TypeScript, Go, Java and Ruby are a YAML
-block embedded in skillcheck (`skillcheck/src/defaults.rs`). Only the function harnesses and the
-dedicated Allowed scanners are code. A course overrides any preset field in its `languages:`
-block, and a list set there replaces the preset's list (`static: []` removes Rust's fmt/clippy).
+### Linux units on Windows and macOS
 
-### Adding a language
+A unit (or a whole project) marked `platform: linux` needs Linux APIs. On another system,
+skillcheck runs it in an Ubuntu 24.04 container by itself: you keep editing and running
+`skillcheck check` in your usual terminal, Docker Desktop just has to be running. The image
+(Rust with clippy and rustfmt, gcc, python3, dash as `/bin/sh`, GNU coreutils, and
+skillcheck) is built the first time it is needed, and again after skillcheck changes. Use
+`skillcheck shell` to run your program by hand there. For your editor to check such code
+as Linux code with rust-analyzer, add the target once
+(`rustup target add x86_64-unknown-linux-gnu`) and set
+`"rust-analyzer.cargo.target": "x86_64-unknown-linux-gnu"` in the workspace settings.
 
-Declare it once in `course.yaml`; every unit in that language inherits it, and
-any field set on a unit wins:
+### Troubleshooting
 
-```yaml
-languages:
-  perl:
-    name: Perl 5                       # shown in the instructions
-    build: perl -c main.pl             # optional
-    run: perl main.pl                  # program command
-    static: [{ name: lint, cmd: "perlcritic main.pl" }]
-    imports: ['(?m)^\s*(?:use|require)\s+([A-Za-z][\w:]*)']   # Allowed check, group 1 = module
-    extensions: [pl, pm]               # which files are source
-    comment: "#"                       # line comments ignored by the scanners
-    env: { PERL_UNICODE: SD }
-    timeout_ms: 5000
-    compiler: gcc                      # C-family builds
-    flags: [-std=c11, -Wall, -Werror]  # program build and function harness
-    wrap: valgrind --leak-check=full --error-exitcode=99   # prefix for every run of student code
-    support: [support/common/shim.c]   # course files built in with the student's code
+| Problem | What to do |
+|---|---|
+| `Docker is not running` | Start Docker Desktop and wait until it is ready, or run `taskmaster setup`. |
+| `Docker runs Windows containers` | Docker Desktop tray icon: "Switch to Linux containers". |
+| The build stopped on a rate limit or quota | Run the same command again: finished work is kept, cached replies cost nothing. |
+| A unit `FAILED` in the build | `taskmaster build --tests --only <id>` retries it. Later stages of its project wait for it. |
+| `curriculum.md changed since it was approved` | Review and approve it again: taskmaster shows the plan and asks. |
+| A check fails randomly | The report prints the seed: `skillcheck check --seed <hex>` replays the same inputs. |
+
+## Reference
+
+- [Curriculum format and planning rules](docs/curriculum.md)
+- [How `taskmaster build` works](docs/build.md)
+- [Unit spec, tests and course layout](docs/unit-spec.md)
+- [Languages and adding one](docs/languages.md)
+
+## Repository layout
+
+```
+skillcheck/          the grader (library and CLI)
+taskmaster/          the course builder (CLI)
+examples/demo-course a small course to try skillcheck without an LLM
+docs/                reference documentation
 ```
 
-Leak checks, sanitizers and allocation-failure tests are course content, not skillcheck features:
-`wrap` (valgrind) or `flags` (`-fsanitize=address`) make a run fail when the tool reports a
-problem, and the harness must exit cleanly, so leaks reported at exit fail the check. Units can add
-`extra_flags`, `wrap`, `support` files and `helpers` (test-only functions from support files):
-
-```yaml
-extra_flags: [-Dmalloc=sc_malloc]
-support: [support/d01-string-basics/fail_alloc.c]   # defines sc_malloc and fail_alloc_after
-helpers: [{ name: fail_alloc_after, sig: "void fail_alloc_after(int n)" }]
-cases: |
-  then(fail_alloc_after(0), str_dup("abc")) == null
-```
+Development: `cargo test` runs both tools' tests; `cargo clippy --all-targets -- -D warnings`
+must stay clean. Courses are never built inside this folder: `.gitignore` keeps them out.
 
 ## Status
 
-Built and verified on the demo course (C, Bash, Rust, Perl through a
-`languages:` block only, and a two-stage Python project): reveal, scaffold, every check category, fuzzing with shrinking, laws,
-regression across stages, seed replay, PROGRESS.md, selftest.
+Verified on the demo course (every check category, fuzzing with shrinking, laws,
+regression across stages, seed replay, PROGRESS.md, self-test) and on a 51-unit Rust
+course built from Windows, with its Linux units verified in the container.
 
-Not built yet: mutant testing of generated suites, batching several small
-drills per request, one-shot iterator inputs for Python, Rust support files
-(`support:` is used by the C and Python harnesses).
+Not built yet: mutant testing of generated suites, batching several small drills per
+request, one-shot iterator inputs for Python, Rust support files (`support:` works for C
+and Python).

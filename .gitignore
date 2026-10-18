@@ -1,12 +1,27 @@
 /target
-.skillcheck/cache/
 Cargo.lock
 !/Cargo.lock
 
-# Student-side state created while playing a course (examples stay pristine).
-.skillcheck/journal.jsonl
+# Courses are not part of the tools: build and follow them in their own folder.
+# If one is built here by mistake, none of it is tracked.
+/curriculum.md
+/.skillcheck/
+/subjects/
+/notes/
+/reviews/
+/PROGRESS.md
+/d[0-9]*/
+/p[0-9]*/
+
+# Caches and generated state, wherever they are.
+**/.skillcheck/cache/
+**/.skillcheck/taskmaster/
+**/.skillcheck/journal.jsonl
+
+# Student-side state created while playing an example (examples stay pristine).
 /examples/*/subjects/
 /examples/*/notes/
+/examples/*/reviews/
 /examples/*/PROGRESS.md
 /examples/*/d[0-9]*/
 /examples/*/p[0-9]*/
