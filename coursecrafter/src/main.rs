@@ -14,30 +14,30 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-taskmaster: creates PiscineBuilder courses. The only part of PiscineBuilder that uses an LLM.
+coursecrafter: creates PiscineBuilder courses. The only part of PiscineBuilder that uses an LLM.
 
-  taskmaster prompt [--lang L] [--level beginner] [--hours 10]
+  coursecrafter prompt [--lang L] [--level beginner] [--hours 10]
         print a prompt for any chat assistant; it ends with a curriculum file
-  taskmaster import <curriculum.md> [--course DIR] [--yes] [--paste]
+  coursecrafter import <curriculum.md> [--course DIR] [--yes] [--paste]
         validate a curriculum, show it, and approve it into the course folder
-  taskmaster new \"<what you want to learn>\" [--from FILE]... [--course DIR] [--yes]
+  coursecrafter new \"<what you want to learn>\" [--from FILE]... [--course DIR] [--yes]
         plan a curriculum in a short terminal conversation (uses the LLM)
-  taskmaster revise \"<changes>\" [--course DIR] [--yes]
+  coursecrafter revise \"<changes>\" [--course DIR] [--yes]
         have the planner rewrite curriculum.md with your changes (uses the LLM)
-  taskmaster show [curriculum.md] [--course DIR] [--full]
+  coursecrafter show [curriculum.md] [--course DIR] [--full]
         display the curriculum: units, hours, difficulties, prerequisites, approval
-  taskmaster env
-        show the environment taskmaster assumes the student has (detected here,
+  coursecrafter env
+        show the environment coursecrafter assumes the student has (detected here,
         or declared with `environment:` in the curriculum front matter)
-  taskmaster setup [--course DIR]
+  coursecrafter setup [--course DIR]
         for a curriculum with Linux units: set up Docker Desktop or WSL here
         (installs or starts it after asking; `new` offers the same)
-  taskmaster build [--course DIR] [--yes] [--tests | --no-tests] [--only ID]... [--retries N]
+  coursecrafter build [--course DIR] [--yes] [--tests | --no-tests] [--only ID]... [--retries N]
         write the unit specs, notes, tests and hidden references (uses the LLM)
 
 LLM options (build, new, revise): --provider anthropic|meridian|openai  --base-url URL  --model NAME
   --api-key-env VAR. Defaults come from PISCINEBUILDER_* variables, then the config file,
-  then: provider anthropic, model claude-sonnet-5-5. Run `taskmaster config` to see the file path.";
+  then: provider anthropic, model claude-sonnet-5-5. Run `coursecrafter config` to see the file path.";
 
 pub fn ask_yes(question: &str) -> bool {
     if !std::io::stdin().is_terminal() {
@@ -66,7 +66,7 @@ pub fn open_editor(path: &Path) -> Result<(), String> {
                 "vi".into()
             }
         });
-    let mut words = skillchecker::run::split_words(&editor);
+    let mut words = proctor::run::split_words(&editor);
     if words.is_empty() {
         return Err("no editor".into());
     }
@@ -140,7 +140,7 @@ impl Args {
             .get("course")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("."));
-        if let Err(e) = skillchecker::course::migrate(&dir) {
+        if let Err(e) = proctor::course::migrate(&dir) {
             eprintln!("warning: {e}");
         }
         dir
@@ -299,8 +299,8 @@ fn print_problems(problems: &[curriculum::Problem], paste: bool) {
 
 pub fn approval_path(course: &Path) -> PathBuf {
     course
-        .join(".skillchecker")
-        .join("taskmaster")
+        .join(".proctor")
+        .join("coursecrafter")
         .join("approved")
 }
 
@@ -366,7 +366,7 @@ pub fn review(course: &Path, mut text: String, yes: bool) -> Result<Option<Strin
 fn cmd_import(raw: &[String]) -> Result<bool, String> {
     let a = Args::parse(raw, &["course"], &["yes", "paste"])?;
     let [file] = a.positional.as_slice() else {
-        return Err("usage: taskmaster import <curriculum.md> [--course DIR]".into());
+        return Err("usage: coursecrafter import <curriculum.md> [--course DIR]".into());
     };
     let raw =
         unwrap_curriculum(&std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?);
@@ -394,7 +394,7 @@ fn cmd_build(raw: &[String]) -> Result<bool, String> {
     let file = course.join("curriculum.md");
     let text = std::fs::read_to_string(&file).map_err(|_| {
         format!(
-            "no curriculum at {}: run `taskmaster import` or `taskmaster new` first",
+            "no curriculum at {}: run `coursecrafter import` or `coursecrafter new` first",
             file.display()
         )
     })?;
@@ -430,11 +430,11 @@ fn cmd_build(raw: &[String]) -> Result<bool, String> {
         yes: a.has("yes"),
     };
     let root = std::fs::canonicalize(&course).map_err(|e| e.to_string())?;
-    let root = skillchecker::course::strip_verbatim(&root);
+    let root = proctor::course::strip_verbatim(&root);
     let environment = env::detect(plan.meta.environment.clone());
     let env_file = root
-        .join(".skillchecker")
-        .join("taskmaster")
+        .join(".proctor")
+        .join("coursecrafter")
         .join("environment.txt");
     if let Some(d) = env_file.parent() {
         let _ = std::fs::create_dir_all(d);
@@ -443,7 +443,7 @@ fn cmd_build(raw: &[String]) -> Result<bool, String> {
     let ok =
         build::Builder::new(root.clone(), &plan, &llm, opts, &environment.prompt_block()).run()?;
     println!(
-        "\nCourse ready in {}. Students start with: cd {} && skillchecker next",
+        "\nCourse ready in {}. Students start with: cd {} && proctor next",
         root.display(),
         root.display()
     );

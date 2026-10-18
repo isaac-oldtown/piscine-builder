@@ -25,7 +25,7 @@ pub const IGNORED_DIRS: &[&str] = &[
     "target",
     "node_modules",
     "__pycache__",
-    ".skillchecker",
+    ".proctor",
     ".vscode",
     ".idea",
 ];

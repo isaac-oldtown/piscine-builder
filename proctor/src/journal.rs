@@ -1,4 +1,4 @@
-//! Append-only event log (`.skillchecker/journal.jsonl`). PROGRESS.md and the
+//! Append-only event log (`.proctor/journal.jsonl`). PROGRESS.md and the
 //! course state are both derived from it.
 
 use serde::{Deserialize, Serialize};

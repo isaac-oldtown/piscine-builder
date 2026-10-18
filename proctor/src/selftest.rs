@@ -1,4 +1,4 @@
-//! Course self-test, used by taskmaster's quality gate and by course
+//! Course self-test, used by coursecrafter's quality gate and by course
 //! authors: the reference solution must pass every check, and every
 //! function test must fail against empty stubs (otherwise it proves nothing).
 
@@ -158,10 +158,7 @@ pub fn unit(c: &CourseDir, u: &Unit, seed: u64) -> UnitReport {
     let ref_dir = c.ref_dir(u);
     r.reference = if !ref_dir.is_dir() {
         if u.has_tests() || !u.functions.is_empty() {
-            Err(format!(
-                "no reference solution in .skillchecker/refs/{}/",
-                u.id
-            ))
+            Err(format!("no reference solution in .proctor/refs/{}/", u.id))
         } else {
             Ok((0, 0))
         }

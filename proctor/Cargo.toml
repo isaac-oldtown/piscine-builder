@@ -1,14 +1,12 @@
 [package]
-name = "taskmaster"
-description = "PiscineBuilder's course creator: turns a curriculum into specs, tests and references with an LLM"
+name = "proctor"
+description = "PiscineBuilder's offline grader: runs compact test specs against student work"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
 [dependencies]
-skillchecker = { path = "../skillchecker" }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-ureq = "3"
 yaml_serde = "0.10"

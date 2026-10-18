@@ -1,11 +1,11 @@
 //! Units that need Linux APIs on a machine that is not Linux. The planner is
 //! told what this machine offers (Docker, WSL), and once a curriculum has
 //! `platform: linux` units, the student picks a way to run them and
-//! taskmaster installs or starts it, after asking.
+//! coursecrafter installs or starts it, after asking.
 
 use crate::curriculum::Plan;
-use skillchecker::ask::{self, Answer};
-use skillchecker::docker::{self, Status};
+use proctor::ask::{self, Answer};
+use proctor::docker::{self, Status};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -58,7 +58,7 @@ fn wsl_distros() -> Vec<String> {
 }
 
 fn exists(program: &str) -> bool {
-    skillchecker::run::exists(&skillchecker::lang::resolve(program))
+    proctor::run::exists(&proctor::lang::resolve(program))
 }
 
 pub fn detect() -> Access {
@@ -107,7 +107,7 @@ impl Access {
             "# Linux\nThis machine is not Linux: Linux-only APIs (fork, exec, pipes, signals, process groups, /proc, Unix permissions, the nix crate) do not work natively. {}.{wsl}\n\
              Plan with that in mind:\n\
              - Prefer portable units and projects. Use Linux APIs only where the student's goal needs them, and mark those units (or the whole project) `platform: linux`.\n\
-             - A `platform: linux` unit is built and tested in an Ubuntu container that skillchecker starts by itself with Docker, so the student can stay on this machine. taskmaster offers to install or start Docker, or WSL, once the curriculum is approved.\n\
+             - A `platform: linux` unit is built and tested in an Ubuntu container that proctor starts by itself with Docker, so the student can stay on this machine. coursecrafter offers to install or start Docker, or WSL, once the curriculum is approved.\n\
              - When the student's goal could be met either way (for example a shell, process management, a server with signal handling), ask ONE question about it: a portable variant, or the Linux variant run through a container, and say which you recommend and why. Do not ask when the goal clearly needs Linux, or clearly does not.\n",
             self.docker_text()
         )
@@ -181,7 +181,7 @@ fn start_docker() -> bool {
         std::thread::sleep(Duration::from_secs(3));
     }
     println!(
-        "\nDocker Desktop did not answer within 3 minutes. Check its window, then run `taskmaster setup` again."
+        "\nDocker Desktop did not answer within 3 minutes. Check its window, then run `coursecrafter setup` again."
     );
     false
 }
@@ -203,7 +203,7 @@ fn install_docker(a: &Access) -> bool {
         ("brew", vec!["install", "--cask", "docker"])
     } else {
         println!(
-            "Install Docker Desktop from https://www.docker.com/products/docker-desktop/, start it, then run `taskmaster setup` again."
+            "Install Docker Desktop from https://www.docker.com/products/docker-desktop/, start it, then run `coursecrafter setup` again."
         );
         return false;
     };
@@ -221,12 +221,12 @@ fn install_docker(a: &Access) -> bool {
     }
     if !run_visible(program, &args) {
         println!(
-            "The installation did not finish. Fix the problem shown above, or install Docker Desktop by hand, then run `taskmaster setup` again."
+            "The installation did not finish. Fix the problem shown above, or install Docker Desktop by hand, then run `coursecrafter setup` again."
         );
         return false;
     }
     println!(
-        "Docker Desktop is installed. Start it once (accept its terms), open a NEW terminal so `docker` is on the PATH, then run `taskmaster setup` again to check."
+        "Docker Desktop is installed. Start it once (accept its terms), open a NEW terminal so `docker` is on the PATH, then run `coursecrafter setup` again to check."
     );
     true
 }
@@ -240,7 +240,7 @@ fn docker_path(a: &Access) -> bool {
         Status::Stopped => start_docker() && prebuild_image(),
         Status::WindowsContainers => {
             println!(
-                "Docker Desktop runs Windows containers: right-click its tray icon, choose \"Switch to Linux containers\", then run `taskmaster setup` again."
+                "Docker Desktop runs Windows containers: right-click its tray icon, choose \"Switch to Linux containers\", then run `coursecrafter setup` again."
             );
             false
         }
@@ -248,10 +248,10 @@ fn docker_path(a: &Access) -> bool {
     }
 }
 
-/// Builds skillchecker's Linux image now rather than at the first check.
+/// Builds proctor's Linux image now rather than at the first check.
 fn prebuild_image() -> bool {
     if !crate::ask_yes(
-        "Build skillchecker's Linux image now (a few minutes, once), instead of at the first Linux unit?",
+        "Build proctor's Linux image now (a few minutes, once), instead of at the first Linux unit?",
     ) {
         println!("It will be built at the first Linux unit.");
         return true;
@@ -283,7 +283,7 @@ fn wsl_path(a: &Access) -> bool {
         }
         if !run_visible("wsl", &["--install", "-d", WSL_DISTRO]) {
             println!(
-                "The installation did not finish. Fix the problem shown above, then run `taskmaster setup` again."
+                "The installation did not finish. Fix the problem shown above, then run `coursecrafter setup` again."
             );
             return false;
         }
@@ -293,7 +293,7 @@ fn wsl_path(a: &Access) -> bool {
         "\nWith WSL you follow the whole course inside Linux. In `wsl -d {distro}`:\n\
          \x20 sudo apt update && sudo apt install -y build-essential curl git\n\
          \x20 curl -sSf https://sh.rustup.rs | sh -s -- -y --component clippy,rustfmt\n\
-         \x20 then clone PiscineBuilder there and run `cargo install --path skillchecker` and `cargo install --path taskmaster`.\n\
+         \x20 then clone PiscineBuilder there and run `cargo install --path proctor` and `cargo install --path coursecrafter`.\n\
          Keep the course in the Linux home folder (~/), not under /mnt/c: builds there are much faster.\n\
          VS Code opens it with its WSL extension (`code .` inside WSL)."
     );
@@ -331,21 +331,21 @@ pub fn offer(plan: &Plan, interactive: bool) -> bool {
     };
     println!("On this machine: {}{wsl}.", a.docker_text());
     if !interactive {
-        println!("Run `taskmaster setup` in a terminal to install or start what they need.");
+        println!("Run `coursecrafter setup` in a terminal to install or start what they need.");
         return a.docker == Status::Ready;
     }
     let docker_label = match a.docker {
         Status::Ready => {
-            "Docker Desktop: already running; skillchecker runs the Linux units in a container, you stay on this machine"
+            "Docker Desktop: already running; proctor runs the Linux units in a container, you stay on this machine"
         }
         Status::Stopped => {
-            "Docker Desktop: start it; skillchecker runs the Linux units in a container, you stay on this machine"
+            "Docker Desktop: start it; proctor runs the Linux units in a container, you stay on this machine"
         }
         Status::WindowsContainers => {
-            "Docker Desktop: switch it to Linux containers; skillchecker then runs the Linux units in a container"
+            "Docker Desktop: switch it to Linux containers; proctor then runs the Linux units in a container"
         }
         Status::Missing => {
-            "Docker Desktop: install it; skillchecker runs the Linux units in a container, you stay on this machine"
+            "Docker Desktop: install it; proctor runs the Linux units in a container, you stay on this machine"
         }
     };
     let mut options = vec![docker_label.to_string()];
@@ -356,7 +356,7 @@ pub fn offer(plan: &Plan, interactive: bool) -> bool {
         );
     }
     options.push(
-        "Not now: the Linux units cannot be checked until one is set up (`taskmaster setup` later)"
+        "Not now: the Linux units cannot be checked until one is set up (`coursecrafter setup` later)"
             .to_string(),
     );
     let pick = match ask::choose("How do you want to run the Linux units?", &options, 0, None) {
@@ -368,7 +368,7 @@ pub fn offer(plan: &Plan, interactive: bool) -> bool {
     } else if a.wsl && pick == 1 {
         wsl_path(&a)
     } else {
-        println!("Later: `taskmaster setup` asks again.");
+        println!("Later: `coursecrafter setup` asks again.");
         false
     }
 }

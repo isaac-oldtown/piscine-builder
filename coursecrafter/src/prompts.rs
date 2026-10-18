@@ -316,7 +316,7 @@ pub fn browser_prompt(
     )
 }
 
-/// `taskmaster revise`: the current file plus the student's requested changes.
+/// `coursecrafter revise`: the current file plus the student's requested changes.
 pub fn revise_request(current: &str, changes: &str) -> String {
     format!(
         "Here is my current curriculum:\n<curriculum>\n{current}\n</curriculum>\n\n\
@@ -366,7 +366,7 @@ pub fn gen_system(langs: &[String]) -> String {
     s.push_str(&format!(
         "Expressions: literals, == != < <= > >= && || ! + - * / %, x.field, x[i], the student's functions, \
          run(args=[...], stdin=\"...\") for programs, and only these built-ins: {}. There are no user functions or lambdas.\n",
-        skillchecker::expr::BUILTINS.join(" ")
+        proctor::expr::BUILTINS.join(" ")
     ));
     s.push_str(GEN_RULES);
     s.push_str("\n# Language notes\n");
@@ -385,12 +385,12 @@ pub fn gen_system(langs: &[String]) -> String {
     s
 }
 
-const GEN_INTRO: &str = r#"You write exercises for PiscineBuilder, a hands-on course system. A grader, skillchecker, checks the student's work offline from one YAML spec per unit and renders the instructions from it, so you produce data only. The student sees the rendered contract, never your tests or your reference solution.
+const GEN_INTRO: &str = r#"You write exercises for PiscineBuilder, a hands-on course system. A grader, proctor, checks the student's work offline from one YAML spec per unit and renders the instructions from it, so you produce data only. The student sees the rendered contract, never your tests or your reference solution.
 
 # Contract (the <unit> block)
 
-YAML with these keys (taskmaster adds id, title, language, difficulty, concepts, notes, platform):
-- target: function | program. function: skillchecker calls the listed functions itself. program: the whole program is run (arguments, stdin, stdout, stderr, exit code).
+YAML with these keys (coursecrafter adds id, title, language, difficulty, concepts, notes, platform):
+- target: function | program. function: proctor calls the listed functions itself. program: the whole program is run (arguments, stdin, stdout, stderr, exit code).
 - goal: one sentence.
 - functions: [{name, sig, returns}], the minimal set the student writes, as exact signatures (see the language notes). A program target usually lists none. A stage lists only the functions it adds.
 - files: the expected tree, [{path, rule, note}] with rule = required (default) | one_or_more | free | forbidden; `*` inside a folder, `**` across folders. Listing any rule makes unlisted files unexpected, so a project adds {path: "**", rule: free} unless the layout must be exact.
@@ -399,7 +399,7 @@ YAML with these keys (taskmaster adds id, title, language, difficulty, concepts,
 - forbidden: items banned even though `allowed` covers them, when the brief bans a few things (allowed: [std], forbidden: [std::mem::swap]).
 - stubs: function target only, where the empty functions are written at unlock; it must fit the files rules.
 - environment: one line, only if the student must install or set something unusual.
-Style: plain, short sentences, no long dashes. Never reveal the tests, the reference solution or how the checks work inside. Naming the student's commands (`skillchecker check`, `skillchecker shell`) is fine when the brief does.
+Style: plain, short sentences, no long dashes. Never reveal the tests, the reference solution or how the checks work inside. Naming the student's commands (`proctor check`, `proctor shell`) is fine when the brief does.
 
 # Tests (the <tests> block)
 
@@ -553,7 +553,7 @@ pub fn tests_request(unit_yaml: &str, cx: &TestsContext) -> String {
 
 pub fn language_request(lang: &str) -> String {
     format!(
-        "skillchecker has no preset for `{lang}`. Write its course-level settings as YAML inside <language>...</language>:\n\
+        "proctor has no preset for `{lang}`. Write its course-level settings as YAML inside <language>...</language>:\n\
          name: display name\nbuild: optional command that compiles or syntax-checks the program\nrun: command that runs the program\n\
          imports: [regexes whose group 1 captures an imported module or library name]\nextensions: [source file extensions, no dot]\n\
          comment: line comment marker\n\

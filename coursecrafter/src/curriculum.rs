@@ -1,5 +1,5 @@
 //! The curriculum: one markdown file, written by a browser chat, by
-//! `taskmaster new`, or by hand. It is the contract between planning and
+//! `coursecrafter new`, or by hand. It is the contract between planning and
 //! generation, so it is parsed strictly and every problem is reported in a
 //! form that can be pasted back to whoever wrote it.
 //!
@@ -331,7 +331,7 @@ pub fn norm(concept: &str) -> String {
 }
 
 impl Plan {
-    /// Drills and stages, in teaching order: the units skillchecker will grade.
+    /// Drills and stages, in teaching order: the units proctor will grade.
     pub fn units(&self) -> Vec<&Entry> {
         self.entries
             .iter()
@@ -526,12 +526,12 @@ impl Plan {
                     }
                     if e.f.target.as_deref() == Some("function")
                         && !lang.is_empty()
-                        && !skillchecker::lang::has_harness(&lang)
+                        && !proctor::lang::has_harness(&lang)
                     {
                         p.push(Problem::err(e.line, id, format!("`target: function` is available for c, python and rust; use `target: program` for {lang}")));
                     }
                     if e.f.gradable == Some(false) {
-                        p.push(Problem::warn(e.line, id, "gradable: false, so skillchecker will only check files, structure and the build"));
+                        p.push(Problem::warn(e.line, id, "gradable: false, so proctor will only check files, structure and the build"));
                     }
                     if !e.f.teaches.is_empty() || e.f.with.is_some() {
                         p.push(Problem::err(
@@ -821,13 +821,13 @@ impl Plan {
             let (tool, ok) = match lang.as_str() {
                 "c" => (
                     "a C compiler (cc, gcc or clang)",
-                    skillchecker::lang::cc().is_some(),
+                    proctor::lang::cc().is_some(),
                 ),
-                "python" => ("Python 3", skillchecker::lang::python().is_some()),
-                "rust" => ("cargo", skillchecker::run::exists("cargo")),
+                "python" => ("Python 3", proctor::lang::python().is_some()),
+                "rust" => ("cargo", proctor::run::exists("cargo")),
                 "bash" | "sh" | "shell" => (
                     "bash",
-                    skillchecker::run::exists(&skillchecker::lang::resolve("bash")),
+                    proctor::run::exists(&proctor::lang::resolve("bash")),
                 ),
                 _ => continue,
             };
@@ -1062,7 +1062,7 @@ pub fn problems_of(text: &str) -> Vec<Problem> {
     }
 }
 
-/// Appends fixes and problems to `.skillchecker/taskmaster/validator.log`
+/// Appends fixes and problems to `.proctor/coursecrafter/validator.log`
 /// (JSON lines), to see which rules planners trip on most.
 pub fn log_validation(
     course: &std::path::Path,
@@ -1074,13 +1074,13 @@ pub fn log_validation(
         return;
     }
     let path = course
-        .join(".skillchecker")
-        .join("taskmaster")
+        .join(".proctor")
+        .join("coursecrafter")
         .join("validator.log");
     if let Some(d) = path.parent() {
         let _ = std::fs::create_dir_all(d);
     }
-    let t = skillchecker::journal::now();
+    let t = proctor::journal::now();
     let mut out = String::new();
     for f in fixes {
         out.push_str(

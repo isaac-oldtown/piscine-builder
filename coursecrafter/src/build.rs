@@ -1,15 +1,15 @@
-//! `taskmaster build`: curriculum -> course.
+//! `coursecrafter build`: curriculum -> course.
 //!   pass 1: one contract per unit (and notes, and settings for unknown languages)
-//!   pass 2: tests, generators, reference solution, scaffold; gated by skillchecker selftest
+//!   pass 2: tests, generators, reference solution, scaffold; gated by proctor selftest
 //! Each LLM reply is cached on disk by a hash of its request, so a re-run only
 //! pays for what changed. Nothing that fails the gate is kept.
 
 use crate::curriculum::{Entry, Kind, Plan};
 use crate::llm::{self, Llm, Msg};
 use crate::prompts;
-use skillchecker::course::CourseDir;
-use skillchecker::unit::{LangConfig, Target, Unit};
-use skillchecker::{engine, lang, selftest, sig};
+use proctor::course::CourseDir;
+use proctor::unit::{LangConfig, Target, Unit};
+use proctor::{engine, lang, selftest, sig};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ pub struct Builder<'a> {
 }
 
 fn hidden(root: &Path) -> PathBuf {
-    root.join(skillchecker::course::HIDDEN)
+    root.join(proctor::course::HIDDEN)
 }
 
 fn fnv(parts: &[&str]) -> String {
@@ -129,7 +129,7 @@ impl<'a> Builder<'a> {
         parts.extend(messages.iter().map(|m| m.content.as_str()));
         let key = fnv(&parts);
         let path = hidden(&self.root)
-            .join("taskmaster")
+            .join("coursecrafter")
             .join("cache")
             .join(format!("{label}-{key}.txt"));
         if let Ok(text) = fs::read_to_string(&path) {
@@ -240,7 +240,7 @@ impl<'a> Builder<'a> {
 
     pub fn run(&mut self) -> Result<bool, String> {
         let h = hidden(&self.root);
-        for d in ["units", "refs", "notes", "scaffold", "taskmaster/cache"] {
+        for d in ["units", "refs", "notes", "scaffold", "coursecrafter/cache"] {
             fs::create_dir_all(h.join(d)).map_err(|e| e.to_string())?;
         }
         let mut languages = self.existing_languages();
@@ -296,7 +296,7 @@ impl<'a> Builder<'a> {
         };
         if !want_tests {
             status(
-                "Skipped the correction suite: skillchecker will check structure, prototypes, allowed and the build only. Run `taskmaster build --tests` later to add it.",
+                "Skipped the correction suite: proctor will check structure, prototypes, allowed and the build only. Run `coursecrafter build --tests` later to add it.",
             );
             return Ok(true);
         }
@@ -310,7 +310,7 @@ impl<'a> Builder<'a> {
             });
         if linux_pending {
             // Linux units are gated in a container: fail early, not as rejected attempts.
-            skillchecker::docker::image()
+            proctor::docker::image()
                 .map_err(|e| format!("{e}\n(the Linux units are tested in a Docker container)"))?;
         }
         let mut failed: Vec<String> = Vec::new();
@@ -373,7 +373,7 @@ impl<'a> Builder<'a> {
         ));
         if !failed.is_empty() {
             status(&format!(
-                "{} unit(s) have no correction suite because they never passed the gate: {}. Run `taskmaster build --only <id>` to retry.",
+                "{} unit(s) have no correction suite because they never passed the gate: {}. Run `coursecrafter build --only <id>` to retry.",
                 failed.len(),
                 failed.join(", ")
             ));
@@ -699,8 +699,8 @@ impl<'a> Builder<'a> {
         if let Some(st) = &unit.stubs {
             let fits = unit.files.is_empty()
                 || unit.files.iter().any(|r| {
-                    r.rule != skillchecker::unit::Rule::Forbidden
-                        && skillchecker::structure::glob(&r.path, st)
+                    r.rule != proctor::unit::Rule::Forbidden
+                        && proctor::structure::glob(&r.path, st)
                 });
             if !fits {
                 p.push(format!(
@@ -736,7 +736,7 @@ impl<'a> Builder<'a> {
             && (r.contains("target/") || r.contains("target\\"))
         {
             p.push(format!(
-                "`run: {r}` points into a build folder, which skillchecker places elsewhere: remove `run` (a Rust or C program runs as built) or run it through its interpreter"
+                "`run: {r}` points into a build folder, which proctor places elsewhere: remove `run` (a Rust or C program runs as built) or run it through its interpreter"
             ));
         }
         p
@@ -788,7 +788,7 @@ impl<'a> Builder<'a> {
     fn ref_text(&self, id: &str) -> String {
         let dir = hidden(&self.root).join("refs").join(id);
         let mut out = String::new();
-        for rel in skillchecker::scan::walk(&dir) {
+        for rel in proctor::scan::walk(&dir) {
             if rel.ends_with("Cargo.lock") {
                 continue;
             }
@@ -1061,7 +1061,7 @@ impl<'a> Builder<'a> {
             // Formatting is mechanical: done here rather than asked of the model.
             let mut fmt = std::process::Command::new(lang::resolve("cargo"));
             fmt.arg("fmt").current_dir(&ref_dir);
-            let _ = skillchecker::run::run(&mut fmt, None, std::time::Duration::from_secs(60));
+            let _ = proctor::run::run(&mut fmt, None, std::time::Duration::from_secs(60));
         }
         let scaffold_dir = h.join("scaffold").join(&u.id);
         let _ = fs::remove_dir_all(&scaffold_dir);
@@ -1079,9 +1079,9 @@ impl<'a> Builder<'a> {
             return Err(problems.join("\n"));
         }
         let unit = c.unit(&u.id).ok_or("unit missing after write")?;
-        let seed = skillchecker::gens::Rng::new(skillchecker::journal::now()).next_u64();
-        let r = if skillchecker::docker::needed(unit) {
-            skillchecker::docker::selftest(&c, &[unit], seed)?
+        let seed = proctor::gens::Rng::new(proctor::journal::now()).next_u64();
+        let r = if proctor::docker::needed(unit) {
+            proctor::docker::selftest(&c, &[unit], seed)?
                 .pop()
                 .ok_or("no report from the Linux container")?
         } else {
@@ -1089,7 +1089,7 @@ impl<'a> Builder<'a> {
         };
         let mut issues = Vec::new();
         if let Err(e) = &r.reference {
-            issues.push(format!("your reference solution fails skillchecker: {e}"));
+            issues.push(format!("your reference solution fails proctor: {e}"));
         }
         for v in &r.vacuous {
             issues.push(format!(

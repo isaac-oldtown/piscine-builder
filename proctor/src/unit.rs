@@ -1,5 +1,5 @@
 //! On-disk course format. One YAML file per unit holds both the contract
-//! (what the instructions say) and the tests (what skillchecker runs), so the
+//! (what the instructions say) and the tests (what proctor runs), so the
 //! two can never drift apart.
 
 use serde::Deserialize;
@@ -25,7 +25,7 @@ pub struct Course {
     pub languages: BTreeMap<String, LangConfig>,
 }
 
-/// How to build, run and inspect one language. skillchecker ships defaults for
+/// How to build, run and inspect one language. proctor ships defaults for
 /// common languages (see `defaults.rs`); a course's `languages:` entry
 /// overrides any field, and unit fields win over both. Every field is optional
 /// so "not set" (inherit) differs from "set to empty" (replace).
@@ -65,7 +65,7 @@ pub struct LangConfig {
     /// `valgrind --leak-check=full --error-exitcode=99`.
     #[serde(default)]
     pub wrap: Option<String>,
-    /// Course files (relative to `.skillchecker/`) built together with the
+    /// Course files (relative to `.proctor/`) built together with the
     /// student's code, e.g. a malloc-failure shim.
     #[serde(default)]
     pub support: Option<Vec<String>>,
@@ -113,10 +113,10 @@ pub struct Project {
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Target {
-    /// skillchecker loads the functions and calls them from its own main.
+    /// proctor loads the functions and calls them from its own main.
     #[default]
     Function,
-    /// skillchecker runs the student's program as a whole.
+    /// proctor runs the student's program as a whole.
     Program,
 }
 
@@ -250,7 +250,7 @@ pub struct Unit {
     pub introduces: Vec<String>,
     #[serde(default)]
     pub assumes: Vec<String>,
-    /// Note files (in `.skillchecker/notes/`) revealed with this unit.
+    /// Note files (in `.proctor/notes/`) revealed with this unit.
     #[serde(default)]
     pub notes: Vec<String>,
     /// How hard the ideas are to understand (`difficulty` is implementation).
@@ -259,10 +259,10 @@ pub struct Unit {
     /// Planned hours, for the schedule in PROGRESS.md. Never shown in instructions.
     #[serde(default)]
     pub hours: Option<f64>,
-    /// Optional unit: the student may skip it with `skillchecker skip`.
+    /// Optional unit: the student may skip it with `proctor skip`.
     #[serde(default)]
     pub stretch: bool,
-    /// `linux`: needs Linux APIs; on other systems skillchecker builds, runs
+    /// `linux`: needs Linux APIs; on other systems proctor builds, runs
     /// and tests it in a Linux container (Docker). Absent: any system.
     #[serde(default)]
     pub platform: Option<String>,
@@ -292,7 +292,7 @@ pub struct Unit {
     /// Python: default module for undotted function names.
     #[serde(default)]
     pub module: Option<String>,
-    /// Where `skillchecker next` writes empty mandatory functions.
+    /// Where `proctor next` writes empty mandatory functions.
     #[serde(default)]
     pub stubs: Option<String>,
     /// Program target: how to run the program ({exe}, {python}, {cargo_bin}).

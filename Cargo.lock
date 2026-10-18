@@ -46,6 +46,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "coursecrafter"
+version = "0.1.0"
+dependencies = [
+ "proctor",
+ "regex",
+ "serde",
+ "serde_json",
+ "ureq",
+ "yaml_serde",
+]
+
+[[package]]
 name = "crc32fast"
 version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -179,6 +191,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "proctor"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "yaml_serde",
 ]
 
 [[package]]
@@ -330,16 +352,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
 
 [[package]]
-name = "skillchecker"
-version = "0.1.0"
-dependencies = [
- "regex",
- "serde",
- "serde_json",
- "yaml_serde",
-]
-
-[[package]]
 name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -354,18 +366,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "taskmaster"
-version = "0.1.0"
-dependencies = [
- "regex",
- "serde",
- "serde_json",
- "skillchecker",
- "ureq",
- "yaml_serde",
 ]
 
 [[package]]

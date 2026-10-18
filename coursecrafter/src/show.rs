@@ -1,9 +1,9 @@
-//! `taskmaster show`: the curriculum as a readable overview, without the
+//! `coursecrafter show`: the curriculum as a readable overview, without the
 //! truncation of the approval table. Read-only: no LLM, no file written.
 
 use crate::curriculum::{self, Entry, Kind, Plan};
 use crate::{Args, approval_path, text_hash};
-use skillchecker::report::Style;
+use proctor::report::Style;
 
 /// Terminal width from `COLUMNS`, else 100.
 fn width() -> usize {
@@ -221,7 +221,9 @@ pub fn cmd_show(raw: &[String]) -> Result<bool, String> {
     let file = match a.positional.as_slice() {
         [f] => std::path::PathBuf::from(f),
         [] => course.join("curriculum.md"),
-        _ => return Err("usage: taskmaster show [curriculum.md] [--course DIR] [--full]".into()),
+        _ => {
+            return Err("usage: coursecrafter show [curriculum.md] [--course DIR] [--full]".into());
+        }
     };
     let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
     let plan = match curriculum::parse(&text) {
@@ -268,7 +270,7 @@ pub fn cmd_show(raw: &[String]) -> Result<bool, String> {
     if !a.has("full") {
         println!(
             "{}",
-            st.dim("Briefs, Allowed lists and scaffolds: taskmaster show --full")
+            st.dim("Briefs, Allowed lists and scaffolds: coursecrafter show --full")
         );
     }
     Ok(errors == 0)

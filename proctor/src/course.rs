@@ -1,4 +1,4 @@
-//! A course on disk: `<root>/.skillchecker/` holds everything hidden; the
+//! A course on disk: `<root>/.proctor/` holds everything hidden; the
 //! student sees `subjects/`, `notes/`, `PROGRESS.md` and their workspaces.
 
 use crate::gens::Lib;
@@ -9,23 +9,40 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const HIDDEN: &str = ".skillchecker";
+pub const HIDDEN: &str = ".proctor";
 
-/// The folder's name before the grader was renamed.
-const OLD_HIDDEN: &str = ".skillcheck";
+/// The folder's names before the grader was renamed, newest first.
+const OLD_HIDDEN: &[&str] = &[".skillchecker", ".skillcheck"];
 
-/// Renames an old `.skillcheck/` folder in `root` to `.skillchecker/`, once.
+/// Renames an old hidden folder in `root` to `.proctor/`, and its
+/// `taskmaster/` folder to `coursecrafter/`, once.
 pub fn migrate(root: &Path) -> Result<(), String> {
-    let old = root.join(OLD_HIDDEN);
     let new = root.join(HIDDEN);
-    if old.join("course.yaml").is_file() && !new.exists() {
-        fs::rename(&old, &new)
-            .map_err(|e| format!("renaming {} to {}: {e}", old.display(), new.display()))?;
+    let rename = |old: &Path, new: &Path| {
+        fs::rename(old, new).map_err(|e| {
+            format!(
+                "renaming {} to {}: {e}",
+                strip_verbatim(old).display(),
+                strip_verbatim(new).display()
+            )
+        })
+    };
+    if let Some(old) = OLD_HIDDEN
+        .iter()
+        .map(|o| root.join(o))
+        .find(|o| o.join("course.yaml").is_file())
+        && !new.exists()
+    {
+        rename(&old, &new)?;
         eprintln!(
-            "Renamed {} to {} (the grader is now skillchecker).",
+            "Renamed {} to {} (the grader is now proctor).",
             strip_verbatim(&old).display(),
             strip_verbatim(&new).display()
         );
+    }
+    let (old_tm, new_tm) = (new.join("taskmaster"), new.join("coursecrafter"));
+    if old_tm.is_dir() && !new_tm.exists() {
+        rename(&old_tm, &new_tm)?;
     }
     Ok(())
 }
@@ -43,7 +60,7 @@ fn read_yaml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
 }
 
 impl CourseDir {
-    /// Nearest ancestor of `start` (inclusive) holding `.skillchecker/course.yaml`.
+    /// Nearest ancestor of `start` (inclusive) holding `.proctor/course.yaml`.
     pub fn discover(start: &Path) -> Result<CourseDir, String> {
         let start = start
             .canonicalize()
@@ -52,10 +69,12 @@ impl CourseDir {
             .ancestors()
             .find(|d| {
                 d.join(HIDDEN).join("course.yaml").is_file()
-                    || d.join(OLD_HIDDEN).join("course.yaml").is_file()
+                    || OLD_HIDDEN
+                        .iter()
+                        .any(|o| d.join(o).join("course.yaml").is_file())
             })
             .ok_or(
-                "not inside a PiscineBuilder course (no .skillchecker/course.yaml above this directory)",
+                "not inside a PiscineBuilder course (no .proctor/course.yaml above this directory)",
             )?;
         CourseDir::load(root)
     }

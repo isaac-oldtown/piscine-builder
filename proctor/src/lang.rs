@@ -524,7 +524,7 @@ pub fn build_harness(
                     log: all,
                 });
             }
-            let script = ctx.work.join("skillchecker_harness.py");
+            let script = ctx.work.join("proctor_harness.py");
             fs::write(&script, PY_HARNESS).map_err(|e| BuildError::new(e.to_string()))?;
             let cmd = ctx.wrapped(vec![
                 py,
@@ -795,7 +795,7 @@ fn build_c_harness(
         w.extend(flags.iter().cloned());
         w.extend(includes.iter().cloned());
         w.extend([
-            "-Dmain=skillchecker_student_main".into(),
+            "-Dmain=proctor_student_main".into(),
             "-c".into(),
             src.clone(),
             "-o".into(),
@@ -839,9 +839,9 @@ fn build_c_harness(
         .iter()
         .map(|p| (p.name.clone(), p.sig_text.clone()))
         .collect();
-    let src = ctx.work.join("skillchecker_harness.c");
+    let src = ctx.work.join("proctor_harness.c");
     fs::write(&src, c_harness_source(protos, &sigs)).map_err(|e| BuildError::new(e.to_string()))?;
-    let hobj = ctx.work.join("skillchecker_harness.o");
+    let hobj = ctx.work.join("proctor_harness.o");
     let out = ctx.exec(
         &[
             cc.clone(),
@@ -863,7 +863,7 @@ fn build_c_harness(
             log: out.stderr,
         });
     }
-    let bin = ctx.work.join(exe("skillchecker_harness"));
+    let bin = ctx.work.join(exe("proctor_harness"));
     let mut w = vec![cc];
     w.extend(link_flags);
     w.extend(objects);
@@ -1176,7 +1176,7 @@ fn build_rust_harness(
     let ws = ctx.ws.to_string_lossy().replace('\\', "/");
     fs::write(
         dir.join("Cargo.toml"),
-        format!("[package]\nname = \"skillchecker_harness\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nstudent = {{ package = \"{pkg}\", path = \"{ws}\" }}\n\n[workspace]\n"),
+        format!("[package]\nname = \"proctor_harness\"\nversion = \"0.0.0\"\nedition = \"2024\"\npublish = false\n\n[dependencies]\nstudent = {{ package = \"{pkg}\", path = \"{ws}\" }}\n\n[workspace]\n"),
     )
     .map_err(|e| BuildError::new(e.to_string()))?;
     fs::write(
@@ -1212,7 +1212,7 @@ fn build_rust_harness(
         .cache
         .join("target")
         .join("debug")
-        .join(exe("skillchecker_harness"));
+        .join(exe("proctor_harness"));
     Ok((
         Harness::new(
             ctx.wrapped(vec![bin.to_string_lossy().into_owned()]),

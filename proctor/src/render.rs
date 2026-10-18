@@ -1,6 +1,6 @@
 //! Renders instruction files from unit records, in one fixed design. The
 //! markdown is never written by an LLM: it is derived from the same record
-//! skillchecker grades against, at the moment the unit is revealed.
+//! proctor grades against, at the moment the unit is revealed.
 
 use crate::course::CourseDir;
 use crate::engine::DEFAULT_ROUNDS;
@@ -109,7 +109,7 @@ pub fn unit_md(c: &CourseDir, u: &Unit) -> String {
         (
             "Status",
             if u.stretch {
-                "Stretch goal: optional, `skillchecker skip` moves on without it".to_string()
+                "Stretch goal: optional, `proctor skip` moves on without it".to_string()
             } else {
                 String::new()
             },
@@ -199,7 +199,7 @@ pub fn unit_md(c: &CourseDir, u: &Unit) -> String {
             if u.environment.is_some() {
                 s.push('\n');
             }
-            s.push_str("skillchecker sets these variables when it builds and runs your work:\n\n");
+            s.push_str("proctor sets these variables when it builds and runs your work:\n\n");
             for (k, v) in &u.env {
                 s.push_str(&format!("- `{k}={v}`\n"));
             }
@@ -208,7 +208,7 @@ pub fn unit_md(c: &CourseDir, u: &Unit) -> String {
 
     s.push_str("\n## Passing conditions\n\n");
     s.push_str(&passing(c, u, &lang));
-    s.push_str("\nPasses when `skillchecker check` prints `OK`.\n");
+    s.push_str("\nPasses when `proctor check` prints `OK`.\n");
 
     let ws = c.workspace_name(u);
     let is_last_stage = u.is_stage()
@@ -217,14 +217,14 @@ pub fn unit_md(c: &CourseDir, u: &Unit) -> String {
             .map(|x| x.id.as_str())
             == Some(u.id.as_str());
     let next = if is_last_stage {
-        "the project is complete and skillchecker offers what comes next"
+        "the project is complete and proctor offers what comes next"
     } else if u.is_stage() {
-        "skillchecker offers the next stage"
+        "proctor offers the next stage"
     } else {
-        "skillchecker offers the next exercise"
+        "proctor offers the next exercise"
     };
     s.push_str(&format!(
-        "\n## Submission\n\nWork in `{ws}/` and run `skillchecker check` from there. When it prints `OK`, {next}.\n\nFair play: docs, books and forums are fine, AI assistants are not.\n"
+        "\n## Submission\n\nWork in `{ws}/` and run `proctor check` from there. When it prints `OK`, {next}.\n\nFair play: docs, books and forums are fine, AI assistants are not.\n"
     ));
     s
 }
@@ -236,17 +236,15 @@ fn passing(c: &CourseDir, u: &Unit, lang: &str) -> String {
         Target::Function => {
             let how = match lang {
                 "python" => {
-                    "skillchecker imports your code and calls the functions above itself. Code at module level runs on import, so keep scripts behind `if __name__ == \"__main__\":`."
+                    "proctor imports your code and calls the functions above itself. Code at module level runs on import, so keep scripts behind `if __name__ == \"__main__\":`."
                 }
                 "rust" => {
-                    "skillchecker links your library crate (`src/lib.rs`) and calls the functions above itself; they must be `pub` at the crate root. A `main`, if any, is not run."
+                    "proctor links your library crate (`src/lib.rs`) and calls the functions above itself; they must be `pub` at the crate root. A `main`, if any, is not run."
                 }
                 "c" => {
-                    "skillchecker compiles your files with its own `main` and calls the functions above itself. Your `main`, if any, is compiled but never run."
+                    "proctor compiles your files with its own `main` and calls the functions above itself. Your `main`, if any, is compiled but never run."
                 }
-                _ => {
-                    "skillchecker calls the functions above itself; your `main`, if any, is not run."
-                }
+                _ => "proctor calls the functions above itself; your `main`, if any, is not run.",
             };
             lines.push(format!("**Graded target: your functions.** {how}"));
         }
@@ -277,7 +275,7 @@ fn passing(c: &CourseDir, u: &Unit, lang: &str) -> String {
     if chain.len() > 1 && chain[..chain.len() - 1].iter().any(|x| x.has_tests()) {
         steps.push("regression");
     }
-    let mut run_line = format!("`skillchecker check` runs, in order: {}.", steps.join(", "));
+    let mut run_line = format!("`proctor check` runs, in order: {}.", steps.join(", "));
     if steps.contains(&"regression") {
         run_line.push_str(&format!(
             " Regression re-runs the tests of {} to {}, so earlier behaviour must keep working.",
@@ -313,7 +311,7 @@ fn passing(c: &CourseDir, u: &Unit, lang: &str) -> String {
     if random {
         let rounds = u.random.rounds.unwrap_or(DEFAULT_ROUNDS);
         lines.push(format!(
-            "Some tests are randomized: about {rounds} generated inputs each, with a new seed on every run. A failure prints the seed, and `skillchecker check --seed <seed>` replays it."
+            "Some tests are randomized: about {rounds} generated inputs each, with a new seed on every run. A failure prints the seed, and `proctor check --seed <seed>` replays it."
         ));
     }
     let secs = c.timeout_ms(u).unwrap_or(crate::engine::DEFAULT_TIMEOUT_MS) as f64 / 1000.0;
@@ -367,7 +365,7 @@ pub fn overview_md(c: &CourseDir, pid: &str) -> String {
         ));
     }
     s.push_str(&format!(
-        "\n## How a project works\n\nYou keep one workspace, `{pid}/`, from the first stage to the last. A stage's\ninstructions appear only once the previous stage passes, and each stage adds to the\nsame workspace: skillchecker creates missing files and stubs and never touches a file\nyou already wrote.\n\nEach stage's check also re-runs the tests of the earlier stages. The Allowed list of a\nstage always includes the previous ones.\n\n## Submission\n\nWork in `{pid}/` and run `skillchecker check` from there. When it prints `OK`,\nskillchecker offers the next stage.\n\nFair play: docs, books and forums are fine, AI assistants are not.\n"
+        "\n## How a project works\n\nYou keep one workspace, `{pid}/`, from the first stage to the last. A stage's\ninstructions appear only once the previous stage passes, and each stage adds to the\nsame workspace: proctor creates missing files and stubs and never touches a file\nyou already wrote.\n\nEach stage's check also re-runs the tests of the earlier stages. The Allowed list of a\nstage always includes the previous ones.\n\n## Submission\n\nWork in `{pid}/` and run `proctor check` from there. When it prints `OK`,\nproctor offers the next stage.\n\nFair play: docs, books and forums are fine, AI assistants are not.\n"
     ));
     s
 }

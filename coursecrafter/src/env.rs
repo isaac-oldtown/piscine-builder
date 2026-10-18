@@ -1,10 +1,10 @@
 //! The environment the course will be followed in: detected on this machine
-//! (taskmaster assumes the student works where the course is built) and,
+//! (coursecrafter assumes the student works where the course is built) and,
 //! optionally, declared in the curriculum front matter when it differs.
 //! Planning and generation only rely on tools listed here.
 
-use skillchecker::lang;
-use skillchecker::run;
+use proctor::lang;
+use proctor::run;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;
@@ -188,7 +188,7 @@ impl Env {
             .any(|(n, _)| n == tool || n.starts_with(&format!("{tool} ")))
     }
 
-    /// Compact text for prompts and for `taskmaster env`.
+    /// Compact text for prompts and for `coursecrafter env`.
     pub fn summary(&self) -> String {
         let mut s = String::new();
         if let Some(d) = &self.declared {

@@ -4,13 +4,13 @@
 
 ```
 course/
-  curriculum.md          the plan (taskmaster)
-  subjects/              revealed instructions (rendered by skillchecker, never by an LLM)
+  curriculum.md          the plan (coursecrafter)
+  subjects/              revealed instructions (rendered by proctor, never by an LLM)
   notes/                 revealed notes
   reviews/               weekly reviews
   PROGRESS.md            generated after every check
   <workspace>/           one per drill, one per project (shared by its stages)
-  .skillchecker/
+  .proctor/
     course.yaml          title, unit order, projects, language settings
     units/<id>.yaml      one file per unit: contract and tests together
     lib.yaml             shared generators
@@ -20,7 +20,7 @@ course/
     notes/<name>.md      notes revealed with the units that list them
     journal.jsonl        event log; state and PROGRESS.md derive from it
     cache/               build cache (safe to delete)
-    taskmaster/          approval, environment, validator log, LLM reply cache
+    coursecrafter/          approval, environment, validator log, LLM reply cache
 ```
 
 ## Unit spec
@@ -31,9 +31,9 @@ title: String Basics
 language: c                    # c, python, rust, bash, js, ts, go, java, ruby, or any name
 difficulty: 2
 concepts: [pointer arithmetic]
-stretch: false                 # true: optional, `skillchecker skip` moves past it
+stretch: false                 # true: optional, `proctor skip` moves past it
 platform: linux                # optional: needs Linux; elsewhere it runs in a container (Docker)
-target: function               # function: skillchecker's own main calls yours | program: your program is run
+target: function               # function: proctor's own main calls yours | program: your program is run
 scaffold: minimal              # none (student creates everything) | minimal | full
 stubs: src/str_basics.c        # where empty mandatory functions are written on unlock
 goal: One sentence.

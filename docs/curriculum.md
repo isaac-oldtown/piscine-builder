@@ -1,7 +1,7 @@
 # Curriculum format and planning rules
 
-A curriculum is one markdown file, `curriculum.md`, in the course folder. `taskmaster new`
-and `taskmaster import` write it, you can edit it by hand, and `taskmaster prompt` prints
+A curriculum is one markdown file, `curriculum.md`, in the course folder. `coursecrafter new`
+and `coursecrafter import` write it, you can edit it by hand, and `coursecrafter prompt` prints
 the complete specification given to the planner.
 
 ## Format
@@ -80,10 +80,10 @@ scope. A note has `teaches` and `with` (the unit it is revealed with).
   many units at difficulty 5 or at one level, a hard stage that introduces three or more
   concepts or relies on one only a note covers, a unit relying on a tool this machine lacks.
 
-Before validating, taskmaster fixes mechanical slips itself: numbers that do not grow,
+Before validating, coursecrafter fixes mechanical slips itself: numbers that do not grow,
 stages numbered out of sequence (references follow the new ids), a missing `hours` (filled
 from the difficulty), and values YAML would misread, which get quoted. Fixes and problems
-are logged to `.skillchecker/taskmaster/validator.log`.
+are logged to `.proctor/coursecrafter/validator.log`.
 
 ## How the planner plans
 
@@ -93,7 +93,7 @@ each hard project stage, the test tool within the first three units, testing tim
 every estimate, one program per project, portable units unless Linux is needed, and a
 consolidation stage at the end (refactor, tests, documented limitations).
 
-`taskmaster new` asks at most six questions, one per reply, each built on the previous
+`coursecrafter new` asks at most six questions, one per reply, each built on the previous
 answers. Its first valid draft is reviewed by the planner against a twelve-point checklist
 (prerequisites, progression, testing, purpose, workload, minimum viable projects,
 consolidation, exit criteria, difficulty, design, fit, missing concepts), and it lists
@@ -102,7 +102,7 @@ edit the file yourself, or quit and keep the draft.
 
 ## Environment
 
-taskmaster assumes students work on the machine that builds the course. `taskmaster env`
+coursecrafter assumes students work on the machine that builds the course. `coursecrafter env`
 shows what it detected: the OS, about 25 tools with their versions, facts it tests for real
 (AddressSanitizer, a POSIX bash), and Linux access (native, Docker, WSL). When students use
 another machine, declare it with `environment:` in the front matter: the planner and every

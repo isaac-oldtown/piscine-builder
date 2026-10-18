@@ -1,4 +1,4 @@
-//! One `skillchecker check`: structure, prototypes, allowed, build, tests,
+//! One `proctor check`: structure, prototypes, allowed, build, tests,
 //! regression. Results stream to a `Reporter` as they happen.
 
 use crate::course::CourseDir;
@@ -790,7 +790,7 @@ impl<'a> Engine<'a> {
                     warnings += lang::count_warnings(&log);
                     let what = match (need_fn, need_prog) {
                         (true, true) => "functions and program",
-                        (true, false) => "functions loaded by skillchecker's own main",
+                        (true, false) => "functions loaded by proctor's own main",
                         (false, true) => "program",
                         _ => "sources",
                     };
@@ -962,7 +962,7 @@ impl<'a> Engine<'a> {
                 let dir = self.c.ref_dir(self.unit);
                 if !dir.is_dir() {
                     return Err(format!(
-                        "no reference solution at .skillchecker/refs/{}",
+                        "no reference solution at .proctor/refs/{}",
                         self.unit.id
                     ));
                 }
@@ -1396,7 +1396,7 @@ pub fn validate(c: &CourseDir) -> Vec<String> {
         let needs_ref = !u.random.fuzz.is_empty();
         if needs_ref && !c.ref_dir(u).is_dir() {
             problems.push(format!(
-                "{}: fuzz needs a reference solution in .skillchecker/refs/{}/",
+                "{}: fuzz needs a reference solution in .proctor/refs/{}/",
                 u.id, u.id
             ));
         }

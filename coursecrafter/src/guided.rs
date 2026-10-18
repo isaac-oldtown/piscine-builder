@@ -1,4 +1,4 @@
-//! `taskmaster new`: a short planning conversation in the terminal. It ends
+//! `coursecrafter new`: a short planning conversation in the terminal. It ends
 //! with the same curriculum file the browser path produces, so both go
 //! through one validator and one approval step.
 //!
@@ -11,8 +11,8 @@ use crate::curriculum::{self, Plan};
 use crate::llm::{self, Llm, Msg};
 use crate::prompts;
 use crate::{Args, LLM_OPTS, read_line};
+use proctor::ask::{self, Answer};
 use serde::Deserialize;
-use skillchecker::ask::{self, Answer};
 use std::collections::BTreeSet;
 use std::io::IsTerminal;
 use std::path::Path;
@@ -150,7 +150,7 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
     }
     if intake.trim().is_empty() {
         return Err(
-            "say what you want to learn: taskmaster new \"learn C pointers\" [--from syllabus.txt]"
+            "say what you want to learn: coursecrafter new \"learn C pointers\" [--from syllabus.txt]"
                 .into(),
         );
     }
@@ -160,33 +160,35 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
     converse(&course, &llm, intake, interactive, None)
 }
 
-/// `taskmaster revise` : the planner rewrites the current curriculum.md.
+/// `coursecrafter revise` : the planner rewrites the current curriculum.md.
 pub fn cmd_revise(raw: &[String]) -> Result<bool, String> {
     let mut valued = vec!["course"];
     valued.extend(LLM_OPTS);
     let a = Args::parse(raw, &valued, &["yes"])?;
     let changes = a.positional.join(" ");
     if changes.trim().is_empty() {
-        return Err("say what to change: taskmaster revise \"split p01.4 into two stages\"".into());
+        return Err(
+            "say what to change: coursecrafter revise \"split p01.4 into two stages\"".into(),
+        );
     }
     let course = a.course();
     let file = course.join("curriculum.md");
     let text = std::fs::read_to_string(&file).map_err(|_| {
         format!(
-            "no curriculum at {}: run `taskmaster new` or `taskmaster import` first",
+            "no curriculum at {}: run `coursecrafter new` or `coursecrafter import` first",
             file.display()
         )
     })?;
     let plan = curriculum::parse(&text).map_err(|p| {
         format!(
-            "curriculum.md does not parse; fix it by hand or with `taskmaster import curriculum.md`:\n{}",
+            "curriculum.md does not parse; fix it by hand or with `coursecrafter import curriculum.md`:\n{}",
             curriculum::report(&p)
         )
     })?;
     // The draft replaces curriculum.md while you review it: keep the old one.
     let backup = course
-        .join(".skillchecker")
-        .join("taskmaster")
+        .join(".proctor")
+        .join("coursecrafter")
         .join("curriculum.previous.md");
     if let Some(d) = backup.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
@@ -362,7 +364,7 @@ fn converse(
                 println!("Approved: {}.", course.join("curriculum.md").display());
                 eprintln!("{}", llm.usage_line());
                 crate::linux::offer(&plan, true);
-                println!("Next: taskmaster build");
+                println!("Next: coursecrafter build");
                 return Ok(true);
             }
             Decision::Edit => {
@@ -375,7 +377,7 @@ fn converse(
             }
             Decision::Quit => {
                 println!(
-                    "Draft kept in {}. Resume with: taskmaster import curriculum.md",
+                    "Draft kept in {}. Resume with: coursecrafter import curriculum.md",
                     course.join("curriculum.md").display()
                 );
                 return Ok(false);

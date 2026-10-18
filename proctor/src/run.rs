@@ -185,7 +185,7 @@ pub fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
         let name_s = name.to_string_lossy();
         if matches!(
             name_s.as_ref(),
-            ".git" | "target" | "node_modules" | "__pycache__" | ".skillchecker"
+            ".git" | "target" | "node_modules" | "__pycache__" | ".proctor"
         ) {
             continue;
         }
