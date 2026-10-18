@@ -3,6 +3,10 @@
 Intensive, hands-on programming courses in any language: planned and generated once
 with an LLM, then practised offline with an automatic grader.
 
+I made levelup for myself, to learn by building real projects with immediate, honest
+feedback. It is shared as is: it works for my courses and my machine (Windows, with Docker
+for the Linux parts), and may need adjusting for yours.
+
 levelup has two tools:
 
 - **taskmaster** creates a course: it plans the curriculum with you, then writes every
