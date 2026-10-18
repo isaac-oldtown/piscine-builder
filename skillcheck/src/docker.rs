@@ -104,22 +104,43 @@ fn quiet(cmd: &mut Command) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-fn check_docker() -> Result<(), String> {
-    let o = Command::new("docker")
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status {
+    /// No `docker` command.
+    Missing,
+    /// Installed, but the engine does not answer.
+    Stopped,
+    /// Docker Desktop is set to Windows containers.
+    WindowsContainers,
+    Ready,
+}
+
+pub fn status() -> Status {
+    let Ok(o) = Command::new("docker")
         .args(["info", "--format", "{{.OSType}}"])
+        .stdin(Stdio::null())
         .output()
-        .map_err(|_| {
-            "this unit runs on Linux, in a container, and `docker` was not found: install Docker Desktop, start it, then run the command again".to_string()
-        })?;
+    else {
+        return Status::Missing;
+    };
     if !o.status.success() {
-        return Err("this unit runs on Linux, in a container, and Docker is not running: start Docker Desktop, wait until it is ready, then run the command again".into());
+        Status::Stopped
+    } else if String::from_utf8_lossy(&o.stdout).trim() != "linux" {
+        Status::WindowsContainers
+    } else {
+        Status::Ready
     }
-    if String::from_utf8_lossy(&o.stdout).trim() != "linux" {
-        return Err(
+}
+
+fn check_docker() -> Result<(), String> {
+    match status() {
+        Status::Ready => Ok(()),
+        Status::Missing => Err("this unit runs on Linux, in a container, and `docker` was not found: install Docker Desktop (`taskmaster setup` can do it), start it, then run the command again".into()),
+        Status::Stopped => Err("this unit runs on Linux, in a container, and Docker is not running: start Docker Desktop, wait until it is ready, then run the command again".into()),
+        Status::WindowsContainers => Err(
             "Docker runs Windows containers: switch Docker Desktop to Linux containers".into(),
-        );
+        ),
     }
-    Ok(())
 }
 
 /// The image tag, building the image first if this skillcheck has none yet.

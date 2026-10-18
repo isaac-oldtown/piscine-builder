@@ -33,10 +33,24 @@ taskmaster revise "add a drill on structs before p01" --course my-course
 # Read the whole plan: units, hours, both difficulties, prerequisites, approval (no LLM).
 taskmaster show --course my-course          # --full adds briefs, Allowed lists, scaffolds
 
+# Units that need Linux on Windows or macOS: set up Docker Desktop or WSL (no LLM).
+taskmaster setup --course my-course
+
 # Then generate everything (uses the LLM), and start.
 taskmaster build --course my-course
 cd my-course && skillcheck next
 ```
+
+`new` first scans the machine (tools, and whether Linux APIs are native or reachable
+through Docker or WSL) and gives the planner that scan: it prefers portable projects,
+marks the units that need Linux `platform: linux`, and when a goal can be met either
+way it asks which variant you want. Once the plan is approved, if it has Linux units
+on a machine that is not Linux, taskmaster lists them with their share of the hours and
+offers a way to run them: Docker Desktop (installed with winget or Homebrew, or
+started, then skillcheck's image built ahead of time), WSL Ubuntu (installed with `wsl
+--install`, with the steps to follow the course inside it), or later. Nothing is
+installed without a terminal and an explicit yes. `taskmaster setup` offers the same
+for an existing curriculum.
 
 `new` asks the planner's questions one at a time (at most 6), as multiple
 choice with a recommended option (Enter takes it, a letter picks another, any

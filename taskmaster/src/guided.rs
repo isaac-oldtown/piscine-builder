@@ -215,12 +215,14 @@ fn converse(
     interactive: bool,
     current: Option<&Plan>,
 ) -> Result<bool, String> {
+    eprintln!("scanning this machine...");
     let system = format!(
-        "{}\n\n{}\n## Example\n\n{}\n\n{}",
+        "{}\n\n{}\n## Example\n\n{}\n\n{}\n{}",
         prompts::GUIDED_SYSTEM,
         prompts::PLAN_FORMAT,
         prompts::PLAN_EXAMPLE,
-        crate::env::detect(None).prompt_block()
+        crate::env::detect(None).prompt_block(),
+        crate::linux::detect().planning_block()
     );
     let mut messages = vec![Msg::system(system), Msg::user(intake)];
     let mut asked = 0;
@@ -336,8 +338,11 @@ fn converse(
             }
         }
         if !interactive {
-            let ok = crate::review(course, text, true)?.is_some();
+            let ok = crate::review(course, text.clone(), true)?.is_some();
             eprintln!("{}", llm.usage_line());
+            if ok && let Ok(plan) = curriculum::parse(&text) {
+                crate::linux::offer(&plan, false);
+            }
             return Ok(ok);
         }
         std::fs::create_dir_all(course).map_err(|e| e.to_string())?;
@@ -354,17 +359,19 @@ fn converse(
         match decide() {
             Decision::Approve => {
                 crate::approve(course, &text)?;
-                println!(
-                    "Approved: {}. Next: taskmaster build",
-                    course.join("curriculum.md").display()
-                );
+                println!("Approved: {}.", course.join("curriculum.md").display());
                 eprintln!("{}", llm.usage_line());
+                crate::linux::offer(&plan, true);
+                println!("Next: taskmaster build");
                 return Ok(true);
             }
             Decision::Edit => {
-                let ok = crate::review(course, text, false)?.is_some();
+                let approved = crate::review(course, text, false)?;
                 eprintln!("{}", llm.usage_line());
-                return Ok(ok);
+                if let Some(plan) = approved.as_deref().and_then(|t| curriculum::parse(t).ok()) {
+                    crate::linux::offer(&plan, true);
+                }
+                return Ok(approved.is_some());
             }
             Decision::Quit => {
                 println!(

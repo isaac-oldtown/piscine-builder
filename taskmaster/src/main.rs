@@ -3,6 +3,7 @@ mod config;
 mod curriculum;
 mod env;
 mod guided;
+mod linux;
 mod llm;
 mod prompts;
 mod show;
@@ -28,6 +29,9 @@ taskmaster: creates levelup courses. The only part of levelup that uses an LLM.
   taskmaster env
         show the environment taskmaster assumes the student has (detected here,
         or declared with `environment:` in the curriculum front matter)
+  taskmaster setup [--course DIR]
+        for a curriculum with Linux units: set up Docker Desktop or WSL here
+        (installs or starts it after asking; `new` offers the same)
   taskmaster build [--course DIR] [--yes] [--tests | --no-tests] [--only ID]... [--retries N]
         write the unit specs, notes, tests and hidden references (uses the LLM)
 
@@ -159,8 +163,19 @@ fn main() -> ExitCode {
                 .and_then(|t| curriculum::parse(&t).ok())
                 .and_then(|p| p.meta.environment);
             print!("{}", env::detect(declared).summary());
+            print!(
+                "\n{}",
+                linux::detect()
+                    .planning_block()
+                    .lines()
+                    .take(2)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+            println!();
             Ok(true)
         }
+        Some("setup") => cmd_setup(&raw[1..]),
         Some("config") => {
             match config::path() {
                 Some(p) => println!(
@@ -191,6 +206,19 @@ fn main() -> ExitCode {
     }
 }
 
+fn cmd_setup(raw: &[String]) -> Result<bool, String> {
+    let a = Args::parse(raw, &["course"], &[])?;
+    let file = a.course().join("curriculum.md");
+    let text = std::fs::read_to_string(&file)
+        .map_err(|_| format!("no curriculum at {}", file.display()))?;
+    let plan = curriculum::parse(&text).map_err(|p| curriculum::report(&p))?;
+    if plan.units().iter().all(|u| plan.platform(u).is_none()) {
+        println!("No unit needs Linux (`platform: linux`): nothing to set up.");
+        return Ok(true);
+    }
+    Ok(linux::offer(&plan, std::io::stdin().is_terminal()))
+}
+
 fn cmd_prompt(raw: &[String]) -> Result<bool, String> {
     let a = Args::parse(raw, &["lang", "level", "hours"], &[])?;
     println!(
@@ -199,7 +227,11 @@ fn cmd_prompt(raw: &[String]) -> Result<bool, String> {
             a.get("lang").as_deref(),
             a.get("level").as_deref(),
             a.get("hours").as_deref(),
-            &env::detect(None).summary()
+            &format!(
+                "{}\n{}",
+                env::detect(None).summary(),
+                linux::detect().planning_block()
+            )
         )
     );
     Ok(true)
