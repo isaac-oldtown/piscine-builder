@@ -198,8 +198,24 @@ student functions (dotted names for Python modules), `run(args=[..], stdin="..")
 for programs, and built-ins (`len bytes sorted reversed sum min max abs count contains
 join split words lines lower upper trim chars unique keys values get all any int float
 str is_sorted permutation repeat range slice starts_with ends_with matches replace
-nonempty concat flatten approx raises then Ok Some`; `then(a, b)` evaluates in order and returns `b`; `Ok(v)` and `Some(v)` are just `v`, since harnesses unwrap them, `None` is `null` and an `Err` makes the call raise). No user functions or lambdas, so a spec
-cannot hide a reference solution in its tests.
+nonempty concat flatten approx raises then`; `then(a, b)` evaluates in order and returns `b`;
+`all(xs, nonempty)` and `any(xs, p)` take a built-in's name as predicate). No user functions
+or lambdas, so a spec cannot hide a reference solution in its tests.
+
+Tests can be written in the habits of the course's language; they all mean the same thing:
+
+| Written | Means |
+|---|---|
+| `True`, `None`, `NULL`, `nil`, `undefined`, `x is None`, `===`, `and`, `not in` | `true`, `null`, `==`, `&&`, `!contains` |
+| `Ok(v)`, `Some(v)`, `Just(v)`, `String::from(v)`, `Box::new(v)` | `v` (harnesses unwrap them) |
+| `f(x) == Err(..)`, `f(x).is_err()`, `f(x).is_ok()` | `raises(f(x))`, `!raises(f(x))` (the error payload is not compared) |
+| `(a, b)`, `vec![..]`, `Vec::new()`, `{a: 1}`, `p.0` | lists, `[]`, maps, `p[0]` |
+| `&x`, `&mut x`, `*x`, `10u8`, `2.5f64`, `10L`, `r"raw"`, `r#"raw"#` | the plain value |
+| `\xHH`, `\uXXXX`, `\u{X}`, `\UXXXXXXXX`, octal `\101`, `\e` | the character |
+| `s.len()`, `xs.length`, `s.to_lowercase()`, `", ".join(xs)`, `x.clone()` | `len(s)`, `lower(s)`, `join(xs, ", ")`, `x` (built-ins only) |
+
+Names are checked before anything runs: an unknown function, a wrong argument count or
+an unknown variable is reported with the closest valid name.
 
 In-place functions: in C and Rust, a call to a function that returns nothing and
 takes a writable buffer (`char *` without `const`, or `&mut`) evaluates to that

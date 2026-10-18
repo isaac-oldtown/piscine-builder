@@ -166,6 +166,30 @@ pub fn protos_for(c: &CourseDir, units: &[&Unit]) -> Result<Vec<Proto>, String> 
     Ok(out)
 }
 
+fn arities(protos: &[Proto]) -> Vec<expr::Arity> {
+    protos
+        .iter()
+        .map(|p| {
+            let max = p.params.len();
+            let min = p.params.iter().filter(|x| !x.has_default).count();
+            // A method's receiver may or may not be passed: no count check.
+            let (min, max) = if p.is_method {
+                (0, usize::MAX)
+            } else {
+                (min, max)
+            };
+            (p.name.clone(), min, max)
+        })
+        .collect()
+}
+
+/// Parses one check and validates its names against the expected functions.
+fn parse_check(src: &str, arities: &[expr::Arity], vars: &[String]) -> Result<expr::Expr, String> {
+    let e = expr::resolve_methods(expr::parse(src)?, arities)?;
+    expr::static_check(&e, arities, vars)?;
+    Ok(e)
+}
+
 fn rounds_of(u: &Unit, own: Option<u32>) -> u32 {
     own.or(u.random.rounds).unwrap_or(DEFAULT_ROUNDS).max(1)
 }
@@ -178,11 +202,13 @@ fn parse_gen(c: &CourseDir, y: &yaml_serde::Value) -> Result<Gen, String> {
 pub fn tests_of(c: &CourseDir, u: &Unit, protos: &[Proto]) -> Result<Vec<Test>, String> {
     let mut out = Vec::new();
     let find = |name: &str| protos.iter().find(|p| p.name == name);
+    let arities = arities(protos);
     for (n, line) in u.case_lines() {
         let short = crate::report::truncate(&line, 70);
         let kind = match u.target {
             Target::Function => Kind::Check {
-                expr: expr::parse(&line).map_err(|e| format!("{} cases line {n}: {e}", u.id))?,
+                expr: parse_check(&line, &arities, &[])
+                    .map_err(|e| format!("{} cases line {n}: {e}", u.id))?,
             },
             Target::Program => Kind::Prog(
                 program::parse_case(&line).map_err(|e| format!("{} cases line {n}: {e}", u.id))?,
@@ -349,18 +375,11 @@ fn law_test(
         return Err(format!("{}: law #{} has no check", u.id, i + 1));
     }
     let mut parsed = Vec::new();
+    let arities = arities(protos);
+    let names: Vec<String> = vars.iter().map(|(n, _)| n.clone()).collect();
     for src in checks {
-        let e = expr::parse(&src).map_err(|e| format!("{}: law check `{src}`: {e}", u.id))?;
-        let mut names = Vec::new();
-        expr::calls(&e, &mut names);
-        for n in names {
-            let known = protos.iter().any(|p| p.name == n)
-                || expr::BUILTINS.contains(&n.as_str())
-                || n == "run";
-            if !known {
-                return Err(format!("{}: law check `{src}` calls unknown `{n}`", u.id));
-            }
-        }
+        let e = parse_check(&src, &arities, &names)
+            .map_err(|e| format!("{}: law check `{src}`: {e}", u.id))?;
         parsed.push((src, e));
     }
     let label = label.unwrap_or_else(|| format!("law {}", i + 1));

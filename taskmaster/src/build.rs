@@ -749,6 +749,20 @@ impl<'a> Builder<'a> {
                 Ok(()) => return Ok(()),
                 Err(problem) => {
                     last = problem;
+                    // Test-language rejections feed the parser's corpus of idioms.
+                    if last.contains("cases line") || last.contains("law check") {
+                        crate::curriculum::log_validation(
+                            &self.root,
+                            "tests",
+                            &[],
+                            &[crate::curriculum::Problem {
+                                line: 0,
+                                id: Some(u.id.clone()),
+                                msg: last.clone(),
+                                warning: false,
+                            }],
+                        );
+                    }
                     status(&format!(
                         "  attempt {} rejected: {}",
                         attempt + 1,
