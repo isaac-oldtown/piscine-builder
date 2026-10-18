@@ -609,6 +609,8 @@ pub const BUILTINS: &[&str] = &[
     "approx",
     "raises",
     "then",
+    "Ok",
+    "Some",
 ];
 
 fn list(v: &Value, f: &str) -> Result<Vec<Value>, EvalError> {
@@ -932,6 +934,12 @@ fn builtin(name: &str, a: Vec<Value>) -> Result<Value, EvalError> {
         }
         // Sequencing: evaluates every argument in order, returns the last.
         "then" => a.last().cloned().unwrap_or(Value::Null),
+        // Harnesses unwrap Ok(v) / Some(v) to v (None is null, Err raises), so
+        // Rust-style expectations read as the plain value.
+        "Ok" | "Some" => {
+            arity(1)?;
+            a[0].clone()
+        }
         "approx" => {
             if !(2..=3).contains(&n) {
                 return spec("approx(a, b[, eps])");
@@ -1061,6 +1069,8 @@ mod tests {
         assert_eq!(c("!(1 < 2) || 2 >= 2"), Value::Bool(true));
         assert_eq!(c(r#"permutation("abc", "cab")"#), Value::Bool(true));
         assert_eq!(c("','"), Value::Char(','));
+        assert_eq!(c("Ok(80) == 80"), Value::Bool(true));
+        assert_eq!(c("Some([1, 2])"), constant("[1, 2]").unwrap());
         assert!(constant("1 +").is_err());
         assert!(constant("nope(1)").is_err());
     }

@@ -198,7 +198,7 @@ student functions (dotted names for Python modules), `run(args=[..], stdin="..")
 for programs, and built-ins (`len bytes sorted reversed sum min max abs count contains
 join split words lines lower upper trim chars unique keys values get all any int float
 str is_sorted permutation repeat range slice starts_with ends_with matches replace
-nonempty concat flatten approx raises then`; `then(a, b)` evaluates in order and returns `b`). No user functions or lambdas, so a spec
+nonempty concat flatten approx raises then Ok Some`; `then(a, b)` evaluates in order and returns `b`; `Ok(v)` and `Some(v)` are just `v`, since harnesses unwrap them, `None` is `null` and an `Err` makes the call raise). No user functions or lambdas, so a spec
 cannot hide a reference solution in its tests.
 
 In-place functions: in C and Rust, a call to a function that returns nothing and
