@@ -29,6 +29,9 @@ coursecrafter: creates PiscineBuilder courses. The only part of PiscineBuilder t
         have the planner rewrite curriculum.md with your changes (uses the LLM)
   coursecrafter show [curriculum.md] [--course DIR] [--full]
         display the curriculum: units, hours, difficulties, prerequisites, approval
+  coursecrafter preview <unit>... [--course DIR]
+        print the instructions of built units as proctor renders them, without
+        unlocking anything (`d02` or `d02-control-flow`; a project id shows its stages)
   coursecrafter env
         show the environment coursecrafter assumes the student has (detected here,
         or declared with `environment:` in the curriculum front matter)
@@ -185,6 +188,7 @@ fn main() -> ExitCode {
             Ok(true)
         }
         Some("setup") => cmd_setup(&raw[1..]),
+        Some("preview") => cmd_preview(&raw[1..]),
         Some("config") => {
             match config::path() {
                 Some(p) => println!(
@@ -213,6 +217,36 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// The rendered instructions of built units, locked or not; the student's
+/// progress is not touched.
+fn cmd_preview(raw: &[String]) -> Result<bool, String> {
+    let a = Args::parse(raw, &["course"], &[])?;
+    if a.positional.is_empty() {
+        return Err("say which unit: coursecrafter preview d02 [d03 ...]".into());
+    }
+    let c = proctor::course::CourseDir::load(&a.course())?;
+    let mut pages = Vec::new();
+    for want in &a.positional {
+        let matched: Vec<&proctor::unit::Unit> = c
+            .units
+            .iter()
+            .filter(|u| {
+                u.id == *want
+                    || u.id.split('-').next() == Some(want.as_str())
+                    || u.project.as_deref() == Some(want.as_str())
+            })
+            .collect();
+        if matched.is_empty() {
+            return Err(format!(
+                "no built unit `{want}` (run `coursecrafter build` first?)"
+            ));
+        }
+        pages.extend(matched.into_iter().map(|u| proctor::render::unit_md(&c, u)));
+    }
+    print!("{}", pages.join("\n---\n\n"));
+    Ok(true)
 }
 
 fn cmd_setup(raw: &[String]) -> Result<bool, String> {
