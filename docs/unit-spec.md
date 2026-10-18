@@ -38,7 +38,8 @@ target: function               # function: proctor's own main calls yours | prog
 scaffold: minimal              # none (student creates everything) | minimal | full
 stubs: src/str_basics.c        # where empty mandatory functions are written on unlock
 goal: One sentence.
-lesson: |                      # optional markdown, shown as a Walkthrough after the goal (guided units)
+guided: false                  # true: the lesson is a step-by-step Walkthrough
+lesson: |                      # markdown after the goal: "Before you start", or "Walkthrough" when guided
   ### Step 1: ...
 functions:                     # "Expected functions (minimal)" in the instructions
   - { name: str_len, sig: "size_t str_len(const char *s)", returns: bytes before the NUL }
@@ -51,6 +52,9 @@ allowed: [stdlib.h, malloc, free]   # strict whitelist; absent = unrestricted; [
                                     # an entry covers what is inside it (`std` = all of Rust's std)
 forbidden: [std::mem::swap]         # banned even though `allowed` covers it (needs `allowed`)
                                     # neither applies to the student's own tests in tests/
+example: |                     # program target: one typical run, shown under "Example"
+  $ python -m logstat < app.log
+  INFO 3
 run: python -m logstat         # program target ({exe}, {python}, {cargo_bin} placeholders)
 env: { LC_ALL: C }             # set for builds and runs, listed in the instructions
 static: [{ name: lint, cmd: "ruff check ." }]

@@ -117,7 +117,12 @@ pub fn unit_md(c: &CourseDir, u: &Unit) -> String {
     ]));
     s.push_str(&format!("\n## Goal\n\n{}\n", u.goal.trim()));
     if let Some(lesson) = u.lesson.as_deref().filter(|l| !l.trim().is_empty()) {
-        s.push_str(&format!("\n## Walkthrough\n\n{}\n", lesson.trim()));
+        let heading = if u.guided {
+            "Walkthrough"
+        } else {
+            "Before you start"
+        };
+        s.push_str(&format!("\n## {heading}\n\n{}\n", lesson.trim()));
     }
 
     if !u.functions.is_empty() {
@@ -170,6 +175,13 @@ pub fn unit_md(c: &CourseDir, u: &Unit) -> String {
         for r in &u.requirements {
             s.push_str(&format!("- {}\n", r.trim()));
         }
+    }
+
+    if let Some(ex) = u.example.as_deref().filter(|e| !e.trim().is_empty()) {
+        s.push_str(&format!(
+            "\n## Example\n\n```text\n{}\n```\n",
+            ex.trim_end()
+        ));
     }
 
     s.push_str("\n## Allowed\n\n");

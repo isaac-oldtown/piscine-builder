@@ -298,6 +298,7 @@ impl<'a> Builder<'a> {
             status(
                 "Skipped the correction suite: proctor will check structure, prototypes, allowed and the build only. Run `coursecrafter build --tests` later to add it.",
             );
+            self.refresh_unlocked();
             return Ok(true);
         }
 
@@ -385,7 +386,28 @@ impl<'a> Builder<'a> {
                 waiting.join(", ")
             ));
         }
+        self.refresh_unlocked();
         Ok(failed.is_empty() && waiting.is_empty())
+    }
+
+    /// Units the student already unlocked get their instructions rendered
+    /// again from the new specs; workspaces and notes are never overwritten.
+    fn refresh_unlocked(&self) {
+        let Ok(c) = CourseDir::load(&self.root) else {
+            return;
+        };
+        let state = c.state();
+        let mut n = 0;
+        for u in c.units.iter().filter(|u| state.unlocked.contains(&u.id)) {
+            if proctor::scaffold::reveal(&c, u).is_ok() {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            status(&format!(
+                "refreshed the instructions of {n} unlocked unit(s) in subjects/"
+            ));
+        }
     }
 
     fn previous_stage(&self, u: &Entry) -> Option<&'a Entry> {
@@ -517,6 +539,18 @@ impl<'a> Builder<'a> {
                  different examples and leaves the solution to the student.\n",
                 lang = self.plan.language(u)
             ));
+        } else if !f.introduces.is_empty() {
+            s.push_str(&format!(
+                "This unit introduces: {}. The student has not met these yet, so also send a <lesson>...</lesson> block \
+                 after the <unit> block (plain markdown, NOT inside the YAML; headings ###, no ## headings, about 40 to 100 \
+                 lines) that teaches them before the exercise: for each concept, what it is and why it matters, the exact \
+                 syntax with a small runnable example that is NOT part of the solution, the output of that example, and \
+                 the usual pitfall. Explain every piece of syntax the requirements rely on (a format spec such as {{:>4}}, \
+                 a type, a macro, an operator rule such as integer division) unless an earlier unit introduced it. End \
+                 with a pointer to the official documentation for each concept (a chapter of the language's book or its \
+                 standard library docs).\n",
+                f.introduces.join(", ")
+            ));
         }
         let notes: Vec<String> = self
             .plan
@@ -621,6 +655,9 @@ impl<'a> Builder<'a> {
         }
         if let Some(p) = self.plan.platform(u) {
             m.insert(s("platform"), s(&p));
+        }
+        if u.f.guided {
+            m.insert(s("guided"), Yaml::Bool(true));
         }
         // Plan keys the model may echo back; they are not part of a unit spec.
         let plan_only = [
@@ -751,6 +788,18 @@ impl<'a> Builder<'a> {
                 "too many requirements (keep at most 6): split the unit or merge bullets".into(),
             );
         }
+        let lesson_lines = unit
+            .lesson
+            .as_deref()
+            .map_or(0, |l| l.lines().filter(|x| !x.trim().is_empty()).count());
+        if !u.f.guided && !u.f.introduces.is_empty() && lesson_lines < 8 {
+            p.push("this unit introduces new concepts, so it needs a <lesson> block teaching them (see the request)".into());
+        }
+        if unit.target == Target::Program
+            && unit.example.as_deref().is_none_or(|e| e.trim().is_empty())
+        {
+            p.push("a program target needs `example`: the exact output of one typical run, as a block string (with the command and its input when it takes some)".into());
+        }
         if u.f.guided
             && unit
                 .lesson
@@ -795,7 +844,7 @@ impl<'a> Builder<'a> {
             let reply = self.chat(&format!("contract-{}", u.id), &messages)?;
             let problems: Vec<String> = match llm::yaml_block(&reply, "unit") {
                 None => vec!["missing <unit> block".into()],
-                Some(y) => match llm::parse_yaml(&y) {
+                Some(y) => match llm::parse_yaml(&drop_fixed_keys(&y)) {
                     Ok(Yaml::Mapping(mut model)) => {
                         // Markdown with code blocks does not survive inside YAML: it comes apart.
                         if let Some(l) =
@@ -1159,6 +1208,39 @@ impl<'a> Builder<'a> {
     }
 }
 
+/// One-line keys coursecrafter sets itself: a model that repeats them can
+/// break the YAML (`concepts: [formatting with {}]`) for values that are
+/// replaced anyway, so they are removed before parsing.
+fn drop_fixed_keys(yaml: &str) -> String {
+    const KEYS: &[&str] = &[
+        "id",
+        "title",
+        "project",
+        "language",
+        "difficulty",
+        "concept_difficulty",
+        "hours",
+        "concepts",
+        "introduces",
+        "assumes",
+        "prereqs",
+        "notes",
+        "platform",
+        "stretch",
+        "guided",
+        "done_when",
+    ];
+    yaml.lines()
+        .filter(|l| {
+            let Some((k, v)) = l.split_once(':') else {
+                return true;
+            };
+            !(KEYS.contains(&k) && !v.trim().is_empty())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn s_key(k: &str) -> Yaml {
     Yaml::String(k.to_string())
 }
@@ -1166,6 +1248,17 @@ fn s_key(k: &str) -> Yaml {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_fixed_keys_cannot_break_the_contract() {
+        let y = "id: d01\nconcepts: [integer types, formatting with {} and {:?}]\ntarget: program\nrequirements:\n  - \"id: kept, it is inside a list\"\n";
+        assert!(yaml_serde::from_str::<Yaml>(y).is_err());
+        let fixed = drop_fixed_keys(y);
+        let m: Yaml = yaml_serde::from_str(&fixed).unwrap();
+        assert!(m.get("concepts").is_none() && m.get("id").is_none());
+        assert_eq!(m.get("target").and_then(Yaml::as_str), Some("program"));
+        assert!(fixed.contains("id: kept"));
+    }
 
     #[test]
     fn a_retry_replaces_only_what_it_sends() {

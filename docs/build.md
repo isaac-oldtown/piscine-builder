@@ -11,6 +11,8 @@ are revealed with, and course settings for languages without a preset. Each cont
 checked mechanically (schema, signatures, harness-supported types, stubs that fit the file
 rules, nothing that reveals the hidden tests) and sent back with the problems when it fails.
 
+Contracts teach as well as specify. A unit that introduces concepts gets a lesson, shown as "Before you start": each concept explained with a small example that is not the solution, its output, the usual pitfall and a pointer to the official docs. A `guided` unit gets a step-by-step walkthrough instead. Requirements describe the result in words and may only rely on what the lesson or an earlier unit teaches; functions they mention are named in the functions table; a program target shows its exact output under "Example". A contract missing any of these is sent back.
+
 Fields that come from the plan (hours, difficulty, stretch, platform...) are copied by
 coursecrafter, not by the model; editing them in the plan updates the existing contracts on the
 next build, with no LLM call.
@@ -39,6 +41,8 @@ files it changes: the rest of its earlier reply is kept, so fixing one error can
 what already worked. After `--retries` attempts (default 3) the unit is marked FAILED: its
 contract stays, without tests, and the build exits non-zero. The following stages of that
 project are not generated, since they build on it; they wait for the next run.
+
+After a build, the instructions of units the student already unlocked are rendered again from the new specs (workspaces are never touched), so a rebuilt unit shows up without unlocking it again.
 
 ## Resuming and tokens
 

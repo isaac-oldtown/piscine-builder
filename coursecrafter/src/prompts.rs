@@ -431,12 +431,13 @@ const GEN_INTRO: &str = r#"You write exercises for PiscineBuilder, a hands-on co
 
 # Contract (the <unit> block)
 
-YAML with these keys (coursecrafter adds id, title, language, difficulty, concepts, notes, platform):
+YAML with these keys (coursecrafter adds id, title, language, difficulty, concepts, notes, platform: do not write those):
 - target: function | program. function: proctor calls the listed functions itself. program: the whole program is run (arguments, stdin, stdout, stderr, exit code).
 - goal: one sentence.
-- functions: [{name, sig, returns}], the minimal set the student writes, as exact signatures (see the language notes). A program target usually lists none. A stage lists only the functions it adds.
+- functions: [{name, sig, returns}], the minimal set the student writes, as exact signatures (see the language notes). A program target lists the helper functions its requirements ask for (a requirement never says "a function" without naming it here), otherwise none. A stage lists only the functions it adds.
 - files: the expected tree, [{path, rule, note}] with rule = required (default) | one_or_more | free | forbidden; `*` inside a folder, `**` across folders. Listing any rule makes unlisted files unexpected, so a project adds {path: "**", rule: free} unless the layout must be exact.
-- requirements: at most 6 short bullets of behaviour: edge cases, formats, errors, exit codes. Everything the tests check is stated here or follows from the functions. With a done_when line, the requirements and the tests together establish it.
+- requirements: at most 6 short bullets of behaviour, in the order the student builds it: edge cases, formats, errors, exit codes. Everything the tests check is stated here or follows from the functions. With a done_when line, the requirements and the tests together establish it. Write them for someone who knows only what this unit and earlier units teach: describe the result in words ("right-aligned in a 4-character column"), not only as syntax; a format spec, type or macro the requirements need is either introduced by an earlier unit or taught in this unit's lesson. Never require a concept that neither the lesson nor an earlier unit covers.
+- example (program target, required): the exact output of one typical run, as a block string; when the program takes arguments or input, start with the command line (`$ prog args`) and the input. It is shown in a code block under "Example".
 - allowed: what the exercise's code may use besides its own code and the language built-ins. An entry covers everything inside it (`std::io` allows std::io::stdin and the rest of std::io). Restrict only what the brief restricts; when the brief allows the standard library, list it whole. Omit `allowed` when nothing is restricted. Earlier stages' entries carry over: a stage lists only what it adds. The student's own tests in `tests/` are never checked.
 - forbidden: items banned even though `allowed` covers them, when the brief bans a few things (allowed: [std], forbidden: [std::mem::swap]).
 - stubs: function target only, where the empty functions are written at unlock; it must fit the files rules.

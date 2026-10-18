@@ -275,6 +275,12 @@ pub struct Unit {
     /// guided units (first contact with a language or a tool).
     #[serde(default)]
     pub lesson: Option<String>,
+    /// The lesson is a step-by-step walkthrough (first contact with a language).
+    #[serde(default)]
+    pub guided: bool,
+    /// Program target: what a run prints, shown as an example.
+    #[serde(default)]
+    pub example: Option<String>,
     #[serde(default)]
     pub functions: Vec<Func>,
     #[serde(default)]
