@@ -19,6 +19,9 @@ proctor: PiscineBuilder's grader. Works offline, never calls an LLM.
   proctor status            where you are in the course
   proctor progress          regenerate and summarize PROGRESS.md
   proctor explain [unit]    show exactly what the checks run (generators, rounds)
+  proctor init [pwsh|bash|zsh|fish]
+                               a shell function that moves you to each new unit's
+                               folder; add it to your shell profile (see the README)
   proctor shell [unit] [--port N]
                                a terminal in the Linux container, for Linux units
                                (--port publishes port N on 127.0.0.1 of this machine)
@@ -43,6 +46,15 @@ fn main() -> ExitCode {
         Some("validate") => cmd_validate(),
         Some("selftest") => cmd_selftest(&args[1..]),
         Some("shell") => cmd_shell(&args[1..]),
+        Some("init") => {
+            match proctor::ide::shell_init(args.get(1).map_or("pwsh", String::as_str)) {
+                Ok(s) => {
+                    print!("{s}");
+                    Ok(ExitCode::SUCCESS)
+                }
+                Err(e) => Err(e),
+            }
+        }
         Some(other) => Err(format!("unknown command `{other}`\n\n{USAGE}")),
     };
     match res {
@@ -164,7 +176,7 @@ fn offer_next(root: &Path, after: Option<&str>, prompt: bool) -> Result<(), Stri
                 None,
             ) {
                 ask::Answer::Pick(0) => {
-                    print_reveal(&c, next, &scaffold::unlock(&c, next)?);
+                    reveal(&c, next)?;
                     return Ok(());
                 }
                 ask::Answer::Pick(1) => {
@@ -186,7 +198,7 @@ fn offer_next(root: &Path, after: Option<&str>, prompt: bool) -> Result<(), Stri
             "Not now",
             false,
         ) {
-            print_reveal(&c, next, &scaffold::unlock(&c, next)?);
+            reveal(&c, next)?;
         } else {
             println!("Run `proctor next` when you are ready for {}.", next.id);
         }
@@ -249,6 +261,9 @@ fn cmd_check(args: &[String]) -> Result<ExitCode, String> {
             }
             "--verbose" | "-v" => verbose = true,
             "--no-prompt" => prompt = false,
+            // From the host running a Linux unit in the container: it offers
+            // the next unit itself, so it can move the shell there.
+            "--host-offers-next" => prompt = false,
             s if s.starts_with('-') => return Err(format!("unknown option {s}")),
             s => explicit = Some(s.to_string()),
         }
@@ -259,7 +274,13 @@ fn cmd_check(args: &[String]) -> Result<ExitCode, String> {
     if proctor::docker::needed(u) {
         let mut full = vec!["check".to_string()];
         full.extend(args.iter().cloned());
-        return proctor::docker::delegate(&c, &full).map(ExitCode::from);
+        full.push("--host-offers-next".into());
+        let code = proctor::docker::delegate(&c, &full)?;
+        let was_passed = state.passed.contains(&u.id);
+        if code == 0 && !was_passed && CourseDir::load(&c.root)?.state().passed.contains(&u.id) {
+            offer_next(&c.root, Some(&u.id), prompt)?;
+        }
+        return Ok(ExitCode::from(code));
     }
     let seed = seed.unwrap_or_else(random_seed);
     let opts = Options {
@@ -315,7 +336,7 @@ fn cmd_check(args: &[String]) -> Result<ExitCode, String> {
     let c = CourseDir::load(&c.root)?;
     progress::write(&c)?;
     review_reminder(&c);
-    if newly_passed {
+    if newly_passed && !args.iter().any(|a| a == "--host-offers-next") {
         offer_next(&c.root, Some(&u.id), prompt)?;
     }
     Ok(if v.ok {
@@ -323,6 +344,23 @@ fn cmd_check(args: &[String]) -> Result<ExitCode, String> {
     } else {
         ExitCode::from(1)
     })
+}
+
+/// Unlocks `u` on a clear screen, adds the default VS Code tasks to the
+/// course, and asks the shell function (`proctor init`) to move there.
+fn reveal(c: &CourseDir, u: &Unit) -> Result<(), String> {
+    let r = scaffold::unlock(c, u)?;
+    proctor::ide::clear_screen();
+    print_reveal(c, u, &r);
+    let vscode = proctor::ide::install_vscode(c);
+    if !vscode.is_empty() {
+        println!(
+            "  created {} (in VS Code, Ctrl+Shift+B runs `proctor check`)",
+            vscode.join(" and ")
+        );
+    }
+    proctor::ide::request_cd(c, u);
+    Ok(())
 }
 
 fn print_reveal(c: &CourseDir, u: &Unit, r: &scaffold::Revealed) {
@@ -381,8 +419,7 @@ fn cmd_next(args: &[String]) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Some(next) => {
-            let r = scaffold::unlock(&c, next)?;
-            print_reveal(&c, next, &r);
+            reveal(&c, next)?;
             let c = CourseDir::load(&c.root)?;
             progress::write(&c)?;
             review_reminder(&c);

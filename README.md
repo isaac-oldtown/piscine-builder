@@ -53,6 +53,25 @@ proctor status    # Course map
 proctor progress  # Progress dashboard
 ```
 
+### Comfort settings
+
+**Move to each new unit automatically.** A program cannot change its terminal's current folder, so proctor ships a small shell function for that. Add it to your shell profile once:
+
+```
+# PowerShell: add this line to $PROFILE (notepad $PROFILE)
+Invoke-Expression (& proctor init pwsh | Out-String)
+
+# bash or zsh: add this line to ~/.bashrc or ~/.zshrc
+eval "$(proctor init bash)"
+
+# fish: add this line to ~/.config/fish/config.fish
+proctor init fish | source
+```
+
+Then, whenever a unit is unlocked (`proctor next`, or answering yes after a passing `proctor check`), the terminal is cleared, the new unit's summary is shown, and you are moved to its workspace. When the unit asks you to create the workspace yourself, you are moved to the course folder instead. Set `PROCTOR_NO_CLEAR=1` to keep the screen.
+
+**VS Code.** On the first unlock, proctor adds `.vscode/tasks.json` to the course folder (an existing one is never overwritten). Open the course folder in VS Code: **Ctrl+Shift+B** runs `proctor check`, and **Terminal > Run Task** lists `next`, `status`, `progress`, `explain`, `skip` and `shell`. VS Code only reads keyboard shortcuts from your user settings, so for one key per task, copy the entries of `.vscode/keybindings.example.json` (Ctrl+Alt+C check, N next, S status, P progress, E explain) into **Preferences: Open Keyboard Shortcuts (JSON)**. On keyboards where Ctrl+Alt is AltGr (AZERTY, for example), these can block characters such as `€`: pick other keys there.
+
 ### Create a course
 
 **Bring your own curriculum.** The best results come from a curriculum you design yourself, by whatever means suit you: your own research, a syllabus, a book's table of contents, or long conversations with the chat assistant of your choice. Planning a whole course well takes more back-and-forth and judgement than a short terminal conversation allows, and you know better than any tool what you already master and what you want to reach. Any format works: a markdown outline, a bulleted list, a document with weeks and parts.
@@ -134,6 +153,7 @@ Configuration comes from the `PISCINEBUILDER_*` environment variables, provider-
 | `proctor progress` | Regenerate `PROGRESS.md` and print the dashboard. |
 | `proctor explain [unit]` | Explain the checks run for a unit. |
 | `proctor shell [unit] [--port N]` | Open a Bash shell in the Linux container for a Linux unit. |
+| `proctor init [pwsh\|bash\|zsh\|fish]` | Print the shell function that moves you to each new unit's folder (see Comfort settings). |
 | `proctor validate` | Validate unit specifications without running checks. |
 | `proctor selftest [unit...]` | Check that reference solutions pass and required functions have tests that fail on empty stubs. |
 

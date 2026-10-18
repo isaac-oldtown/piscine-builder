@@ -1,0 +1,11 @@
+// VS Code reads keyboard shortcuts only from your user settings, not from a
+// project. To use these: Ctrl+Shift+P > "Preferences: Open Keyboard Shortcuts
+// (JSON)", then paste the entries below inside its [ ... ] list.
+// They run the tasks of .vscode/tasks.json, so they only act in a course folder.
+[
+  { "key": "ctrl+alt+c", "command": "workbench.action.tasks.runTask", "args": "proctor: check" },
+  { "key": "ctrl+alt+n", "command": "workbench.action.tasks.runTask", "args": "proctor: next" },
+  { "key": "ctrl+alt+s", "command": "workbench.action.tasks.runTask", "args": "proctor: status" },
+  { "key": "ctrl+alt+p", "command": "workbench.action.tasks.runTask", "args": "proctor: progress" },
+  { "key": "ctrl+alt+e", "command": "workbench.action.tasks.runTask", "args": "proctor: explain" }
+]

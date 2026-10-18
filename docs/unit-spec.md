@@ -9,6 +9,7 @@ course/
   notes/                 revealed notes
   reviews/               weekly reviews
   PROGRESS.md            generated after every check
+  .vscode/               proctor tasks (Ctrl+Shift+B runs a check), added on the first unlock
   <workspace>/           one per drill, one per project (shared by its stages)
   .proctor/
     course.yaml          title, unit order, projects, language settings

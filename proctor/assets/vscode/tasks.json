@@ -1,0 +1,65 @@
+{
+  // proctor tasks. Ctrl+Shift+B runs `proctor check` (the default build task).
+  // Terminal > Run Task... lists the others. For one key per task, copy
+  // keybindings.example.json into your user keybindings (see that file).
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "proctor: check",
+      "type": "shell",
+      "command": "proctor check",
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "focus": true, "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "proctor: next",
+      "type": "shell",
+      "command": "proctor next",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "focus": true, "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "proctor: status",
+      "type": "shell",
+      "command": "proctor status",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "proctor: progress",
+      "type": "shell",
+      "command": "proctor progress",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "proctor: explain",
+      "type": "shell",
+      "command": "proctor explain",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "proctor: skip",
+      "type": "shell",
+      "command": "proctor skip",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "focus": true, "panel": "dedicated", "clear": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "proctor: shell",
+      "type": "shell",
+      "command": "proctor shell",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "focus": true, "panel": "new" },
+      "problemMatcher": []
+    }
+  ]
+}

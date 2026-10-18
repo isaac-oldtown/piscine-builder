@@ -10,6 +10,7 @@ pub mod engine;
 pub mod expr;
 pub mod gens;
 pub mod harness;
+pub mod ide;
 pub mod journal;
 pub mod lang;
 pub mod program;
