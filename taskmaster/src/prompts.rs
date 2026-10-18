@@ -355,7 +355,9 @@ YAML with these keys (the tool adds id, title, language, difficulty, concepts, n
     c:      "size_t str_len(const char *s)". Harness types: integers, double, bool, char, char *, char **. No structs.
     python: "def parse_line(line: str) -> dict | None"; name is dotted with the module: logstat.parse_line.
     rust:   "pub fn word_count(text: &str) -> usize"; free functions in src/lib.rs. Types: integers, f64, bool, char,
-            &str/String, Vec/slices of those, Option, Result<_, E: Debug>, tuples, maps. No custom structs in signatures.
+            &str/String, Vec/slices of those, Option, Result<_, E: Debug>, tuples, maps. No custom structs, generic type
+            parameters, trait bounds or closures in signatures: the grader calls concrete types only. To practise generics
+            or traits, have the student write them and expose concrete wrapper functions (fn largest_i32(v: &[i32]) -> Option<i32>).
     For a program target, list functions only if their presence should be checked; usually none or `main`.
     For a project stage, list only the functions this stage adds; earlier ones stay required automatically.
 - files: the "soft" expected tree: list of {path, rule, note}; rule = required (default) | one_or_more | free | forbidden.
@@ -443,7 +445,7 @@ solution code in a scaffold.
 
 pub fn contract_request(context: &str, entry: &str, project: &str, language: &str) -> String {
     format!(
-        "# Course so far\n{context}\n{project}# Language\n{language}\n\n# Unit to write\n{entry}\n\nReply with only the <unit>...</unit> block."
+        "# Course so far\n{context}\n{project}# Language\n{language}\n\n# Unit to write\n{entry}\n\nReply with only the <unit>...</unit> block holding the contract YAML. Do NOT write tests, reference files or scaffolds now: they are requested separately, once the contract is accepted."
     )
 }
 

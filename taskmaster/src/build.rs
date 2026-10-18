@@ -28,6 +28,9 @@ pub struct Builder<'a> {
     pub llm: &'a Llm,
     pub opts: Options,
     cache_hits: u32,
+    /// Set when the LLM could not be reached: the build stops instead of
+    /// failing every remaining unit the same way.
+    provider_down: bool,
     /// Generation rules plus the student environment: one stable system
     /// prompt for the whole run, so providers can cache it.
     system: String,
@@ -90,6 +93,7 @@ impl<'a> Builder<'a> {
             llm,
             opts,
             cache_hits: 0,
+            provider_down: false,
             system,
         }
     }
@@ -116,7 +120,12 @@ impl<'a> Builder<'a> {
             self.cache_hits += 1;
             return Ok(text);
         }
-        let reply = self.llm.chat(messages)?;
+        let reply = self.llm.chat(messages).map_err(|e| {
+            self.provider_down = true;
+            format!(
+                "{e}\nThe provider did not answer (stopped, quota or rate limit). Everything finished so far is saved: run the same command again to resume; finished replies are reused at no cost."
+            )
+        })?;
         write(&path, &reply)?;
         Ok(reply)
     }
@@ -287,6 +296,10 @@ impl<'a> Builder<'a> {
             }
             status(&format!("[tests {}/{}] {}", i + 1, units.len(), u.id));
             if let Err(e) = self.tests(u, &units[..=i], &languages) {
+                if self.provider_down {
+                    self.write_course(&units, &languages)?;
+                    return Err(e);
+                }
                 status(&format!("  FAILED {}: {e}", u.id));
                 failed.push(u.id.clone());
             }
@@ -315,7 +328,7 @@ impl<'a> Builder<'a> {
         ];
         for _ in 0..=self.opts.retries {
             let reply = self.chat(&format!("lang-{lang_name}"), &messages)?;
-            let problem = match llm::block(&reply, "language") {
+            let problem = match llm::yaml_block(&reply, "language") {
                 None => "missing <language> block".to_string(),
                 Some(y) => match yaml_serde::from_str::<LangConfig>(&y) {
                     Err(e) => format!("not valid settings: {e}"),
@@ -622,9 +635,9 @@ impl<'a> Builder<'a> {
         let mut last = String::new();
         for _ in 0..=self.opts.retries {
             let reply = self.chat(&format!("contract-{}", u.id), &messages)?;
-            let problems: Vec<String> = match llm::block(&reply, "unit") {
+            let problems: Vec<String> = match llm::yaml_block(&reply, "unit") {
                 None => vec!["missing <unit> block".into()],
-                Some(y) => match yaml_serde::from_str::<Yaml>(&y) {
+                Some(y) => match llm::parse_yaml(&y) {
                     Ok(Yaml::Mapping(model)) => {
                         let m = self.merge_contract(u, &model);
                         let p = self.check_contract(u, &m, languages);
@@ -696,7 +709,13 @@ impl<'a> Builder<'a> {
         let mut messages = vec![Msg::system(self.system.clone()), Msg::user(req)];
         let mut last = String::new();
         for attempt in 0..=self.opts.retries {
-            let reply = self.chat(&format!("tests-{}", u.id), &messages)?;
+            let reply = match self.chat(&format!("tests-{}", u.id), &messages) {
+                Ok(r) => r,
+                Err(e) => {
+                    last = e;
+                    break;
+                }
+            };
             match self.try_tests(u, upto, &contract, &reply, &lib_text, languages) {
                 Ok(()) => return Ok(()),
                 Err(problem) => {
@@ -732,8 +751,8 @@ impl<'a> Builder<'a> {
         languages: &Mapping,
     ) -> Result<(), String> {
         let h = hidden(&self.root);
-        let tests_yaml = llm::block(reply, "tests").ok_or("missing <tests> block")?;
-        let tests: Mapping = match yaml_serde::from_str::<Yaml>(&tests_yaml) {
+        let tests_yaml = llm::yaml_block(reply, "tests").ok_or("missing <tests> block")?;
+        let tests: Mapping = match llm::parse_yaml(&tests_yaml) {
             Ok(Yaml::Mapping(m)) => m,
             Ok(_) => {
                 return Err("<tests> must be a YAML mapping with `cases` and/or `random`".into());

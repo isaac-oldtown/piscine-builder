@@ -281,6 +281,111 @@ pub fn block(text: &str, tag: &str) -> Option<String> {
     Some(strip_fences(&text[start..end]))
 }
 
+/// The YAML inside `<tag>...</tag>`. Models sometimes put more inside the
+/// block than asked (a fenced YAML block followed by other tagged blocks):
+/// keep the first fenced block if there is one, else stop at the first line
+/// that opens another tag.
+pub fn yaml_block(text: &str, tag: &str) -> Option<String> {
+    let body = block(text, tag)?;
+    let lines: Vec<&str> = body.lines().collect();
+    if let Some(open) = lines.iter().position(|l| l.trim_start().starts_with("```")) {
+        let close = lines[open + 1..]
+            .iter()
+            .position(|l| l.trim_start().starts_with("```"))
+            .map_or(lines.len(), |c| open + 1 + c);
+        return Some(lines[open + 1..close].join("\n"));
+    }
+    let end = lines
+        .iter()
+        .position(|l| {
+            let mut c = l.chars();
+            c.next() == Some('<') && c.next().is_some_and(|c| c.is_ascii_alphabetic())
+        })
+        .unwrap_or(lines.len());
+    Some(lines[..end].join("\n"))
+}
+
+/// A cleanly quoted YAML scalar: `"..."` with only escaped inner quotes, or
+/// `'...'` with only doubled inner quotes.
+fn cleanly_quoted(v: &str) -> bool {
+    let v = v.trim();
+    if v.len() < 2 {
+        return false;
+    }
+    if let Some(inner) = v.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
+        let mut escaped = false;
+        for c in inner.chars() {
+            match c {
+                '\\' if !escaped => escaped = true,
+                '"' if !escaped => return false,
+                _ => escaped = false,
+            }
+        }
+        return !escaped;
+    }
+    if let Some(inner) = v.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
+        return !inner.replace("''", "").contains('\'');
+    }
+    false
+}
+
+fn requote(v: &str) -> String {
+    format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+/// Re-quotes scalars YAML rejects (`returns: "ok " followed by the port`,
+/// a list item starting with a backtick). Block scalars (`cases: |`) are
+/// left alone.
+pub fn repair_yaml(text: &str) -> String {
+    let keyed = regex::Regex::new(r"^(\s*(?:- )?[A-Za-z_][\w]*:[ \t]+)(.+?)\s*$").expect("regex");
+    let item = regex::Regex::new(r"^(\s*- )(.+?)\s*$").expect("regex");
+    let mut out = Vec::new();
+    let mut block_indent: Option<usize> = None;
+    for line in text.lines() {
+        let indent = line.len() - line.trim_start().len();
+        if let Some(b) = block_indent {
+            if line.trim().is_empty() || indent > b {
+                out.push(line.to_string());
+                continue;
+            }
+            block_indent = None;
+        }
+        let bad = |v: &str| {
+            let first = v.chars().next().unwrap_or(' ');
+            matches!(first, '"' | '\'' | '`' | '@' | '%') && !cleanly_quoted(v)
+        };
+        let fixed = if let Some(c) = keyed.captures(line) {
+            let v = &c[2];
+            if v.starts_with('|') || v.starts_with('>') {
+                block_indent = Some(indent);
+                None
+            } else if bad(v) {
+                Some(format!("{}{}", &c[1], requote(v)))
+            } else {
+                None
+            }
+        } else if let Some(c) = item.captures(line) {
+            bad(&c[2]).then(|| format!("{}{}", &c[1], requote(&c[2])))
+        } else {
+            None
+        };
+        out.push(fixed.unwrap_or_else(|| line.to_string()));
+    }
+    let mut s = out.join("\n");
+    if text.ends_with('\n') {
+        s.push('\n');
+    }
+    s
+}
+
+/// Parses YAML, retrying once after `repair_yaml`; the first error is kept.
+pub fn parse_yaml(text: &str) -> Result<yaml_serde::Value, String> {
+    match yaml_serde::from_str(text) {
+        Ok(v) => Ok(v),
+        Err(e) => yaml_serde::from_str(&repair_yaml(text)).map_err(|_| e.to_string()),
+    }
+}
+
 /// Every `<tag path="...">...</tag>` block, in order.
 pub fn files(text: &str, tag: &str) -> Vec<(String, String)> {
     let re = regex::Regex::new(&format!(r#"(?s)<{tag}\s+path="([^"]+)"\s*>(.*?)</{tag}>"#))
@@ -306,6 +411,28 @@ pub fn strip_fences(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn yaml_block_ignores_extra_blocks() {
+        let r = "<unit>\n```yaml\ngoal: x\n```\n\n<tests>\ncases: |\n  f() == 1\n</tests>\n<file path=\"a\">b</file>\n</unit>";
+        assert_eq!(yaml_block(r, "unit").as_deref(), Some("goal: x"));
+        let r = "<unit>\ngoal: x\n\n<tests>\ncases: y\n</tests>\n</unit>";
+        assert_eq!(yaml_block(r, "unit").as_deref(), Some("goal: x\n"));
+    }
+
+    #[test]
+    fn repair_requotes_broken_scalars_only() {
+        let bad = "functions:\n  - name: f\n    returns: \"ok \" followed by the port\nrequirements:\n  - `f` never panics\n  - \"fine\"\ncases: |\n  f(\"a\") == \"b\"\n  \"x\" ok\n";
+        assert!(yaml_serde::from_str::<yaml_serde::Value>(bad).is_err());
+        let v = parse_yaml(bad).unwrap();
+        assert_eq!(
+            v["functions"][0]["returns"].as_str(),
+            Some("\"ok \" followed by the port")
+        );
+        assert_eq!(v["requirements"][0].as_str(), Some("`f` never panics"));
+        assert_eq!(v["requirements"][1].as_str(), Some("fine"));
+        assert_eq!(v["cases"].as_str(), Some("f(\"a\") == \"b\"\n\"x\" ok\n"));
+    }
 
     #[test]
     fn blocks_and_files() {
