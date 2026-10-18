@@ -475,8 +475,10 @@ fn cmd_explain(args: &[String]) -> Result<ExitCode, String> {
     for p in &protos {
         println!("  function {}   checked as `{}`", p.name, p.norm);
     }
+    let mut callable = protos.clone();
+    callable.extend(engine::helpers_for(&c, &chain)?);
     for x in &chain {
-        let tests = engine::tests_of(&c, x, &protos)?;
+        let tests = engine::tests_of(&c, x, &callable)?;
         if tests.is_empty() {
             continue;
         }

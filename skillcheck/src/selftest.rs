@@ -206,7 +206,10 @@ pub fn unit(c: &CourseDir, u: &Unit, seed: u64) -> UnitReport {
         r.notes.push(format!("stubs: {e}"));
         return r;
     }
-    let tests = match engine::tests_of(c, u, &protos) {
+    // Tests may also call test-only helpers; the stubs cover only the student's functions.
+    let mut callable = protos.clone();
+    callable.extend(engine::helpers_for(c, &chain).unwrap_or_default());
+    let tests = match engine::tests_of(c, u, &callable) {
         Ok(t) => t,
         Err(e) => {
             r.notes.push(e);
