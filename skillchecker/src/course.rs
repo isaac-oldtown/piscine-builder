@@ -23,8 +23,8 @@ pub fn migrate(root: &Path) -> Result<(), String> {
             .map_err(|e| format!("renaming {} to {}: {e}", old.display(), new.display()))?;
         eprintln!(
             "Renamed {} to {} (the grader is now skillchecker).",
-            old.display(),
-            new.display()
+            strip_verbatim(&old).display(),
+            strip_verbatim(&new).display()
         );
     }
     Ok(())
