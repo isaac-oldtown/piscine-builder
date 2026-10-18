@@ -1333,6 +1333,18 @@ pub fn validate(c: &CourseDir) -> Vec<String> {
     for u in &c.units {
         let chain = c.chain(u);
         let lang = c.language(u);
+        if let Some(p) = u.platform.as_deref().filter(|p| *p != "linux") {
+            problems.push(format!("{}: unknown platform `{p}` (only `linux`)", u.id));
+        }
+        // Regression runs earlier stages with this one, on the same system.
+        if u.platform.is_none()
+            && let Some(prev) = chain.iter().find(|x| x.platform.is_some())
+        {
+            problems.push(format!(
+                "{}: `{}` before it needs Linux, so this stage needs `platform: linux` too",
+                u.id, prev.id
+            ));
+        }
         let protos = match (protos_for(c, &chain), helpers_for(c, &chain)) {
             (Ok(mut p), Ok(h)) => {
                 p.extend(h);

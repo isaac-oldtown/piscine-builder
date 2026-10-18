@@ -5,6 +5,7 @@
 pub mod ask;
 pub mod course;
 pub mod defaults;
+pub mod docker;
 pub mod engine;
 pub mod expr;
 pub mod gens;

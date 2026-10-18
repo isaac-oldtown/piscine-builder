@@ -54,7 +54,7 @@ The curriculum file is markdown: front matter (`title`, `language`, `level`,
 project (`pNN-slug`) or note (`note-slug`), and `### pNN.k-slug` for stages, each
 with YAML keys (`goal`, `concept_difficulty` and `difficulty` for understanding and
 implementation, `hours`, `done_when` as the exit criterion, `introduces`, `assumes`,
-`target`, `scaffold`, `allows`, `stretch`, `gradable`; projects add `minimum`, the
+`target`, `scaffold`, `allows`, `stretch`, `platform`, `gradable`; projects add `minimum`, the
 minimum viable result; notes: `teaches`, `with`) and a free-text brief. `taskmaster prompt` prints the full
 specification. The validator enforces:
 
@@ -68,6 +68,9 @@ specification. The validator enforces:
   stretch goal, and no required stage follows a stretch stage.
 - **Minimum viable result:** every project states its `minimum`; the required
   stages deliver it, and the project overview shows it.
+- **Stages:** every earlier stage is tested again at each later one, so a stage
+  never says what it does with a feature a later stage adds (a `not supported yet`
+  message is an error), and once a stage needs Linux every later stage does too.
 - **Warnings:** a missing `done_when`, drills nothing later uses, a unit over 16
   hours, too many units at difficulty 5 or at a single level, a hard stage that
   introduces three or more concepts or relies on one only a note covers.
@@ -100,7 +103,18 @@ every reply is cached on disk by a hash of its request, so a re-run (or
 for real (does AddressSanitizer work, is a POSIX bash available). The curriculum front matter can
 declare another environment (`environment: Ubuntu 24.04, gcc, valgrind, make`). The browser
 prompt, the guided planner and every generation request include it; `import` warns when a unit
-relies on a tool that is missing; tests are still verified on this machine before they are kept.
+relies on a tool that is missing; tests are still verified on this machine before they are kept
+(Linux units in the Linux container, see below).
+
+**Linux units:** `platform: linux` marks a unit (or a whole project) that needs
+Linux APIs: fork, exec, pipes, signals, process groups, `/proc`. Everything else stays
+portable. On Windows or macOS, skillcheck runs those units in an Ubuntu 24.04 container
+by itself (Docker Desktop must be running): `check` and `selftest` rerun the same command
+there, and `taskmaster build` gates their references there too, so a Linux course can be
+built and followed from Windows. The image (Rust, clippy, rustfmt, gcc, python3, dash as
+`/bin/sh`, GNU coreutils, and skillcheck built from its own source) is built the first
+time it is needed and again after skillcheck changes. The course folder is mounted at
+`/course`; build caches stay in Docker volumes, apart from the native ones.
 
 **LLM settings:** `--provider anthropic|meridian|openai`, `--base-url` (any
 OpenAI-compatible server), `--model` (default `claude-sonnet-5-5`), `--api-key-env
@@ -121,6 +135,7 @@ pass `--provider meridian`.
 | `skillcheck status` | Course map: passed, skipped, current, locked (locked titles stay hidden). |
 | `skillcheck progress` | Regenerates `PROGRESS.md` and prints the dashboard. `PROGRESS.md` has a Schedule section (planned hours done vs expected by now) when units carry `hours` and the course has `weeks`. When a week ends, skillcheck writes `reviews/week-NN.md`: that week's numbers and three questions (what you can do alone, what is unclear, whether the schedule holds). |
 | `skillcheck explain [unit]` | Everything a check runs: generators, rounds, laws. |
+| `skillcheck shell [unit] [--port N]` | Linux units on another system: a bash terminal in the Linux container, in the unit's workspace, to run your program by hand. `--port N` publishes that port on `127.0.0.1` of your machine (start the server with `--bind 0.0.0.0`). |
 | `skillcheck validate` | Parses every unit without running anything. |
 | `skillcheck selftest [unit...]` | Course gate: each reference must pass, and every function must have a test that fails on an empty stub. |
 
@@ -154,6 +169,7 @@ language: c                    # c, python, rust, bash, js, ts, go, java, ruby, 
 difficulty: 2
 concepts: [pointer arithmetic]
 stretch: false                 # true: optional, `skillcheck skip` moves past it
+platform: linux                # optional: needs Linux; elsewhere it runs in a container (Docker)
 target: function               # function: skillcheck's own main calls yours | program: your program is run
 scaffold: minimal              # none (student creates everything) | minimal | full
 stubs: src/str_basics.c        # where empty mandatory functions are written on unlock

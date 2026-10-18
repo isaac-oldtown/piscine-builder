@@ -19,6 +19,9 @@ skillcheck: levelup's grader. Works offline, never calls an LLM.
   skillcheck status            where you are in the course
   skillcheck progress          regenerate and summarize PROGRESS.md
   skillcheck explain [unit]    show exactly what the checks run (generators, rounds)
+  skillcheck shell [unit] [--port N]
+                               a terminal in the Linux container, for Linux units
+                               (--port publishes port N on 127.0.0.1 of this machine)
 
   Course authors: skillcheck validate | skillcheck selftest [unit...]
 
@@ -39,6 +42,7 @@ fn main() -> ExitCode {
         Some("explain") => cmd_explain(&args[1..]),
         Some("validate") => cmd_validate(),
         Some("selftest") => cmd_selftest(&args[1..]),
+        Some("shell") => cmd_shell(&args[1..]),
         Some(other) => Err(format!("unknown command `{other}`\n\n{USAGE}")),
     };
     match res {
@@ -252,6 +256,11 @@ fn cmd_check(args: &[String]) -> Result<ExitCode, String> {
     let c = course()?;
     let state = c.state();
     let u = pick(&c, &state, explicit.as_deref())?;
+    if skillcheck::docker::needed(u) {
+        let mut full = vec!["check".to_string()];
+        full.extend(args.iter().cloned());
+        return skillcheck::docker::delegate(&c, &full).map(ExitCode::from);
+    }
     let seed = seed.unwrap_or_else(random_seed);
     let opts = Options {
         seed,
@@ -333,6 +342,11 @@ fn print_reveal(c: &CourseDir, u: &Unit, r: &scaffold::Revealed) {
                 .map(|l| format!("    {l}"))
                 .collect::<Vec<_>>()
                 .join("\n")
+        );
+    }
+    if skillcheck::docker::needed(u) {
+        println!(
+            "  this unit needs Linux: `skillcheck check` builds and tests it in a Linux container (Docker Desktop must be running), and `skillcheck shell` opens a terminal there to run your program by hand"
         );
     }
     if u.scaffold == skillcheck::unit::Scaffold::None {
@@ -544,24 +558,91 @@ fn cmd_validate() -> Result<ExitCode, String> {
     }
 }
 
-fn cmd_selftest(args: &[String]) -> Result<ExitCode, String> {
+fn cmd_shell(args: &[String]) -> Result<ExitCode, String> {
+    let mut port = None;
+    let mut explicit = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--port" => {
+                let v = it.next().ok_or("--port needs a number")?;
+                port = Some(v.parse::<u16>().map_err(|_| "--port takes a port number")?);
+            }
+            s if s.starts_with('-') => return Err(format!("unknown option {s}")),
+            s => explicit = Some(s),
+        }
+    }
     let c = course()?;
-    let problems = engine::validate(&c);
+    let state = c.state();
+    let dir = match pick(&c, &state, explicit) {
+        Ok(u) => c.workspace(u),
+        Err(_) => c.root.clone(),
+    };
+    if cfg!(target_os = "linux") {
+        return Err("you are already on Linux: run your program in this terminal".into());
+    }
+    skillcheck::docker::shell(&c, &dir, port).map(ExitCode::from)
+}
+
+fn cmd_selftest(args: &[String]) -> Result<ExitCode, String> {
+    let mut seed = None;
+    let mut json = false;
+    let mut validate = true;
+    let mut names = Vec::new();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--seed" => {
+                let v = it.next().ok_or("--seed needs a value")?;
+                seed = Some(u64::from_str_radix(v, 16).map_err(|_| "--seed takes a hex number")?);
+            }
+            // Used by the Linux container to report back.
+            "--json" => json = true,
+            "--no-validate" => validate = false,
+            s if s.starts_with('-') => return Err(format!("unknown option {s}")),
+            s => names.push(s),
+        }
+    }
+    let c = course()?;
+    let problems = if validate {
+        engine::validate(&c)
+    } else {
+        Vec::new()
+    };
     for p in &problems {
         println!("KO spec: {p}");
     }
-    let ids: Vec<&Unit> = if args.is_empty() {
+    let ids: Vec<&Unit> = if names.is_empty() {
         c.units.iter().collect()
     } else {
-        args.iter()
+        names
+            .iter()
             .map(|a| c.unit(a).ok_or_else(|| format!("no unit `{a}`")))
             .collect::<Result<_, _>>()?
     };
-    let seed = random_seed();
+    let seed = seed.unwrap_or_else(random_seed);
     let mut all_ok = problems.is_empty();
     let style = Style::detect();
-    for u in ids {
-        let r = selftest::unit(&c, u, seed);
+    let (linux, here): (Vec<&Unit>, Vec<&Unit>) =
+        ids.iter().partition(|u| skillcheck::docker::needed(u));
+    let mut reports: Vec<selftest::UnitReport> =
+        here.iter().map(|u| selftest::unit(&c, u, seed)).collect();
+    if !linux.is_empty() {
+        eprintln!(
+            "{} Linux unit(s): testing in the Linux container...",
+            linux.len()
+        );
+        reports.extend(skillcheck::docker::selftest(&c, &linux, seed)?);
+    }
+    // Back in course order.
+    reports.sort_by_key(|r| ids.iter().position(|u| u.id == r.unit));
+    for r in reports {
+        if json {
+            println!("{}", r.to_json());
+            all_ok &= r.ok();
+            continue;
+        }
+        let u = &r.unit;
         let reference = match &r.reference {
             Ok((p, t)) => style.green(&format!("reference OK {p}/{t}")),
             Err(e) => style.red(&format!("reference KO {}", report::truncate(e, 160))),
@@ -576,13 +657,15 @@ fn cmd_selftest(args: &[String]) -> Result<ExitCode, String> {
         } else {
             style.red(&format!("  weak: {}", r.vacuous.join("; ")))
         };
-        println!("{:<28} {reference}{vac}", u.id);
+        println!("{u:<28} {reference}{vac}");
         for n in &r.notes {
             println!("{:<28} {}", "", style.yellow(n));
         }
         all_ok &= r.ok();
     }
-    println!("seed {seed:016x}");
+    if !json {
+        println!("seed {seed:016x}");
+    }
     Ok(if all_ok {
         ExitCode::SUCCESS
     } else {

@@ -75,6 +75,10 @@ pub struct Fields {
     /// Optional unit, skippable by the student.
     #[serde(default)]
     pub stretch: bool,
+    /// `linux`: needs Linux APIs; built and tested in a Linux container on
+    /// other systems. On a project, applies to every stage.
+    #[serde(default)]
+    pub platform: Option<String>,
     /// One line: the observable behaviour that means the unit is done.
     #[serde(default)]
     pub done_when: Option<String>,
@@ -351,6 +355,16 @@ impl Plan {
             .or_else(|| self.meta.language.clone())
             .unwrap_or_default()
             .to_lowercase()
+    }
+
+    /// `linux` when the unit (or its project) needs Linux APIs.
+    pub fn platform(&self, e: &Entry) -> Option<String> {
+        e.f.platform.clone().or_else(|| {
+            e.parent
+                .as_deref()
+                .and_then(|p| self.entry(p))
+                .and_then(|p| p.f.platform.clone())
+        })
     }
 
     pub fn notes_for(&self, unit: &str) -> Vec<&Entry> {
@@ -696,6 +710,23 @@ impl Plan {
                     Some(&stages[0].id),
                     "the first stage of a project cannot be a stretch goal",
                 ));
+            }
+            // Regression reruns earlier stages with the current one, on its system.
+            if let Some(first) = stages.iter().position(|s| self.platform(s).is_some())
+                && let Some(late) = stages[first..].iter().find(|s| self.platform(s).is_none())
+            {
+                p.push(Problem::err(late.line, Some(&late.id), format!("{} before it needs Linux, so this stage needs `platform: linux` too (or put it on the project)", stages[first].id)));
+            }
+            // Earlier stages are tested again at every later stage.
+            for st in &stages[..stages.len().saturating_sub(1)] {
+                if st.brief.to_lowercase().contains("not supported yet") {
+                    p.push(Problem::err(st.line, Some(&st.id), "do not specify what this stage does with a feature a later stage adds (such as a `not supported yet` message): its tests run again at every later stage and would fail there"));
+                }
+            }
+        }
+        for e in self.entries.iter().filter(|e| e.kind != Kind::Note) {
+            if let Some(pl) = e.f.platform.as_deref().filter(|p| *p != "linux") {
+                p.push(Problem::err(e.line, Some(&e.id), format!("unknown platform `{pl}`: the only value is `linux`, for units that need Linux APIs")));
             }
         }
         // Progression: hard stages do not stack new concepts, and rely on
@@ -1293,6 +1324,30 @@ mod tests {
         assert!(fixed.contains("## d01-a: A"), "{fixed}");
         assert!(fixed.contains("## d02-ab: B"), "{fixed}");
         assert!(fixed.contains("See d01-a first."), "{fixed}");
+    }
+
+    #[test]
+    fn platform_and_stage_rules() {
+        let errors = |t: &str| report(&problems_of(t));
+        assert!(!errors(GOOD).contains("platform"));
+        // A Linux stage followed by a portable one.
+        let t = GOOD.replace("assumes: [make]\n", "assumes: [make]\nplatform: linux\n");
+        assert!(
+            errors(&t).contains("needs `platform: linux` too"),
+            "{}",
+            errors(&t)
+        );
+        // On the project, it covers every stage.
+        let t = GOOD.replace("minimum: it builds", "platform: linux\nminimum: it builds");
+        assert!(!errors(&t).contains("platform"), "{}", errors(&t));
+        let t = GOOD.replace("hours: 2\n", "hours: 2\nplatform: windows\n");
+        assert!(errors(&t).contains("unknown platform `windows`"));
+        // An earlier stage defining what a later feature does.
+        let t = GOOD.replace(
+            "introduces: [linking]\n",
+            "introduces: [linking]\n\nOther commands print `not supported yet`.\n",
+        );
+        assert!(errors(&t).contains("its tests run again at every later stage"));
     }
 
     #[test]

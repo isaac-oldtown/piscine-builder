@@ -262,6 +262,10 @@ pub struct Unit {
     /// Optional unit: the student may skip it with `skillcheck skip`.
     #[serde(default)]
     pub stretch: bool,
+    /// `linux`: needs Linux APIs; on other systems skillcheck builds, runs
+    /// and tests it in a Linux container (Docker). Absent: any system.
+    #[serde(default)]
+    pub platform: Option<String>,
     #[serde(default)]
     pub scaffold: Scaffold,
     #[serde(default)]

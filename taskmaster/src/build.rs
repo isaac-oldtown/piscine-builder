@@ -261,6 +261,7 @@ impl<'a> Builder<'a> {
             // Existing contracts are kept (rewriting one would drop its tests);
             // `--only` redoes the named units.
             if self.unit_path(&u.id).is_file() && !self.explicit(u) {
+                self.sync_contract(u)?;
                 continue;
             }
             status(&format!("[contract {}/{}] {}", i + 1, units.len(), u.id));
@@ -299,6 +300,17 @@ impl<'a> Builder<'a> {
         }
 
         // Pass 2: tests + reference, unit by unit, each gated.
+        let linux_pending = !cfg!(target_os = "linux")
+            && units.iter().any(|u| {
+                self.selected(u)
+                    && self.plan.platform(u).is_some()
+                    && (!self.has_suite(&u.id) || self.explicit(u))
+            });
+        if linux_pending {
+            // Linux units are gated in a container: fail early, not as rejected attempts.
+            skillcheck::docker::image()
+                .map_err(|e| format!("{e}\n(the Linux units are tested in a Docker container)"))?;
+        }
         let mut failed: Vec<String> = Vec::new();
         let mut done_before = 0;
         for (i, u) in units.iter().enumerate() {
@@ -458,6 +470,9 @@ impl<'a> Builder<'a> {
         if f.stretch {
             s.push_str("stretch: true (optional unit; the student may skip it)\n");
         }
+        if self.plan.platform(u).is_some() {
+            s.push_str("platform: linux (built, run and tested on Linux: Ubuntu 24.04, /bin/sh is dash, GNU coreutils; on Windows the student's skillcheck runs it in a container by itself)\n");
+        }
         let notes: Vec<String> = self
             .plan
             .notes_for(&u.id)
@@ -500,6 +515,25 @@ impl<'a> Builder<'a> {
         s
     }
 
+    /// A kept contract takes the plan's fixed fields (platform, hours,
+    /// stretch...) again, so editing those in the plan needs no regeneration.
+    fn sync_contract(&self, u: &Entry) -> Result<(), String> {
+        let Some(old) = self.read_unit_map(&u.id) else {
+            return Ok(());
+        };
+        let mut m = self.merge_contract(u, &old);
+        for k in ["cases", "random"] {
+            if let Some(v) = old.get(s(k)) {
+                m.insert(s(k), v.clone());
+            }
+        }
+        if m != old {
+            let text = yaml_serde::to_string(&Yaml::Mapping(m)).map_err(|e| e.to_string())?;
+            write(&self.unit_path(&u.id), &text)?;
+        }
+        Ok(())
+    }
+
     /// Fixed fields first, then the model's contract.
     fn merge_contract(&self, u: &Entry, model: &Mapping) -> Mapping {
         let mut m = Mapping::new();
@@ -540,7 +574,11 @@ impl<'a> Builder<'a> {
         if u.f.stretch {
             m.insert(s("stretch"), Yaml::Bool(true));
         }
+        if let Some(p) = self.plan.platform(u) {
+            m.insert(s("platform"), s(&p));
+        }
         let fixed = [
+            "platform",
             "id",
             "title",
             "project",
@@ -729,11 +767,23 @@ impl<'a> Builder<'a> {
         };
         let lib_path = h.join("lib.yaml");
         let lib_text = fs::read_to_string(&lib_path).unwrap_or_default();
+        let later: Vec<String> = match &u.parent {
+            Some(p) => self
+                .plan
+                .stages(p)
+                .iter()
+                .skip_while(|x| x.id != u.id)
+                .skip(1)
+                .map(|x| format!("{}: {}", x.id, x.f.goal.as_deref().unwrap_or(&x.title)))
+                .collect(),
+            None => Vec::new(),
+        };
         let req = prompts::tests_request(
             &contract_text,
             &previous,
             &lib_text,
             &self.language_info(&self.plan.language(u), languages),
+            &later,
         );
         let mut messages = vec![Msg::system(self.system.clone()), Msg::user(req)];
         let mut last = String::new();
@@ -901,7 +951,13 @@ impl<'a> Builder<'a> {
         }
         let unit = c.unit(&u.id).ok_or("unit missing after write")?;
         let seed = skillcheck::gens::Rng::new(skillcheck::journal::now()).next_u64();
-        let r = selftest::unit(&c, unit, seed);
+        let r = if skillcheck::docker::needed(unit) {
+            skillcheck::docker::selftest(&c, &[unit], seed)?
+                .pop()
+                .ok_or("no report from the Linux container")?
+        } else {
+            selftest::unit(&c, unit, seed)
+        };
         let mut issues = Vec::new();
         if let Err(e) = &r.reference {
             issues.push(format!("your reference solution fails skillcheck: {e}"));

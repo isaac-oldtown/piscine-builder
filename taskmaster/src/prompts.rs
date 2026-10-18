@@ -43,9 +43,11 @@ Keys of a drill or stage:
 - scaffold: none | minimal | full
 - allows: [libraries, modules or functions the student may use besides their own code]
 - stretch: true   (optional unit: the student may skip it)
+- platform: linux   (only when the unit needs Linux APIs: fork, exec, pipes, signals, process groups,
+  /proc, Unix permissions; such units are built and tested in a Linux container on other systems)
 - gradable: false   (only if no program can check the result)
 - language: <only if different from the default>
-Keys of a project: goal, difficulty, assumes, language, and minimum (required): one line, what the
+Keys of a project: goal, difficulty, assumes, language, platform, and minimum (required): one line, what the
 project must do to count as a success. Its brief states the scope: what is in, what is out.
 Keys of a note: teaches: [...], with: <id of the drill or stage it is revealed with>.
 
@@ -123,6 +125,10 @@ Design decisions
 - Look ahead. When a later stage depends on a representation chosen earlier, say so in
   the earlier stage's brief (for example: tokens keep their quoting, because a later
   expansion stage needs it).
+- All stages of a project build one program (or library) that each stage extends: the
+  tests of every earlier stage run again at each later stage. Separate small programs are
+  drills. A stage never specifies what it does with a feature a later stage adds (no
+  `not supported yet` messages): that behaviour is left untested until the stage adding it.
 - Decide in the brief whatever drives the design: the project scope, the grammar of a
   parser or protocol (written before the parser stage), the output order of concurrent
   programs, and the edge cases (empty input, missing trailing newline, unreadable
@@ -138,6 +144,9 @@ Fit
   projects use minimal: the student organizes the project.
 - Operating-system features only when the student's environment provides them; if
   they don't, choose an alternative or make the unit a stretch goal.
+- Portable by default: only units that need Linux APIs get `platform: linux` (set it on a
+  project when all its stages need it). Once a stage of a project needs Linux, every later
+  stage does too, since earlier stages are tested again with it.
 - Alternate drills and projects: a project integrates the drills before it.
 - gradable: false only when nothing can be checked by a program (visual design,
   essays). Prefer exercises with checkable results.
@@ -449,8 +458,24 @@ pub fn contract_request(context: &str, entry: &str, project: &str, language: &st
     )
 }
 
-pub fn tests_request(unit_yaml: &str, previous_ref: &str, lib: &str, language: &str) -> String {
+pub fn tests_request(
+    unit_yaml: &str,
+    previous_ref: &str,
+    lib: &str,
+    language: &str,
+    later_stages: &[String],
+) -> String {
     let mut s = format!("# Language\n{language}\n\n# Unit contract\n```yaml\n{unit_yaml}\n```\n");
+    if !later_stages.is_empty() {
+        s.push_str(&format!(
+            "\n# Later stages\nThese tests run again, unchanged, at every later stage of this project, against the later program:\n{}\nSo test only behaviour that stays true in all of them. Never test that a feature is missing or unsupported, the output for input a later stage gives a meaning to, or a usage message a later stage may change.\n",
+            later_stages
+                .iter()
+                .map(|l| format!("- {l}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        ));
+    }
     if !lib.trim().is_empty() {
         s.push_str(&format!(
             "\n# Named generators already in lib.yaml\n```yaml\n{lib}\n```\n"

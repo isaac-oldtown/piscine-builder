@@ -39,6 +39,49 @@ impl UnitReport {
     pub fn ok(&self) -> bool {
         self.reference.is_ok() && self.vacuous.is_empty()
     }
+
+    /// One JSON line, how the Linux container reports back.
+    pub fn to_json(&self) -> serde_json::Value {
+        let (passed, error) = match &self.reference {
+            Ok((p, t)) => (Some([p, t]), None),
+            Err(e) => (None, Some(e)),
+        };
+        serde_json::json!({
+            "unit": self.unit,
+            "passed": passed,
+            "error": error,
+            "vacuous": self.vacuous,
+            "vacuity_checked": self.vacuity_checked,
+            "notes": self.notes,
+        })
+    }
+
+    pub fn from_json(v: &serde_json::Value) -> Option<UnitReport> {
+        let strings = |k: &str| -> Vec<String> {
+            v[k].as_array()
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let reference = match (v["passed"].as_array(), v["error"].as_str()) {
+            (Some(pt), _) => Ok((
+                pt.first()?.as_u64()? as usize,
+                pt.get(1)?.as_u64()? as usize,
+            )),
+            (None, Some(e)) => Err(e.to_string()),
+            (None, None) => return None,
+        };
+        Some(UnitReport {
+            unit: v["unit"].as_str()?.to_string(),
+            reference,
+            vacuous: strings("vacuous"),
+            vacuity_checked: v["vacuity_checked"].as_u64().unwrap_or(0) as usize,
+            notes: strings("notes"),
+        })
+    }
 }
 
 /// Writes a workspace holding only mechanical stubs for `protos`.
