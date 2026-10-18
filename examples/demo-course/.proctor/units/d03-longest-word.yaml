@@ -17,12 +17,17 @@ functions:
 files:
   - { path: Cargo.toml, note: "package `longest_word`" }
   - { path: "src/**/*.rs", rule: one_or_more, note: "library in `src/lib.rs`" }
-requirements:
-  - "A word is a maximal run of non-whitespace characters (`char::is_whitespace`)."
-  - "Length counts `char`s, not bytes. On a tie, the first word wins."
+requirements: |
+  A **word** is a maximal run of non-whitespace characters (`char::is_whitespace`). Length
+  counts `char`s, not bytes, and on a tie the **first** longest word wins.
+think_about:
+  - text with no word at all
+  - several words of the same length
+  - characters that take more than one byte
 allowed: []
 cases: |
   longest_word("") == null
+  # example
   longest_word("a bb ccc") == "ccc"
   longest_word("aa bb") == "aa"
   word_count("  hello \t world  ") == 2

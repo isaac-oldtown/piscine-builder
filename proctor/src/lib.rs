@@ -17,6 +17,7 @@ pub mod program;
 pub mod progress;
 pub mod render;
 pub mod report;
+pub mod rules;
 pub mod run;
 pub mod scaffold;
 pub mod scan;

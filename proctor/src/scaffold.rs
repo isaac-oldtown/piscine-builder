@@ -100,6 +100,12 @@ pub fn reveal(c: &CourseDir, u: &Unit) -> Result<Revealed, String> {
         )?;
     }
     write_doc(root, &c.subject_rel(u), &render::unit_md(c, u), &mut r)?;
+    write_doc(
+        root,
+        Path::new(crate::rules::FILE),
+        &crate::rules::rules_md(c),
+        &mut r,
+    )?;
     for n in &u.notes {
         let src = c.hidden().join("notes").join(format!("{n}.md"));
         let body = fs::read_to_string(&src).map_err(|e| format!("note `{n}`: {e}"))?;

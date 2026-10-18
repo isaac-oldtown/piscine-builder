@@ -14,6 +14,8 @@ level: <beginner | intermediate | advanced>
 hours_per_week: <number>
 weeks: <number>
 environment: <optional: where students will work if not on the build machine, e.g. "Ubuntu 24.04, gcc, valgrind, make">
+rigor: <relaxed | standard | strict: how thoroughly hidden tests probe edge cases; strict unless the student asks otherwise>
+conventions: <optional, one paragraph: course-wide habits units rely on, e.g. "errors go to stderr as `name: message`">
 ---
 
 ## 2. Entries, in teaching order
@@ -37,7 +39,7 @@ Keys of a drill or stage:
 - hours: estimated hours of implementation, testing and debugging (required; for planning only, never shown to the student)
 - done_when: one line, the exit criterion: the observable behaviour showing the essential skills are there
   (the tests are written from it). Optional details are not part of it, so the student can move on once it holds.
-- introduces: [concepts and tools this unit teaches]
+- introduces: [concepts and tools this unit teaches; ONE concept per item, each worth its own explanation: write `let`, `mut`, `shadowing` as three items, not "let and mut"]
 - assumes: [concepts and tools it needs]
 - target: function | program
 - scaffold: none | minimal | full
@@ -356,7 +358,7 @@ pub fn convert_request(source: &str) -> String {
          debugging), `concept_difficulty`, `difficulty`, `done_when`, `introduces` and `assumes` from what each \
          unit teaches and needs, `target`, `scaffold`, `allows` from my restrictions, a project's `minimum`. \
          When I give a value (hours, order, language, allowed functions), use mine.\n\
-         - Front matter: `title`, `language`, `level` and, if I gave none, `hours_per_week` and `weeks` chosen \
+         - Front matter: `title`, `language`, `level`, `rigor` (the level I state, else strict) and, if I gave none, `hours_per_week` and `weeks` chosen \
          so that the required hours fit with 10 to 15% to spare.\n\
          - If the validator rejects the result, fix it with the smallest change: complete `introduces` and \
          `assumes`, add a note for a notion I take for granted, mark a unit `stretch: true` only when I called \
@@ -434,10 +436,9 @@ const GEN_INTRO: &str = r#"You write exercises for PiscineBuilder, a hands-on co
 YAML with these keys (coursecrafter adds id, title, language, difficulty, concepts, notes, platform: do not write those):
 - target: function | program. function: proctor calls the listed functions itself. program: the whole program is run (arguments, stdin, stdout, stderr, exit code).
 - goal: one sentence.
-- functions: [{name, sig, returns}], the minimal set the student writes, as exact signatures (see the language notes). A program target lists the helper functions its requirements ask for (a requirement never says "a function" without naming it here), otherwise none. A stage lists only the functions it adds.
-- files: the expected tree, [{path, rule, note}] with rule = required (default) | one_or_more | free | forbidden; `*` inside a folder, `**` across folders. Listing any rule makes unlisted files unexpected, so a project adds {path: "**", rule: free} unless the layout must be exact.
-- requirements: at most 6 short bullets of behaviour, in the order the student builds it: edge cases, formats, errors, exit codes. Everything the tests check is stated here or follows from the functions. With a done_when line, the requirements and the tests together establish it. Write them for someone who knows only what this unit and earlier units teach: describe the result in words ("right-aligned in a 4-character column"), not only as syntax; a format spec, type or macro the requirements need is either introduced by an earlier unit or taught in this unit's lesson. Never require a concept that neither the lesson nor an earlier unit covers.
-- example (program target, required): the exact output of one typical run, as a block string; when the program takes arguments or input, start with the command line (`$ prog args`) and the input. It is shown in a code block under "Example".
+- functions: [{name, sig, returns}], the minimal set the student writes, as exact signatures (see the language notes). `returns` carries the exact meaning in one short phrase ("the number of bytes in s", "s with ASCII letters in uppercase"): with the signature, it is the specification. A program target lists the helper functions the unit asks for, otherwise none. A stage lists only the functions it adds.
+- files: the expected tree, [{path, rule, note}] with rule = required (default) | one_or_more | free | forbidden; `*` inside a folder, `**` across folders. Listing any rule makes unlisted files unexpected, so a project adds {path: "**", rule: free} unless the layout must be exact. List only what is graded or required: never personal files (notes, scratch tests).
+- requirements: OPTIONAL, and absent for most function drills. The page already shows the signatures and their `returns`, the Allowed and Forbidden lists, examples taken from your tests, and the course's RULES.md (edge cases, exact output, linters, time limits, fair play). Write requirements only for what none of these can say: a program's arguments, an exit-code scheme, an error-message format, a protocol, an output format the examples leave ambiguous, an ungraded constraint of the brief. Never paraphrase a signature, ownership, the Allowed list, the linters or generic edge cases: reading those is the student's job. When present, send them in a <requirements>...</requirements> block after the <unit> block (markdown, NOT inside the YAML): short paragraphs or numbered steps with a sentence of context, names in **bold**, formats in `code`, a small table when there are several cases. At most about 20 lines; not exhaustive. Only rely on what this unit's lesson or an earlier unit teaches. Send an empty <requirements></requirements> block when there are none.
 - allowed: what the exercise's code may use besides its own code and the language built-ins. An entry covers everything inside it (`std::io` allows std::io::stdin and the rest of std::io). Restrict only what the brief restricts; when the brief allows the standard library, list it whole. Omit `allowed` when nothing is restricted. Earlier stages' entries carry over: a stage lists only what it adds. The student's own tests in `tests/` are never checked.
 - forbidden: items banned even though `allowed` covers them, when the brief bans a few things (allowed: [std], forbidden: [std::mem::swap]).
 - stubs: function target only, where the empty functions are written at unlock; it must fit the files rules.
@@ -446,7 +447,10 @@ Style: plain, short sentences, no long dashes. Never reveal the tests, the refer
 
 # Tests (the <tests> block)
 
-YAML with `cases` (a block string, one test per line) and optional `random`.
+YAML with `cases` (a block string, one test per line), optional `random`, and `think_about`.
+Examples: the instructions show some of your cases as examples. Put a comment line `# example` before two or three ordinary cases (typical inputs, not edge cases); they are shown to the student with their results. A program needs at least one case with an exact `out == "..."`.
+think_about: a list of 2 to 4 short edge-case CATEGORIES the student should decide about ("text with no ASCII letters", "the smallest input"), with no quotes, no concrete input from your cases and no expected result. They point at what the hidden tests probe without giving the answers.
+Fairness: every case and law must follow from the unit's instructions (signatures, `returns`, requirements, Allowed, examples), the rules of its rigor level below, or what follows unambiguously from them. Never test a behaviour the student could not have known.
 "#;
 
 const GEN_FUNCTION_TESTS: &str = r#"Function target ({langs}), one boolean expression per line:
@@ -513,7 +517,7 @@ with `extra_flags: [-Dmalloc=sc_malloc]` in <tests>, then: then(fail_alloc_after
 
 pub fn contract_request(context: &str, entry: &str, project: &str, language: &str) -> String {
     format!(
-        "# Course so far\n{context}\n{project}# Language\n{language}\n\n# Unit to write\n{entry}\n\nReply with only the <unit>...</unit> block holding the contract YAML (plus the <lesson> block when the unit asks for one). Do NOT write tests, reference files or scaffolds now: they are requested separately, once the contract is accepted."
+        "# Course so far\n{context}\n{project}# Language\n{language}\n\n# Unit to write\n{entry}\n\nReply with only the <unit>...</unit> block holding the contract YAML (plus the <lesson> block when the unit asks for one, and the <requirements> block). Do NOT write tests, reference files or scaffolds now: they are requested separately, once the contract is accepted."
     )
 }
 
@@ -528,6 +532,36 @@ pub struct TestsContext<'a> {
     /// Everything the code may use at this stage, earlier stages included.
     pub allowed: Option<&'a [String]>,
     pub forbidden: &'a [String],
+    pub rigor: &'a str,
+}
+
+/// `build --text-only`: new teaching text for a unit whose tests stay as they are.
+pub fn text_request(contract: &str, entry: &str, language: &str, cases: &str) -> String {
+    format!(
+        "# Language\n{language}\n\n# Unit\n{entry}\n# Its contract (tests and reference are final and stay as they are)\n```yaml\n{contract}\n```\n\n\
+         # Its test cases\n```\n{cases}\n```\n\n\
+         Rewrite only the teaching text of this unit, following the contract rules: \
+         a <lesson>...</lesson> block (as the unit asks; empty if it introduces nothing), \
+         a <requirements>...</requirements> block (markdown, often empty: only what the functions table, Allowed, \
+         the examples and RULES.md cannot say), and a <think_about>...</think_about> block holding a YAML list of 2 \
+         to 4 edge-case categories from the cases above, without quoting any case or result. Everything must agree \
+         with the test cases. Reply with only these three blocks."
+    )
+}
+
+/// What the hidden tests must cover at each rigor level (matches RULES.md).
+pub fn rigor_rules(rigor: &str) -> &'static str {
+    match rigor {
+        "relaxed" => {
+            "relaxed: test the behaviour the unit states and the cases its examples suggest; random inputs stay within the stated ranges."
+        }
+        "standard" => {
+            "standard: beyond the stated behaviour, test the usual edge cases (empty input, one element, zero, a missing trailing newline), the invalid input the unit describes, and random inputs against the reference."
+        }
+        _ => {
+            "strict: beyond the stated behaviour, test every edge case (empty input, one element, zero, the limits of the types involved, text outside ASCII, a missing trailing newline), adversarial input (very long text, large counts, malformed input: a program must never crash, panic or hang), random inputs against the reference, and, where a needlessly slow algorithm is the likely mistake, a law with `time_ms` on large input."
+        }
+    }
 }
 
 pub fn tests_request(unit_yaml: &str, cx: &TestsContext) -> String {
@@ -564,6 +598,7 @@ pub fn tests_request(unit_yaml: &str, cx: &TestsContext) -> String {
             }
         ));
     }
+    s.push_str(&format!("\n# Rigor\n{}\n", rigor_rules(cx.rigor)));
     if !cx.earlier_tests.is_empty() {
         s.push_str("\n# Tests of the earlier stages\nThey run again, unchanged, against this stage's program, which must still pass them all:\n");
         for (id, yaml) in cx.earlier_tests {
@@ -590,7 +625,7 @@ pub fn tests_request(unit_yaml: &str, cx: &TestsContext) -> String {
             "\n# Reference of the previous stage (build on it)\n{previous_ref}\n"
         ));
     }
-    s.push_str("\nReply with the <tests> block (cases, random, and optional helpers / extra_flags / wrap), an optional <lib> block (new named generators only), every reference <file path=\"...\"> block, optional <support path=\"...\"> blocks for helpers, and optional <scaffold path=\"...\"> blocks. Nothing else.");
+    s.push_str("\nReply with the <tests> block (cases, random, think_about, and optional helpers / extra_flags / wrap), an optional <lib> block (new named generators only), every reference <file path=\"...\"> block, optional <support path=\"...\"> blocks for helpers, and optional <scaffold path=\"...\"> blocks. Nothing else.");
     s
 }
 

@@ -13,12 +13,13 @@ target: program
 goal: Print every line of standard input reversed.
 files:
   - { path: main.pl, note: the program }
-requirements:
-  - Each input line is printed reversed, followed by a newline, in input order.
-  - A last line without a trailing newline is still printed, with a newline.
+think_about:
+  - a last line without a trailing newline
+  - no input at all
 allowed: [strict, warnings]
 cases: |
   <<< "" => out empty exit 0
+  # example
   <<< "abc\n" => out == "cba\n" exit 0
   <<< "ab\ncd" => out == "ba\ndc\n"
 random:

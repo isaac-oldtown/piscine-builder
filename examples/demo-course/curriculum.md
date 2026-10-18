@@ -3,6 +3,7 @@ title: PiscineBuilder demo course
 level: beginner
 hours_per_week: 10
 weeks: 1
+rigor: strict
 ---
 
 ## d01-string-basics: String Basics

@@ -18,10 +18,16 @@ functions:
 files:
   - { path: include/str_basics.h, note: declares the three prototypes }
   - { path: "src/*.c", rule: one_or_more, note: "any names, any split into files" }
-requirements:
-  - "Words are the maximal runs of characters other than `sep`: `str_split(\"a,,b\", ',')` yields `a` and `b`."
-  - "An empty string, or one made only of separators, yields an array holding just `NULL`."
-  - On allocation failure, free everything already allocated and return `NULL`.
+requirements: |
+  A **word** is a maximal run of characters other than `sep`, so separators never produce
+  empty words. `str_split` returns a `NULL`-terminated array of owned words.
+
+  Memory is yours to manage: when an allocation fails, free everything already allocated and
+  return `NULL`. The tests make `malloc` fail on purpose.
+think_about:
+  - separators next to each other, or at both ends of the text
+  - a text made only of separators
+  - an allocation failing after some words are already copied
 allowed: [stdlib.h, stddef.h, malloc, free]
 extra_flags: [-Dmalloc=sc_malloc]
 support: [support/d01-string-basics/fail_alloc.c]
@@ -29,9 +35,12 @@ helpers:
   - { name: fail_alloc_after, sig: "void fail_alloc_after(int n)" }
 cases: |
   str_len("") == 0
+  # example
   str_len("abc") == 3
   str_dup("") == ""
+  # example
   str_dup("hello") == "hello"
+  # example
   str_split("a,,b", ',') == ["a", "b"]
   str_split("", ',') == []
   str_split(",,,", ',') == []

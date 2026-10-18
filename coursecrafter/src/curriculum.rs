@@ -39,6 +39,12 @@ pub struct Meta {
     /// machine building it (OS, compilers, tools installed).
     #[serde(default)]
     pub environment: Option<String>,
+    /// How thoroughly the tests probe: relaxed, standard or strict (default).
+    #[serde(default)]
+    pub rigor: Option<String>,
+    /// Course-wide habits the units rely on (quoted in RULES.md).
+    #[serde(default)]
+    pub conventions: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -410,6 +416,18 @@ impl Plan {
         let mut p = Vec::new();
         if self.meta.title.trim().is_empty() {
             p.push(Problem::err(2, None, "front matter needs a `title`"));
+        }
+        if let Some(r) = self
+            .meta
+            .rigor
+            .as_deref()
+            .filter(|r| !matches!(r.trim(), "relaxed" | "standard" | "strict"))
+        {
+            p.push(Problem::err(
+                2,
+                None,
+                format!("`rigor: {r}` must be relaxed, standard or strict"),
+            ));
         }
         let mut seen = BTreeSet::new();
         for e in &self.entries {

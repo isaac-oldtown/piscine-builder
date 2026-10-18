@@ -22,6 +22,8 @@ level: beginner
 hours_per_week: 15
 weeks: 2
 environment: "Ubuntu 24.04, gcc, valgrind, make"   # optional: when students use another machine
+rigor: strict                  # relaxed | standard | strict (default): how hard hidden tests probe
+conventions: "Errors go to stderr as `name: message`."   # optional, quoted in RULES.md
 ---
 
 ## d01-hello: Hello, compiler
@@ -55,7 +57,7 @@ Keys of a drill or stage:
 | `difficulty` | 1 to 5: how hard it is to implement and debug (required). |
 | `hours` | Honest estimate including testing and debugging (required; never shown to the student). |
 | `done_when` | The exit criterion: the observable behaviour that shows the essential skills. |
-| `introduces`, `assumes` | Concepts and tools taught here, and needed here. |
+| `introduces`, `assumes` | Concepts and tools taught here, and needed here. One concept per item (`let`, `mut`, `shadowing`, not "let and mut"): each introduced concept gets its own subsection in the lesson. |
 | `target` | `function` (the grader calls the functions; C, Python, Rust) or `program`. |
 | `scaffold` | `none`, `minimal` (default) or `full`. |
 | `allows` | Libraries, modules or functions the student may use besides their own code. |

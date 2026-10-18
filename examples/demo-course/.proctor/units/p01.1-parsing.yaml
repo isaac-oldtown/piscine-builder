@@ -15,12 +15,20 @@ functions:
 files:
   - { path: logstat/__init__.py, note: "exposes `parse_line`" }
   - { path: "**", rule: free, note: organize the rest as you like }
-requirements:
-  - "A line is `YYYY-MM-DD HH:MM:SS LEVEL message`; `time` holds the first two fields joined by one space."
-  - "Malformed means: fewer than four fields, a date not shaped `YYYY-MM-DD` with digits, a time not shaped `HH:MM:SS` with digits, or a level other than `INFO`, `WARN`, `ERROR`."
-  - The message is everything after the level, stripped of surrounding whitespace.
+requirements: |
+  A log line reads `YYYY-MM-DD HH:MM:SS LEVEL message`. In the result, `time` holds the date
+  and the time joined by one space, and `msg` is everything after the level, without the
+  surrounding whitespace.
+
+  A line is **malformed** when it has fewer than four fields, a date or time not shaped as
+  above with digits, or a level other than `INFO`, `WARN` and `ERROR`.
+think_about:
+  - a line that stops right after the level
+  - fields with the right length but the wrong characters
+  - spaces inside the message
 allowed: []
 cases: |
+  # example
   logstat.parse_line("2026-01-02 10:00:00 INFO start") == {"time": "2026-01-02 10:00:00", "level": "INFO", "msg": "start"}
   logstat.parse_line("2026-01-02 10:00:00 ERROR disk is  full\n").msg == "disk is  full"
   logstat.parse_line("garbage") == null

@@ -16,6 +16,13 @@ pub struct Course {
     pub hours_per_week: Option<f64>,
     #[serde(default)]
     pub weeks: Option<f64>,
+    /// How thoroughly the hidden tests probe: relaxed, standard or strict
+    /// (the default). Stated in RULES.md.
+    #[serde(default)]
+    pub rigor: Option<String>,
+    /// Course-wide habits the units rely on, quoted in RULES.md.
+    #[serde(default)]
+    pub conventions: Option<String>,
     /// Unit ids in teaching order. Project stages appear in place.
     pub units: Vec<String>,
     #[serde(default)]
@@ -159,6 +166,36 @@ pub struct FileRule {
 }
 
 #[derive(Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum Requirements {
+    Text(String),
+    List(Vec<String>),
+}
+
+impl Default for Requirements {
+    fn default() -> Self {
+        Requirements::List(Vec::new())
+    }
+}
+
+impl Requirements {
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Requirements::Text(t) => t.trim().is_empty(),
+            Requirements::List(l) => l.iter().all(|x| x.trim().is_empty()),
+        }
+    }
+
+    /// The whole section as markdown.
+    pub fn markdown(&self) -> String {
+        match self {
+            Requirements::Text(t) => format!("{}\n", t.trim()),
+            Requirements::List(l) => l.iter().map(|r| format!("- {}\n", r.trim())).collect(),
+        }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
 #[serde(deny_unknown_fields)]
 pub struct StaticCheck {
     pub name: String,
@@ -278,15 +315,21 @@ pub struct Unit {
     /// The lesson is a step-by-step walkthrough (first contact with a language).
     #[serde(default)]
     pub guided: bool,
-    /// Program target: what a run prints, shown as an example.
+    /// Program target: what a run prints, shown when no test case gives an
+    /// exact output to use as an example.
     #[serde(default)]
     pub example: Option<String>,
+    /// Edge-case categories worth deciding about, shown without answers.
+    #[serde(default)]
+    pub think_about: Vec<String>,
     #[serde(default)]
     pub functions: Vec<Func>,
     #[serde(default)]
     pub files: Vec<FileRule>,
+    /// Only what the functions table, Allowed, the examples and RULES.md
+    /// cannot say: markdown text, or a list of bullets.
     #[serde(default)]
-    pub requirements: Vec<String>,
+    pub requirements: Requirements,
     /// Absent = unrestricted. Present = strict whitelist (built-ins implied).
     #[serde(default)]
     pub allowed: Option<Vec<String>>,

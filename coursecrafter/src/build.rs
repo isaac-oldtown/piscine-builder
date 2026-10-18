@@ -20,6 +20,8 @@ pub struct Options {
     pub tests: Option<bool>,
     pub only: Vec<String>,
     pub yes: bool,
+    /// Rewrite only the teaching text (lesson, requirements, Think about).
+    pub text_only: bool,
 }
 
 pub struct Builder<'a> {
@@ -181,6 +183,10 @@ impl<'a> Builder<'a> {
         if let Some(w) = meta.weeks {
             m.insert(s("weeks"), Yaml::Number(w.into()));
         }
+        m.insert(s("rigor"), s(self.rigor()));
+        if let Some(cv) = meta.conventions.as_deref().filter(|t| !t.trim().is_empty()) {
+            m.insert(s("conventions"), s(cv.trim()));
+        }
         m.insert(
             s("units"),
             seq(&units.iter().map(|u| u.id.clone()).collect::<Vec<_>>()),
@@ -264,7 +270,7 @@ impl<'a> Builder<'a> {
         for (i, u) in units.iter().enumerate() {
             // Existing contracts are kept (rewriting one would drop its tests);
             // `--only` redoes the named units.
-            if self.unit_path(&u.id).is_file() && !self.explicit(u) {
+            if self.unit_path(&u.id).is_file() && (!self.explicit(u) || self.opts.text_only) {
                 self.sync_contract(u)?;
                 self.ensure_rust_scaffold(u)?;
                 continue;
@@ -290,6 +296,26 @@ impl<'a> Builder<'a> {
             self.llm.usage_line()
         ));
 
+        if self.opts.text_only {
+            let mut failed = Vec::new();
+            let chosen: Vec<&Entry> = units.iter().copied().filter(|u| self.selected(u)).collect();
+            for u in chosen {
+                if !self.unit_path(&u.id).is_file() {
+                    continue;
+                }
+                status(&format!("[text] {}", u.id));
+                if let Err(e) = self.rewrite_text(u, &languages) {
+                    if self.provider_down {
+                        return Err(e);
+                    }
+                    status(&format!("  FAILED {}: {e}", u.id));
+                    failed.push(u.id.clone());
+                }
+            }
+            status(&self.llm.usage_line());
+            self.refresh_unlocked();
+            return Ok(failed.is_empty());
+        }
         let want_tests = match self.opts.tests {
             Some(t) => t,
             None if self.opts.yes => true,
@@ -435,6 +461,89 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
+    /// New lesson, requirements and Think about for a built unit; its
+    /// contract fields, tests, reference and scaffold stay as they are.
+    fn rewrite_text(&mut self, u: &Entry, languages: &Mapping) -> Result<(), String> {
+        let old = self.read_unit_map(&u.id).ok_or("no contract yet")?;
+        let mut contract = old.clone();
+        for k in [
+            "lesson",
+            "requirements",
+            "think_about",
+            "cases",
+            "random",
+            "example",
+        ] {
+            contract.remove(s(k));
+        }
+        let contract_text =
+            yaml_serde::to_string(&Yaml::Mapping(contract)).map_err(|e| e.to_string())?;
+        let cases = old
+            .get(s("cases"))
+            .and_then(Yaml::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let req = prompts::text_request(
+            &contract_text,
+            &self.entry_text(u),
+            &self.language_info(&self.plan.language(u), languages),
+            &cases,
+        );
+        let mut messages = vec![Msg::system(self.system.clone()), Msg::user(req)];
+        let mut last = String::new();
+        for _ in 0..=self.opts.retries {
+            let reply = self.chat(&format!("text-{}", u.id), &messages)?;
+            let mut m = old.clone();
+            for (k, block) in [("lesson", "lesson"), ("requirements", "requirements")] {
+                match llm::block(&reply, block).map(|b| b.trim().to_string()) {
+                    Some(b) if !b.is_empty() => {
+                        m.insert(s(k), s(&b));
+                    }
+                    _ => {
+                        m.remove(s(k));
+                    }
+                }
+            }
+            let think: Vec<String> = llm::block(&reply, "think_about")
+                .and_then(|b| match llm::parse_yaml(&b) {
+                    Ok(Yaml::Sequence(v)) => Some(
+                        v.iter()
+                            .filter_map(|x| x.as_str().map(String::from))
+                            .collect(),
+                    ),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            if think.is_empty() {
+                m.remove(s("think_about"));
+            } else {
+                m.insert(s("think_about"), seq(&think));
+            }
+            let mut problems = self.check_contract(u, &m, languages);
+            problems.extend(think_about_problems(&think, &cases));
+            if problems.is_empty() {
+                let text = yaml_serde::to_string(&Yaml::Mapping(m)).map_err(|e| e.to_string())?;
+                return write(&self.unit_path(&u.id), &text);
+            }
+            last = problems.join("\n");
+            status(&format!("  rejected: {}", llm::cut(&problems[0], 160)));
+            messages.push(Msg::assistant(reply));
+            messages.push(Msg::user(prompts::feedback(
+                &last,
+                "the <lesson>, <requirements> and <think_about> blocks",
+            )));
+        }
+        Err(llm::cut(&last, 400))
+    }
+
+    fn rigor(&self) -> &str {
+        match self.plan.meta.rigor.as_deref().map(str::trim) {
+            Some("relaxed") => "relaxed",
+            Some("standard") => "standard",
+            _ => "strict",
+        }
+    }
+
     fn previous_stage(&self, u: &Entry) -> Option<&'a Entry> {
         let stages = self.plan.stages(u.parent.as_deref()?);
         let pos = stages.iter().position(|x| x.id == u.id)?;
@@ -552,31 +661,12 @@ impl<'a> Builder<'a> {
         if self.plan.platform(u).is_some() {
             s.push_str("platform: linux (built, run and tested on Linux: Ubuntu 24.04, /bin/sh is dash, GNU coreutils)\n");
         }
-        if f.guided {
-            s.push_str(&format!(
-                "guided: true. The student has never used {lang}. Also send a <lesson>...</lesson> block after the <unit> block (plain markdown, NOT inside the YAML): a \
-                 walkthrough (headings ###, no ## headings, at most about 150 lines) that takes them by the hand, in \
-                 numbered steps with the exact commands and the expected output: check the toolchain is installed (and \
-                 where to get it if not), create the workspace and the files the contract expects, write a first program \
-                 and explain every line of it, build and run it, read a compiler error on purpose, then a short tour of \
-                 the syntax this unit introduces with small examples, then run `proctor check`. The walkthrough may \
-                 show complete code for the first program; for the rest of the requirements it explains the syntax with \
-                 different examples and leaves the solution to the student.\n",
-                lang = self.plan.language(u)
-            ));
-        } else if !f.introduces.is_empty() {
-            s.push_str(&format!(
-                "This unit introduces: {}. The student has not met these yet, so also send a <lesson>...</lesson> block \
-                 after the <unit> block (plain markdown, NOT inside the YAML; headings ###, no ## headings, about 40 to 100 \
-                 lines) that teaches them before the exercise: for each concept, what it is and why it matters, the exact \
-                 syntax with a small runnable example that is NOT part of the solution, the output of that example, and \
-                 the usual pitfall. Explain every piece of syntax the requirements rely on (a format spec such as {{:>4}}, \
-                 a type, a macro, an operator rule such as integer division) unless an earlier unit introduced it. End \
-                 with a pointer to the official documentation for each concept (a chapter of the language's book or its \
-                 standard library docs).\n",
-                f.introduces.join(", ")
-            ));
-        }
+        s.push_str(&lesson_request(
+            &self.plan.language(u),
+            f.guided,
+            &f.introduces,
+            &f.assumes,
+        ));
         let notes: Vec<String> = self
             .plan
             .notes_for(&u.id)
@@ -626,7 +716,7 @@ impl<'a> Builder<'a> {
             return Ok(());
         };
         let mut m = self.merge_contract(u, &old);
-        for k in ["cases", "random"] {
+        for k in ["cases", "random", "think_about", "example"] {
             if let Some(v) = old.get(s(k)) {
                 m.insert(s(k), v.clone());
             }
@@ -688,6 +778,9 @@ impl<'a> Builder<'a> {
         let plan_only = [
             "done_when",
             "guided",
+            // Written with the tests (examples come from them, Think about avoids them).
+            "example",
+            "think_about",
             "kind",
             "gradable",
             "allows",
@@ -808,10 +901,27 @@ impl<'a> Builder<'a> {
         {
             p.push(format!("a program target in {lang_name} needs `run:`"));
         }
-        if unit.requirements.len() > 8 {
-            p.push(
-                "too many requirements (keep at most 6): split the unit or merge bullets".into(),
-            );
+        let req_text = unit.requirements.markdown();
+        if req_text.lines().filter(|l| !l.trim().is_empty()).count() > 30 {
+            p.push("the requirements are too long (keep them under about 25 lines): state only what the functions table, Allowed, the examples and RULES.md cannot".into());
+        }
+        if let Some(what) = redundant_requirement(&req_text) {
+            p.push(format!(
+                "the requirements restate {what}, which the page or RULES.md already shows: remove that part"
+            ));
+        }
+        if let Some(lesson) = unit.lesson.as_deref() {
+            let missing = uncovered_concepts(lesson, &u.f.introduces);
+            if !missing.is_empty() {
+                p.push(format!(
+                    "the lesson has no ### subsection naming {}: give each introduced concept its own subsection",
+                    missing
+                        .iter()
+                        .map(|m| format!("`{m}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
         }
         let lesson_lines = unit
             .lesson
@@ -819,11 +929,6 @@ impl<'a> Builder<'a> {
             .map_or(0, |l| l.lines().filter(|x| !x.trim().is_empty()).count());
         if !u.f.guided && !u.f.introduces.is_empty() && lesson_lines < 8 {
             p.push("this unit introduces new concepts, so it needs a <lesson> block teaching them (see the request)".into());
-        }
-        if unit.target == Target::Program
-            && unit.example.as_deref().is_none_or(|e| e.trim().is_empty())
-        {
-            p.push("a program target needs `example`: the exact output of one typical run, as a block string (with the command and its input when it takes some)".into());
         }
         if u.f.guided
             && unit
@@ -876,6 +981,13 @@ impl<'a> Builder<'a> {
                             llm::block(&reply, "lesson").filter(|l| !l.trim().is_empty())
                         {
                             model.insert(s("lesson"), s(l.trim()));
+                        }
+                        if let Some(r) = llm::block(&reply, "requirements") {
+                            if r.trim().is_empty() {
+                                model.remove(s("requirements"));
+                            } else {
+                                model.insert(s("requirements"), s(r.trim()));
+                            }
                         }
                         let m = self.merge_contract(u, &model);
                         let p = self.check_contract(u, &m, languages);
@@ -983,6 +1095,7 @@ impl<'a> Builder<'a> {
         let mut contract = contract;
         contract.remove(s("cases"));
         contract.remove(s("random"));
+        contract.remove(s("think_about"));
         let contract_text =
             yaml_serde::to_string(&Yaml::Mapping(contract.clone())).map_err(|e| e.to_string())?;
         let previous = self
@@ -1019,6 +1132,7 @@ impl<'a> Builder<'a> {
                 lib: &lib_text,
                 language: &language,
                 later_stages: &later,
+                rigor: self.rigor(),
                 earlier_tests: &earlier,
                 allowed: allowed.as_deref(),
                 forbidden: &forbidden,
@@ -1091,7 +1205,14 @@ impl<'a> Builder<'a> {
             }
             Err(e) => return Err(format!("<tests> is not valid YAML: {e}")),
         };
-        const TEST_KEYS: [&str; 5] = ["cases", "random", "helpers", "extra_flags", "wrap"];
+        const TEST_KEYS: [&str; 6] = [
+            "cases",
+            "random",
+            "helpers",
+            "extra_flags",
+            "wrap",
+            "think_about",
+        ];
         let mut unit = contract.clone();
         for key in TEST_KEYS {
             if let Some(v) = tests.get(s(key)) {
@@ -1107,6 +1228,36 @@ impl<'a> Builder<'a> {
                 extra.as_str().unwrap_or("?"),
                 TEST_KEYS.join(", ")
             ));
+        }
+        let cases_text = tests
+            .get(s("cases"))
+            .and_then(Yaml::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let think: Vec<String> = match tests.get(s("think_about")) {
+            Some(Yaml::Sequence(v)) => v
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect(),
+            _ => Vec::new(),
+        };
+        let think_problems = think_about_problems(&think, &cases_text);
+        if !think_problems.is_empty() {
+            return Err(think_problems.join("\n"));
+        }
+        // The Examples section of a program is built from a case with an exact output.
+        if contract.get(s("target")).and_then(Yaml::as_str) == Some("program")
+            && !cases_text.lines().any(|l| {
+                let l = l.trim();
+                !l.starts_with('#')
+                    && proctor::program::parse_case(l).is_ok_and(|c| {
+                        c.asserts.iter().any(|a| {
+                            matches!(a, proctor::program::Assert::Eq(proctor::program::Stream::Out, o) if !o.is_empty())
+                        })
+                    })
+            })
+        {
+            return Err("a program needs at least one case with an exact, non-empty `out == \"...\"`: the instructions show it as the example".into());
         }
         // Support files for helpers live in the hidden folder, per unit.
         let support_dir = h.join("support").join(&u.id);
@@ -1234,6 +1385,145 @@ impl<'a> Builder<'a> {
     }
 }
 
+/// What the contract request asks of the lesson (shown before the exercise).
+fn lesson_request(lang: &str, guided: bool, introduces: &[String], assumes: &[String]) -> String {
+    if !guided && introduces.is_empty() {
+        return String::new();
+    }
+    let concepts = introduces
+        .iter()
+        .map(|c| format!("`{c}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut s = if guided {
+        format!(
+            "guided: true. The student has never used {lang}. Send a <lesson>...</lesson> block after the <unit> block \
+             (plain markdown, NOT inside the YAML; headings ###, no ## headings, about 80 to 110 lines): a walkthrough \
+             in numbered steps with the exact commands and their expected output: check the toolchain is installed \
+             (and where to get it), create the workspace and the files the contract expects, write a first program and \
+             explain each line, build and run it, read a compiler error on purpose. Then one ### subsection per \
+             concept this unit introduces ({concepts}), then run `proctor check`. The first program may be shown in \
+             full; for the rest of the exercise, teach the syntax with other examples and leave the solution to the \
+             student.\n"
+        )
+    } else {
+        format!(
+            "This unit introduces {concepts}, which the student has not met. Send a <lesson>...</lesson> block after \
+             the <unit> block (plain markdown, NOT inside the YAML; headings ###, no ## headings, about 30 to 70 lines) \
+             that teaches them before the exercise.\n"
+        )
+    };
+    s.push_str(
+        "Lesson rules:\n\
+         - One ### subsection per introduced concept, its heading naming the concept. Never fold two concepts into one \
+         subsection (`let` and `mut` are two subsections).\n\
+         - Per concept: one or two sentences on what it is and why it matters; the syntax, as a small table when there \
+         are several forms (`{:>5}` / `{:<5}` / `{:^5}`, or `&` / `&mut` / `*`), else a code block; ONE small runnable \
+         example that is NOT part of the solution and never uses anything the contract forbids, with its output; at \
+         most two pitfalls as bullets, the key term in **bold**.\n\
+         - Concise: no filler, no labels such as \"What it is.\" before paragraphs. Explain every piece of syntax the \
+         exercise relies on (a format spec, a type, a macro, an operator rule such as integer division) unless an \
+         earlier unit introduced it.\n",
+    );
+    if !assumes.is_empty() {
+        s.push_str(&format!(
+            "- When a concept extends one the student already knows ({}), say in one line how they differ (for \
+             example: `&mut x` lends a value for changing, `let mut x` lets the variable itself change).\n",
+            assumes.join(", ")
+        ));
+    }
+    s.push_str(
+        "- End with a one-line **Docs:** pointer per concept (a chapter of the language's book or its standard \
+         library docs), then a `### Try it` subsection of one to three lines: an ungraded experiment that makes the \
+         concept stick (such as using a value after moving it and reading the compiler's message).\n",
+    );
+    s
+}
+
+const STOPWORDS: &[&str] = &[
+    "and", "the", "with", "for", "from", "into", "its", "your", "basic", "basics", "using", "first",
+];
+
+/// The words of a concept that a heading about it should contain.
+fn concept_keys(concept: &str) -> Vec<String> {
+    concept
+        .to_lowercase()
+        .split(|c: char| !(c.is_alphanumeric() || "&_!#{}:?".contains(c)))
+        .map(|w| w.trim_matches(|c: char| c == ':' || c == '!').to_string())
+        .filter(|w| w.len() >= 2 && !STOPWORDS.contains(&w.as_str()))
+        .collect()
+}
+
+/// Introduced concepts that no ### heading of the lesson names.
+fn uncovered_concepts(lesson: &str, introduces: &[String]) -> Vec<String> {
+    let headings: Vec<String> = lesson
+        .lines()
+        .filter(|l| l.trim_start().starts_with("###"))
+        .map(|l| l.to_lowercase().replace('`', ""))
+        .collect();
+    introduces
+        .iter()
+        .filter(|c| {
+            let keys = concept_keys(c);
+            !keys.is_empty()
+                && !headings
+                    .iter()
+                    .any(|h| keys.iter().any(|k| h.contains(k.as_str())))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Requirements that restate what the page or RULES.md already says.
+fn redundant_requirement(text: &str) -> Option<&'static str> {
+    let t = text.to_lowercase();
+    [
+        ("cargo fmt", "the linters"),
+        ("clippy", "the linters"),
+        ("-wall", "the compiler flags"),
+        ("proctor check", "how to check"),
+        ("allowed list", "the Allowed list"),
+        ("is not allowed", "the Allowed list"),
+        ("off limits", "the Allowed list"),
+        ("forbidden", "the Allowed list"),
+        ("time limit", "the time limit"),
+    ]
+    .iter()
+    .find(|(k, _)| t.contains(k))
+    .map(|(_, what)| *what)
+}
+
+/// String and number literals of the test cases, to keep them out of the
+/// Think about list.
+fn case_literals(cases: &str) -> Vec<String> {
+    let strings = regex::Regex::new(r#""((?:[^"\\]|\\.)*)""#).expect("regex");
+    let numbers = regex::Regex::new(r"\b\d{3,}\b").expect("regex");
+    let mut out: Vec<String> = strings
+        .captures_iter(cases)
+        .map(|c| c[1].to_string())
+        .filter(|s| s.trim().chars().count() >= 3)
+        .collect();
+    out.extend(numbers.find_iter(cases).map(|m| m.as_str().to_string()));
+    out
+}
+
+/// Problems with a Think about list: it names categories, never answers.
+fn think_about_problems(items: &[String], cases: &str) -> Vec<String> {
+    let mut p = Vec::new();
+    if items.len() > 4 {
+        p.push("`think_about` has at most 4 bullets".into());
+    }
+    let literals = case_literals(cases);
+    for it in items {
+        if it.contains('"') || it.contains("==") || it.contains("->") || it.contains("=>") {
+            p.push(format!("`think_about` bullet `{it}` gives a concrete case or result: name the category only (\"text with no letters\"), never the input or the expected answer"));
+        } else if let Some(l) = literals.iter().find(|l| it.contains(l.as_str())) {
+            p.push(format!("`think_about` bullet `{it}` quotes `{l}` from the tests: name the category only, without the case"));
+        }
+    }
+    p
+}
+
 /// `--only` names a unit by its id or its short id (`d03`, `p02.1`), or a
 /// whole project by its id or short id (`p02-minishell`, `p02`).
 fn names(only: &str, e: &Entry) -> bool {
@@ -1311,6 +1601,30 @@ fn s_key(k: &str) -> Yaml {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lessons_cover_each_concept_and_think_about_spoils_nothing() {
+        let lesson = "### Variables with `let`\ntext\n### Ownership and moves\ntext\n### Try it\n";
+        let intro = [
+            "let".to_string(),
+            "mut".to_string(),
+            "ownership and moves".to_string(),
+        ];
+        assert_eq!(uncovered_concepts(lesson, &intro), vec!["mut"]);
+        let cases = "ft_capitalize(\"123abc\") == \"123abc\"\nft_repeat(\"ab\", 1000) == 2000\n";
+        assert!(
+            think_about_problems(&["a string that starts with a digit".into()], cases).is_empty()
+        );
+        assert!(!think_about_problems(&["what \"123abc\" gives".into()], cases).is_empty());
+        assert!(!think_about_problems(&["counts like 1000".into()], cases).is_empty());
+        let five: Vec<String> = (0..5).map(|i| format!("case kind {i}")).collect();
+        assert!(!think_about_problems(&five, cases).is_empty());
+        assert_eq!(
+            redundant_requirement("Must pass `cargo fmt`."),
+            Some("the linters")
+        );
+        assert_eq!(redundant_requirement("Print `LEVEL count` lines."), None);
+    }
 
     #[test]
     fn only_accepts_short_ids_and_projects() {

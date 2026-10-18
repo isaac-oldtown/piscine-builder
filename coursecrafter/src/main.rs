@@ -38,7 +38,7 @@ coursecrafter: creates PiscineBuilder courses. The only part of PiscineBuilder t
   coursecrafter setup [--course DIR]
         for a curriculum with Linux units: set up Docker Desktop or WSL here
         (installs or starts it after asking; `new` offers the same)
-  coursecrafter build [--course DIR] [--yes] [--tests | --no-tests] [--only ID]... [--retries N]
+  coursecrafter build [--course DIR] [--yes] [--tests | --no-tests | --text-only] [--only ID]... [--retries N]
         write the unit specs, notes, tests and hidden references (uses the LLM)
 
 LLM options (build, new, revise, convert): --provider anthropic|meridian|openai  --base-url URL  --model NAME
@@ -433,7 +433,7 @@ fn cmd_import(raw: &[String]) -> Result<bool, String> {
 fn cmd_build(raw: &[String]) -> Result<bool, String> {
     let mut valued = vec!["course", "only", "retries"];
     valued.extend(LLM_OPTS);
-    let a = Args::parse(raw, &valued, &["yes", "tests", "no-tests"])?;
+    let a = Args::parse(raw, &valued, &["yes", "tests", "no-tests", "text-only"])?;
     let course = a.course();
     let file = course.join("curriculum.md");
     let text = std::fs::read_to_string(&file).map_err(|_| {
@@ -472,6 +472,7 @@ fn cmd_build(raw: &[String]) -> Result<bool, String> {
         },
         only: a.all("only"),
         yes: a.has("yes"),
+        text_only: a.has("text-only"),
     };
     let root = std::fs::canonicalize(&course).map_err(|e| e.to_string())?;
     let root = proctor::course::strip_verbatim(&root);

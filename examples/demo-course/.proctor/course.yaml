@@ -1,6 +1,7 @@
 title: PiscineBuilder demo course
 hours_per_week: 10
 weeks: 1
+rigor: strict
 units:
   - d01-string-basics
   - d02-word-count

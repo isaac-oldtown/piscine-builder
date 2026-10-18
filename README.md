@@ -136,7 +136,7 @@ The curriculum validator checks prerequisites, workload against available hours,
 | `coursecrafter preview <unit>... [--course DIR]` | Print the instructions of built units as proctor renders them, without unlocking anything. `d02` or `d02-control-flow`; a project id shows all its stages. |
 | `coursecrafter env` | Show detected tools and platform capabilities. |
 | `coursecrafter setup [--course DIR]` | Configure Docker Desktop or WSL for Linux units. |
-| `coursecrafter build [--course DIR] [--tests \| --no-tests] [--only ID]... [--retries N] [--yes]` | Generate the course. `--only` rebuilds selected units or projects, by full or short id (`d03`, `p02`); retries default to 3. |
+| `coursecrafter build [--course DIR] [--tests \| --no-tests \| --text-only] [--only ID]... [--retries N] [--yes]` | Generate the course. `--text-only` rewrites only the lessons, requirements and Think about lists of built units, keeping their tests. `--only` rebuilds selected units or projects, by full or short id (`d03`, `p02`); retries default to 3. |
 | `coursecrafter config` | Show the configuration file path. |
 
 LLM commands accept `--provider anthropic|meridian|openai`, `--base-url URL`, `--model NAME`, and `--api-key-env VAR`.
@@ -165,6 +165,8 @@ Set `NO_COLOR` to disable colors. Set `PROCTOR_ASCII` to replace check marks.
 Checks cover file layout, required function signatures, allowed functions and modules, compilation, linting, fixed tests, fuzzing against the hidden reference, invariants, and regression across earlier project stages.
 
 Supported languages include C, Python, Rust, Bash, JavaScript, TypeScript, Go, Java, Ruby, and other languages declared through the language configuration.
+
+Each unit page shows what is specific to it: a lesson, the expected functions, **Examples** taken from the real test cases, a **Think about** list of edge-case categories (never the answers) and, only when needed, short requirements. What holds for every unit is in the course's `RULES.md`, written by proctor in the course folder: the rigor level (`rigor:` in the curriculum, **strict** by default), edge cases, exact output, linters, time limits and fair play. Hidden tests only check what the instructions, the examples and `RULES.md` let you know.
 
 After each check, proctor updates `PROGRESS.md` with completed units, attempts, active time, common failures, results by difficulty, weekly activity, and schedule adherence. Weekly reviews are written to `reviews/week-NN.md`.
 

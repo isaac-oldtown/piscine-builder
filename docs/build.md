@@ -11,7 +11,11 @@ are revealed with, and course settings for languages without a preset. Each cont
 checked mechanically (schema, signatures, harness-supported types, stubs that fit the file
 rules, nothing that reveals the hidden tests) and sent back with the problems when it fails.
 
-Contracts teach as well as specify. A unit that introduces concepts gets a lesson, shown as "Before you start": each concept explained with a small example that is not the solution, its output, the usual pitfall and a pointer to the official docs. A `guided` unit gets a step-by-step walkthrough instead. Requirements describe the result in words and may only rely on what the lesson or an earlier unit teaches; functions they mention are named in the functions table; a program target shows its exact output under "Example". A contract missing any of these is sent back.
+Contracts teach as well as specify. A unit that introduces concepts gets a lesson, shown as "Before you start" (30 to 70 lines): one `###` subsection per introduced concept, with the syntax (a table when there are several forms), one small example that is not the solution and its output, at most two pitfalls, a one-line link to the official docs, and how it differs from a concept it extends (`&mut` after `mut`). It ends with an ungraded **Try it**. A `guided` unit gets a step-by-step walkthrough instead. A lesson whose headings miss an introduced concept is sent back.
+
+Requirements are optional: the page already shows the signatures and their `returns`, Allowed and Forbidden, examples and `RULES.md`. They appear only for what none of these can say (program arguments, exit codes, error formats, protocols), as short markdown; a requirement that restates the linters or the Allowed list is sent back.
+
+The tests come with two more pieces of text. Cases preceded by a `# example` comment line are shown as **Examples** with their results, so examples always agree with the grading (a program needs one case with an exact output). `think_about` lists two to four edge-case categories; a bullet that quotes a case or a result is sent back. Every test must follow from the instructions, the examples or the rules of the course's rigor level, which the test request states.
 
 Fields that come from the plan (hours, difficulty, stretch, platform...) are copied by
 coursecrafter, not by the model; editing them in the plan updates the existing contracts on the
@@ -43,6 +47,10 @@ contract stays, without tests, and the build exits non-zero. The following stage
 project are not generated, since they build on it; they wait for the next run.
 
 After a build, the instructions of units the student already unlocked are rendered again from the new specs (workspaces are never touched), so a rebuilt unit shows up without unlocking it again.
+
+## Rewriting the teaching text only
+
+`coursecrafter build --text-only [--only ID]...` rewrites the lesson, the requirements and the Think about list of built units, about one call per unit, and keeps their tests, reference and scaffold. The same contract checks apply.
 
 ## Resuming and tokens
 

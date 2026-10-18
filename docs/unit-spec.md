@@ -8,6 +8,7 @@ course/
   subjects/              revealed instructions (rendered by proctor, never by an LLM)
   notes/                 revealed notes
   reviews/               weekly reviews
+  RULES.md               rigor level, edge cases, output, linters, limits, fair play (generated)
   PROGRESS.md            generated after every check
   .vscode/               proctor tasks (Ctrl+Shift+B runs a check), added on the first unlock
   <workspace>/           one per drill, one per project (shared by its stages)
@@ -47,12 +48,14 @@ files:                         # the soft tree; listing any rule makes other fil
   - { path: include/str_basics.h, note: declares the prototypes }   # rule: required (default)
   - { path: "src/*.c", rule: one_or_more }
   - { path: "**", rule: free }                                      # allows anything else
-requirements: [Behaviour only, one bullet each.]
+requirements: |                # optional markdown (or a list): only what nothing else on the page says
+  With `-l`, print the number of **lines** instead.
+think_about: [blanks around words, no input at all]   # edge-case categories, never answers
 allowed: [stdlib.h, malloc, free]   # strict whitelist; absent = unrestricted; [] = built-ins only
                                     # an entry covers what is inside it (`std` = all of Rust's std)
 forbidden: [std::mem::swap]         # banned even though `allowed` covers it (needs `allowed`)
                                     # neither applies to the student's own tests in tests/
-example: |                     # program target: one typical run, shown under "Example"
+example: |                     # program target, fallback when no case has an exact `out ==`
   $ python -m logstat < app.log
   INFO 3
 run: python -m logstat         # program target ({exe}, {python}, {cargo_bin} placeholders)
@@ -60,6 +63,7 @@ env: { LC_ALL: C }             # set for builds and runs, listed in the instruct
 static: [{ name: lint, cmd: "ruff check ." }]
 timeout_ms: 10000
 cases: |
+  # example                                 # the next case is shown under "Examples"
   str_len("abc") == 3                       # function target: one boolean expression per line
   raises(parse(""))
   # program target: [args] [@file="..."] [<<< "stdin"] => out == "..." err ~ "re" exit 0

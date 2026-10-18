@@ -14,12 +14,19 @@ files:
   - { path: logstat/__init__.py }
   - { path: logstat/__main__.py, note: "makes `python -m logstat` work" }
   - { path: "**", rule: free }
-requirements:
-  - "Print one line per level that appears, as `LEVEL count`, in the order INFO, WARN, ERROR."
-  - Empty lines are ignored. Other malformed lines are skipped.
-  - "When lines were skipped, print `skipped N malformed line(s)` on stderr and exit with 1; otherwise exit with 0."
+requirements: |
+  `python -m logstat` reads a log on standard input and prints one line per level that
+  appears, as `LEVEL count`, in the order `INFO`, `WARN`, `ERROR`.
+
+  Empty lines are ignored. Other malformed lines are skipped: then print
+  `skipped N malformed line(s)` on standard error and exit with status `1`.
+think_about:
+  - a log where some levels never appear
+  - a log made only of malformed lines
+  - empty input
 allowed: [sys]
 cases: |
+  # example
   <<< "2026-01-02 10:00:00 INFO a\n2026-01-02 10:00:01 ERROR b\n2026-01-02 10:00:02 INFO c\n" => out == "INFO 2\nERROR 1\n" exit 0
   <<< "" => out empty exit 0
   <<< "garbage\n2026-01-02 10:00:00 WARN w\n" => out == "WARN 1\n" err ~ "skipped 1 malformed line" exit 1
