@@ -71,6 +71,22 @@ skillcheck next
 
 `taskmaster build` generates the course. Large courses can take a while; interrupted builds can be resumed, and completed units are retained.
 
+### Token consumption
+
+Rough estimates for planning and building a course with tests, with the default model (`claude-sonnet-5-5`, $2 per million input tokens and $10 per million output tokens at the time of writing):
+
+| Course | Example | Input tokens | Output tokens | Approximate cost |
+|---|---|---|---|---|
+| Small: about 10 units, mostly drills | 2 weeks, one small project | 0.3 M | 50 k | $1 |
+| Medium: about 25 units | 4 weeks, two projects | 1 M | 150 k | $3 to $4 |
+| Large: about 50 units | 7 weeks, five projects | 2.5 M | 350 k | $8 to $10 |
+
+Planning with `taskmaster new` accounts for 5 to 10% of this; most of it is the build. A project stage costs about twice as much as a drill, because its request carries the previous stage's reference and the earlier stages' tests. Each rejected attempt also adds a call. The large row is based on the output of a real 51-unit Rust course; the input figures are estimates.
+
+Things that lower the cost: the system prompt is the same for every request, so providers that cache prompts (Anthropic does) charge cached input at a fraction of the price. Replies are cached on disk, so rerunning a build or resuming it after an interruption costs nothing for finished work, and `--only` regenerates just the units you name. Changing the curriculum's `environment:` line or updating taskmaster's prompts invalidates that cache.
+
+With a Claude Code subscription through Meridian, there is no per-token cost, but a large build can reach the subscription's usage limit. When it does, the build stops cleanly: run the same command again later.
+
 ## Course lifecycle
 
 1. **Plan:** `taskmaster new` for interactive planning, or `taskmaster prompt` followed by `taskmaster import` using a chat assistant.
