@@ -2,7 +2,11 @@ id: p01.1-parsing
 title: Parsing
 project: p01-logstat
 difficulty: 2
-concepts: [string methods, dictionaries]
+concept_difficulty: 2
+hours: 1.5
+concepts: [parsing structured lines]
+introduces: [parsing structured lines]
+assumes: [splitting text into words, optional results]
 target: function
 stubs: logstat/__init__.py
 goal: Turn one raw log line into a structured entry.

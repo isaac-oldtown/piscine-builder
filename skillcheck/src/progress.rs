@@ -475,6 +475,16 @@ pub fn schedule(c: &CourseDir, events: &[Event], now: u64) -> Option<Schedule> {
     })
 }
 
+/// Hours to the nearest half: `8.5`, `8`.
+fn hours(h: f64) -> String {
+    let h = (h * 2.0).round() / 2.0;
+    if h.fract() == 0.0 {
+        format!("{h:.0}")
+    } else {
+        format!("{h:.1}")
+    }
+}
+
 fn schedule_md(sc: &Schedule) -> String {
     let mut s = String::from("\n## Schedule\n\n| Metric | Value |\n|--------|-------|\n");
     let week = match sc.weeks {
@@ -484,13 +494,13 @@ fn schedule_md(sc: &Schedule) -> String {
     let _ = writeln!(s, "| Week | {week} |");
     let _ = writeln!(
         s,
-        "| Planned work done | {:.0} h of {:.0} h required ({}) |",
-        sc.done,
-        sc.planned,
-        pct(sc.done.round() as usize, sc.planned.round() as usize)
+        "| Planned work done | {} h of {} h required ({:.0}%) |",
+        hours(sc.done),
+        hours(sc.planned),
+        sc.done * 100.0 / sc.planned
     );
     if let Some(e) = sc.expected {
-        let _ = writeln!(s, "| Expected by now | {e:.0} h |");
+        let _ = writeln!(s, "| Expected by now | {} h |", hours(e));
     }
     let _ = writeln!(s, "| Status | {} |", sc.status());
     if sc.behind() {

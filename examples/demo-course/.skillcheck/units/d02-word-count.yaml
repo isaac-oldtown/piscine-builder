@@ -2,7 +2,12 @@ id: d02-word-count
 title: Word Count in Bash
 language: bash
 difficulty: 1
-concepts: [read, loops, arithmetic expansion]
+concept_difficulty: 1
+hours: 1
+prereqs: [d01-string-basics]
+concepts: [reading standard input, exit codes]
+introduces: [reading standard input, exit codes]
+assumes: [splitting text into words]
 target: program
 scaffold: none
 run: bash wc.sh

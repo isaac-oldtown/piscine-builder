@@ -179,7 +179,8 @@ pub fn render(plan: &Plan, approval: &str, full: bool, st: &Style, w: usize) -> 
         facts.push(l.clone());
     }
     if let (Some(h), Some(wk)) = (m.hours_per_week, m.weeks) {
-        facts.push(format!("{h} h/week for {wk} weeks"));
+        let plural = if wk == 1.0 { "" } else { "s" };
+        facts.push(format!("{h} h/week for {wk} week{plural}"));
     }
     facts.push(approval.to_string());
     s.push_str(&st.dim(&facts.join(" · ")));

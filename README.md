@@ -32,7 +32,7 @@ Keep this repository in its current location after installation; skillcheck buil
 
 ### Try the demo course
 
-The demo contains units in C, Bash, Rust, and Perl, plus a two-stage Python project. No LLM is required.
+The demo contains units in C, Bash, Rust, and Perl (an optional stretch goal), plus a two-stage Python project, planned as a one-week course of 10 hours. No LLM is required. Its plan is in `curriculum.md`; `taskmaster show` displays it.
 
 ```
 cd examples/demo-course

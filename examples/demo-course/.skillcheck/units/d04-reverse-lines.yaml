@@ -2,7 +2,13 @@ id: d04-reverse-lines
 title: Reverse Lines
 language: perl
 difficulty: 1
-concepts: [reading STDIN, chomp, reverse]
+concept_difficulty: 1
+hours: 1
+prereqs: [d02-word-count]
+concepts: [line-oriented filters]
+introduces: [line-oriented filters]
+assumes: [reading standard input]
+stretch: true
 target: program
 goal: Print every line of standard input reversed.
 files:

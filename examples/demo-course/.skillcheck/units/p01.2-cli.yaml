@@ -2,7 +2,11 @@ id: p01.2-cli
 title: Command Line
 project: p01-logstat
 difficulty: 3
-concepts: [standard input, exit codes, python -m]
+concept_difficulty: 2
+hours: 2
+concepts: [command-line programs]
+introduces: [command-line programs]
+assumes: [parsing structured lines, reading standard input, exit codes]
 target: program
 run: python -m logstat
 goal: Read a log on standard input and print how many entries each level has.

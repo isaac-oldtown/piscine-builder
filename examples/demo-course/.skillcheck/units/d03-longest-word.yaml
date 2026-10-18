@@ -2,7 +2,12 @@ id: d03-longest-word
 title: Longest Word
 language: rust
 difficulty: 2
-concepts: [string slices, lifetimes, Option]
+concept_difficulty: 2
+hours: 1.5
+prereqs: [d01-string-basics]
+concepts: [optional results, borrowed slices]
+introduces: [optional results, borrowed slices]
+assumes: [splitting text into words]
 target: function
 stubs: src/lib.rs
 goal: Find the longest word of a text and return it as a slice of the input.

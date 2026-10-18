@@ -2,7 +2,12 @@ id: d01-string-basics
 title: String Basics
 language: c
 difficulty: 2
-concepts: [NUL termination, pointer arithmetic, manual allocation]
+concept_difficulty: 3
+hours: 2.5
+prereqs: []
+concepts: [splitting text into words, pointer arithmetic, manual allocation]
+introduces: [splitting text into words, pointer arithmetic, manual allocation]
+assumes: []
 target: function
 stubs: src/str_basics.c
 goal: Re-implement three small string helpers using only raw memory and pointers.
