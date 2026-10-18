@@ -40,6 +40,7 @@ pub fn ask_yes(question: &str) -> bool {
         return false;
     }
     let a = read_line(&format!("{question} [Y/n] "));
+    let a = a.to_lowercase();
     a.is_empty() || a == "y" || a == "yes"
 }
 
