@@ -115,12 +115,7 @@ impl<'a> Builder<'a> {
     }
 
     fn selected(&self, e: &Entry) -> bool {
-        self.opts.only.is_empty()
-            || self
-                .opts
-                .only
-                .iter()
-                .any(|o| o == &e.id || e.parent.as_deref() == Some(o))
+        self.opts.only.is_empty() || self.opts.only.iter().any(|o| names(o, e))
     }
 
     /// Chat with on-disk caching keyed by the full request.
@@ -239,6 +234,13 @@ impl<'a> Builder<'a> {
     }
 
     pub fn run(&mut self) -> Result<bool, String> {
+        for o in &self.opts.only {
+            if !self.plan.entries.iter().any(|e| names(o, e)) {
+                return Err(format!(
+                    "--only {o}: no unit or project has that id (use `d03`, `d03-refs-slices`, `p02` or `p02-minishell`)"
+                ));
+            }
+        }
         let h = hidden(&self.root);
         for d in ["units", "refs", "notes", "scaffold", "coursecrafter/cache"] {
             fs::create_dir_all(h.join(d)).map_err(|e| e.to_string())?;
@@ -264,6 +266,7 @@ impl<'a> Builder<'a> {
             // `--only` redoes the named units.
             if self.unit_path(&u.id).is_file() && !self.explicit(u) {
                 self.sync_contract(u)?;
+                self.ensure_rust_scaffold(u)?;
                 continue;
             }
             status(&format!("[contract {}/{}] {}", i + 1, units.len(), u.id));
@@ -408,6 +411,28 @@ impl<'a> Builder<'a> {
                 "refreshed the instructions of {n} unlocked unit(s) in subjects/"
             ));
         }
+    }
+
+    /// A Rust unit with a workspace scaffold always gets a Cargo.toml, derived
+    /// from the reference when the model sent none. A project's stages share
+    /// one workspace, so only its first stage needs one.
+    fn ensure_rust_scaffold(&self, u: &Entry) -> Result<(), String> {
+        if self.plan.language(u) != "rust" || u.f.scaffold.as_deref() == Some("none") {
+            return Ok(());
+        }
+        if self.previous_stage(u).is_some() {
+            return Ok(());
+        }
+        let h = hidden(&self.root);
+        let target = h.join("scaffold").join(&u.id).join("Cargo.toml");
+        let Ok(reference) = fs::read_to_string(h.join("refs").join(&u.id).join("Cargo.toml"))
+        else {
+            return Ok(());
+        };
+        if !target.is_file() {
+            write(&target, &scaffold_cargo_toml(&reference))?;
+        }
+        Ok(())
     }
 
     fn previous_stage(&self, u: &Entry) -> Option<&'a Entry> {
@@ -1158,6 +1183,7 @@ impl<'a> Builder<'a> {
         for (path, body) in &draft.scaffold {
             write(&scaffold_dir.join(path), body)?;
         }
+        self.ensure_rust_scaffold(u)?;
         // Gate: the course up to this unit must load, parse and self-test.
         self.write_course(upto, languages)?;
         let c = CourseDir::load(&self.root)?;
@@ -1208,6 +1234,43 @@ impl<'a> Builder<'a> {
     }
 }
 
+/// `--only` names a unit by its id or its short id (`d03`, `p02.1`), or a
+/// whole project by its id or short id (`p02-minishell`, `p02`).
+fn names(only: &str, e: &Entry) -> bool {
+    let short = |id: &str| id.split('-').next().unwrap_or(id).to_string();
+    only == e.id
+        || only == short(&e.id)
+        || e.parent
+            .as_deref()
+            .is_some_and(|p| only == p || only == short(p))
+}
+
+/// Cargo.toml for a Rust workspace scaffold, from the reference's: the same
+/// package, targets and features, with no dependency entries (adding one is
+/// the student's job when the unit asks for it).
+fn scaffold_cargo_toml(reference: &str) -> String {
+    // A `[dependencies]` table keeps its header, emptied; a table naming one
+    // dependency (`[dependencies.nix]`, `[target.'cfg(unix)'.dependencies]`) goes.
+    let mut out = String::new();
+    let (mut skip_body, mut skip_all) = (false, false);
+    for line in reference.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            let name = t.trim_matches(|c| c == '[' || c == ']');
+            skip_all = name.contains("dependencies.") || name.starts_with("target.");
+            skip_body = name.ends_with("dependencies");
+            if skip_all {
+                continue;
+            }
+        } else if skip_all || (skip_body && !t.is_empty() && !t.starts_with('#')) {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
 /// One-line keys coursecrafter sets itself: a model that repeats them can
 /// break the YAML (`concepts: [formatting with {}]`) for values that are
 /// replaced anyway, so they are removed before parsing.
@@ -1248,6 +1311,24 @@ fn s_key(k: &str) -> Yaml {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_accepts_short_ids_and_projects() {
+        let plan = crate::curriculum::parse("---\ntitle: T\nlanguage: rust\n---\n\n## d03-refs-slices: R\ngoal: g.\n\n## p02-minishell: S\ngoal: g.\n\n### p02.1-repl: A\ngoal: g.\n").unwrap();
+        let (d, st) = (&plan.entries[0], &plan.entries[2]);
+        assert!(names("d03", d) && names("d03-refs-slices", d) && !names("d3", d));
+        assert!(names("p02", st) && names("p02-minishell", st) && names("p02.1", st));
+        assert!(!names("d03", st));
+    }
+
+    #[test]
+    fn scaffold_cargo_toml_keeps_the_package_and_drops_dependencies() {
+        let r = "[package]\nname = \"minishell\"\nedition = \"2021\"\n\n[dependencies]\nnix = { version = \"0.29\" }\n\n[dependencies.libc]\nversion = \"0.2\"\n\n[[bin]]\nname = \"ft\"\npath = \"src/main.rs\"\n\n[workspace]\n";
+        let s = scaffold_cargo_toml(r);
+        assert!(s.contains("name = \"minishell\"") && s.contains("[dependencies]\n"));
+        assert!(s.contains("[[bin]]\nname = \"ft\"") && s.contains("[workspace]"));
+        assert!(!s.contains("nix") && !s.contains("libc"), "{s}");
+    }
 
     #[test]
     fn repeated_fixed_keys_cannot_break_the_contract() {

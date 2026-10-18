@@ -136,7 +136,7 @@ The curriculum validator checks prerequisites, workload against available hours,
 | `coursecrafter preview <unit>... [--course DIR]` | Print the instructions of built units as proctor renders them, without unlocking anything. `d02` or `d02-control-flow`; a project id shows all its stages. |
 | `coursecrafter env` | Show detected tools and platform capabilities. |
 | `coursecrafter setup [--course DIR]` | Configure Docker Desktop or WSL for Linux units. |
-| `coursecrafter build [--course DIR] [--tests \| --no-tests] [--only ID]... [--retries N] [--yes]` | Generate the course. `--only` rebuilds selected units; retries default to 3. |
+| `coursecrafter build [--course DIR] [--tests \| --no-tests] [--only ID]... [--retries N] [--yes]` | Generate the course. `--only` rebuilds selected units or projects, by full or short id (`d03`, `p02`); retries default to 3. |
 | `coursecrafter config` | Show the configuration file path. |
 
 LLM commands accept `--provider anthropic|meridian|openai`, `--base-url URL`, `--model NAME`, and `--api-key-env VAR`.
