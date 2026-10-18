@@ -157,7 +157,7 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
     let interactive = std::io::stdin().is_terminal() && !a.has("yes");
     let llm = a.llm()?;
     eprintln!("model {} at {}", llm.model, llm.base_url);
-    converse(&course, &llm, intake, interactive, None)
+    converse(&course, &llm, intake, interactive, None, Mode::New)
 }
 
 /// `coursecrafter revise` : the planner rewrites the current curriculum.md.
@@ -204,18 +204,87 @@ pub fn cmd_revise(raw: &[String]) -> Result<bool, String> {
         prompts::revise_request(&text, &changes),
         interactive,
         Some(&plan),
+        Mode::Revise,
     )
 }
 
-/// The planning loop shared by `new` and `revise`. With `current` (a
-/// revision), its ids are the baseline of the change list and the separate
-/// self-review is skipped: the revision request already includes it.
+/// `coursecrafter convert`: a curriculum written elsewhere (any outline,
+/// syllabus or plan) rewritten in the curriculum format, keeping its content.
+pub fn cmd_convert(raw: &[String]) -> Result<bool, String> {
+    let mut valued = vec!["course"];
+    valued.extend(LLM_OPTS);
+    let a = Args::parse(raw, &valued, &["yes"])?;
+    if a.positional.is_empty() {
+        return Err("give the file(s) holding your curriculum: coursecrafter convert my-plan.md [notes.txt]...".into());
+    }
+    let mut source = String::new();
+    for f in &a.positional {
+        let body = std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}"))?;
+        source.push_str(&format!(
+            "<file name=\"{f}\">\n{}\n</file>\n",
+            body.trim_end()
+        ));
+    }
+    let course = a.course();
+    let file = course.join("curriculum.md");
+    if let Ok(old) = std::fs::read_to_string(&file) {
+        let backup = course
+            .join(".proctor")
+            .join("coursecrafter")
+            .join("curriculum.previous.md");
+        if let Some(d) = backup.parent() {
+            std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
+        }
+        std::fs::write(&backup, old).map_err(|e| format!("{}: {e}", backup.display()))?;
+        eprintln!(
+            "the existing curriculum.md is saved to {}",
+            backup.display()
+        );
+    }
+    let interactive = std::io::stdin().is_terminal() && !a.has("yes");
+    let llm = a.llm()?;
+    eprintln!("model {} at {}", llm.model, llm.base_url);
+    converse(
+        &course,
+        &llm,
+        prompts::convert_request(&source),
+        interactive,
+        None,
+        Mode::Convert,
+    )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Plan from a wish: questions, then one self-review of the first draft.
+    New,
+    /// Change the current curriculum.md; the request includes the review.
+    Revise,
+    /// Rewrite an outside curriculum in the format, no restructuring review.
+    Convert,
+}
+
+impl Mode {
+    fn name(self) -> &'static str {
+        match self {
+            Mode::New => "new",
+            Mode::Revise => "revise",
+            Mode::Convert => "convert",
+        }
+    }
+}
+
+/// The planning loop shared by `new`, `revise` and `convert`. With `current`
+/// (a revision), its ids are the baseline of the change list. Only `new` gets
+/// the separate self-review: a revision request includes it, and a
+/// conversion must keep the author's plan rather than redesign it.
 fn converse(
     course: &Path,
     llm: &Llm,
     intake: String,
     interactive: bool,
     current: Option<&Plan>,
+    mode: Mode,
 ) -> Result<bool, String> {
     eprintln!("scanning this machine...");
     let system = format!(
@@ -230,7 +299,7 @@ fn converse(
     let mut asked = 0;
     let mut fixes = 0;
     let mut bad_questions = false;
-    let mut reviewed = current.is_some();
+    let mut reviewed = mode != Mode::New;
     // The self-review's list of changes, kept until a draft is shown: the
     // reviewed draft may still need validator fixes first.
     let mut review_notes: Option<String> = None;
@@ -295,7 +364,7 @@ fn converse(
             format!("<curriculum>\n{text}\n</curriculum>")
         };
         let problems = curriculum::problems_of(&text);
-        let source = if current.is_some() { "revise" } else { "new" };
+        let source = mode.name();
         curriculum::log_validation(course, source, &fixed, &problems);
         if problems.iter().any(|p| !p.warning) {
             if fixes >= MAX_AUTOFIX {
@@ -325,7 +394,12 @@ fn converse(
             continue;
         }
         if let Some(notes) = review_notes.take() {
-            println!("\nPlanner review:\n{notes}");
+            let heading = if mode == Mode::Convert {
+                "What the conversion added or changed"
+            } else {
+                "Planner review"
+            };
+            println!("\n{heading}:\n{notes}");
         }
         if let (Some(before), Ok(plan)) = (&previous, curriculum::parse(&text)) {
             let after = ids(&plan);

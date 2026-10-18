@@ -22,6 +22,9 @@ coursecrafter: creates PiscineBuilder courses. The only part of PiscineBuilder t
         validate a curriculum, show it, and approve it into the course folder
   coursecrafter new \"<what you want to learn>\" [--from FILE]... [--course DIR] [--yes]
         plan a curriculum in a short terminal conversation (uses the LLM)
+  coursecrafter convert <file>... [--course DIR] [--yes]
+        rewrite a curriculum you made elsewhere in the curriculum format,
+        keeping its units and content (uses the LLM)
   coursecrafter revise \"<changes>\" [--course DIR] [--yes]
         have the planner rewrite curriculum.md with your changes (uses the LLM)
   coursecrafter show [curriculum.md] [--course DIR] [--full]
@@ -35,7 +38,7 @@ coursecrafter: creates PiscineBuilder courses. The only part of PiscineBuilder t
   coursecrafter build [--course DIR] [--yes] [--tests | --no-tests] [--only ID]... [--retries N]
         write the unit specs, notes, tests and hidden references (uses the LLM)
 
-LLM options (build, new, revise): --provider anthropic|meridian|openai  --base-url URL  --model NAME
+LLM options (build, new, revise, convert): --provider anthropic|meridian|openai  --base-url URL  --model NAME
   --api-key-env VAR. Defaults come from PISCINEBUILDER_* variables, then the config file,
   then: provider anthropic, model claude-sonnet-5-5. Run `coursecrafter config` to see the file path.";
 
@@ -160,6 +163,7 @@ fn main() -> ExitCode {
         Some("import") => cmd_import(&raw[1..]),
         Some("new") => guided::cmd_new(&raw[1..]),
         Some("revise") => guided::cmd_revise(&raw[1..]),
+        Some("convert") => guided::cmd_convert(&raw[1..]),
         Some("show" | "display") => show::cmd_show(&raw[1..]),
         Some("build") => cmd_build(&raw[1..]),
         Some("env") => {
@@ -383,7 +387,13 @@ fn cmd_import(raw: &[String]) -> Result<bool, String> {
     if a.has("paste") && check_plan(&text, true).is_none() {
         return Ok(false);
     }
-    Ok(review(&a.course(), text, a.has("yes"))?.is_some())
+    let ok = review(&a.course(), text.clone(), a.has("yes"))?.is_some();
+    if !ok && curriculum::parse(&text).is_err() {
+        println!(
+            "If {file} is a plan in your own format, `coursecrafter convert {file}` rewrites it in the curriculum format."
+        );
+    }
+    Ok(ok)
 }
 
 fn cmd_build(raw: &[String]) -> Result<bool, String> {

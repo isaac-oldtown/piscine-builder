@@ -342,6 +342,34 @@ pub fn revise_request(current: &str, changes: &str) -> String {
     )
 }
 
+/// `coursecrafter convert`: a curriculum made elsewhere, rewritten in the format.
+pub fn convert_request(source: &str) -> String {
+    format!(
+        "I planned a course elsewhere. Here it is, in my own format:\n\n{source}\n\
+         Convert it into the curriculum format, faithfully. It is my plan: transcribe it, do not redesign it.\n\
+         - Keep every unit, in my order, with my scope, titles and details. Put my explanations, constraints, \
+         examples and edge cases in each entry's brief, nearly word for word; drop nothing.\n\
+         - Map my structure: a small single-topic exercise is a drill; a larger piece of work built in parts is a \
+         project whose parts are its stages. Material that only explains something is a note revealed with the \
+         unit that needs it. Keep my own ids when they already fit the id rules; otherwise number in my order.\n\
+         - Fill only what the format requires and I did not give: honest `hours` (including testing and \
+         debugging), `concept_difficulty`, `difficulty`, `done_when`, `introduces` and `assumes` from what each \
+         unit teaches and needs, `target`, `scaffold`, `allows` from my restrictions, a project's `minimum`. \
+         When I give a value (hours, order, language, allowed functions), use mine.\n\
+         - Front matter: `title`, `language`, `level` and, if I gave none, `hours_per_week` and `weeks` chosen \
+         so that the required hours fit with 10 to 15% to spare.\n\
+         - If the validator rejects the result, fix it with the smallest change: complete `introduces` and \
+         `assumes`, add a note for a notion I take for granted, mark a unit `stretch: true` only when I called \
+         it optional. Reorder, split or merge units only when nothing else works, and say so.\n\
+         - Mark my first unit `guided: true` if it is a first-steps walkthrough of the language. Do not add \
+         units I did not plan; if something important is missing (such as a first-steps unit for a language I \
+         have not used, or a drill before a hard stage), suggest it in <changes> instead.\n\
+         - Ask a question only for information you cannot infer from my files and that the format needs.\n\
+         Reply with <changes>a short bullet list of everything you added, interpreted or had to change, and \
+         your suggestions</changes> followed by <curriculum>the complete curriculum file</curriculum>."
+    )
+}
+
 pub fn review_request() -> String {
     format!(
         "{REVIEW_CHECKLIST}\n\nReply with <changes>a short bullet list of what you changed and why</changes> \

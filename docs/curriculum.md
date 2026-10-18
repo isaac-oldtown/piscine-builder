@@ -1,8 +1,14 @@
 # Curriculum format and planning rules
 
-A curriculum is one markdown file, `curriculum.md`, in the course folder. `coursecrafter new`
-and `coursecrafter import` write it, you can edit it by hand, and `coursecrafter prompt` prints
-the complete specification given to the planner.
+A curriculum is one markdown file, `curriculum.md`, in the course folder. `coursecrafter convert`
+(from a plan in your own format), `coursecrafter new` and `coursecrafter import` write it, you can
+edit it by hand, and `coursecrafter prompt` prints the complete specification given to the planner.
+
+`convert` transcribes rather than plans: it keeps your units, order, scope and details (in the
+briefs), uses every value you give, fills only the required keys you left out, and fixes validator
+errors with the smallest change (completing `introduces` and `assumes`, adding a note). It skips
+the planner's self-review, which would restructure the plan, and lists what it added, interpreted
+or suggests. Planning warnings may remain: they are advice, and your choices win.
 
 ## Format
 

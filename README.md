@@ -55,19 +55,25 @@ proctor progress  # Progress dashboard
 
 ### Create a course
 
+**Bring your own curriculum.** The best results come from a curriculum you design yourself, by whatever means suit you: your own research, a syllabus, a book's table of contents, or long conversations with the chat assistant of your choice. Planning a whole course well takes more back-and-forth and judgement than a short terminal conversation allows, and you know better than any tool what you already master and what you want to reach. Any format works: a markdown outline, a bulleted list, a document with weeks and parts.
+
+coursecrafter then turns it into a course. `coursecrafter convert` rewrites your plan in the curriculum format that `coursecrafter build` and proctor expect, faithfully: it keeps your units, their order, scope and details, fills only what the format needs (hours, difficulties, prerequisites, exit criteria), and lists everything it added or interpreted. It never adds units you did not plan; it suggests them instead.
+
 Create a separate directory for each course, outside this repository:
 
 ```
 mkdir my-course
 cd my-course
 
-coursecrafter new "learn C pointers, then write a small HTTP server" --provider meridian
+coursecrafter convert ../my-plan.md --provider meridian   # one or more files
 coursecrafter build --tests --provider meridian
 
 proctor next
 ```
 
-`coursecrafter new` scans your environment, asks planning questions, and presents a curriculum with estimated hours, difficulty, and prerequisites. You can approve it, request changes, or edit it yourself.
+`convert` shows the result as a table with hours, difficulty, and prerequisites. You can approve it, request changes, or edit `curriculum.md` yourself; `coursecrafter show` displays it again at any time. A plan that is already in the curriculum format is imported with `coursecrafter import` (no LLM).
+
+No plan yet? `coursecrafter new "learn C pointers, then write a small HTTP server"` plans one with you in a short conversation: it scans your environment, asks a few questions, and drafts a curriculum. It is a good starting point, but expect to revise it, and prefer a plan of your own for a long course.
 
 `coursecrafter build` generates the course. Large courses can take a while; interrupted builds can be resumed, and completed units are retained.
 
@@ -81,7 +87,7 @@ Rough estimates for planning and building a course with tests, with the default 
 | Medium: about 25 units | 4 weeks, two projects | 1 M | 150 k | $3 to $4 |
 | Large: about 50 units | 7 weeks, five projects | 2.5 M | 350 k | $8 to $10 |
 
-Planning with `coursecrafter new` accounts for 5 to 10% of this; most of it is the build. A project stage costs about twice as much as a drill, because its request carries the previous stage's reference and the earlier stages' tests. Each rejected attempt also adds a call. The large row is based on the output of a real 51-unit Rust course; the input figures are estimates.
+Planning with `coursecrafter new` or converting with `coursecrafter convert` accounts for 5 to 10% of this (a conversion is usually one or two calls); most of it is the build. A project stage costs about twice as much as a drill, because its request carries the previous stage's reference and the earlier stages' tests. Each rejected attempt also adds a call. The large row is based on the output of a real 51-unit Rust course; the input figures are estimates.
 
 Things that lower the cost: the system prompt is the same for every request, so providers that cache prompts (Anthropic does) charge cached input at a fraction of the price. Replies are cached on disk, so rerunning a build or resuming it after an interruption costs nothing for finished work, and `--only` regenerates just the units you name. Changing the curriculum's `environment:` line or updating coursecrafter's prompts invalidates that cache.
 
@@ -89,7 +95,7 @@ With a Claude Code subscription through Meridian, there is no per-token cost, bu
 
 ## Course lifecycle
 
-1. **Plan:** `coursecrafter new` for interactive planning, or `coursecrafter prompt` followed by `coursecrafter import` using a chat assistant.
+1. **Plan:** Write your own curriculum and convert it with `coursecrafter convert` (recommended), plan interactively with `coursecrafter new`, or use `coursecrafter prompt` with a chat assistant and `coursecrafter import` its answer.
 2. **Review:** Inspect and edit `curriculum.md`. The plan must be approved before it can be built.
 3. **Build:** `coursecrafter build --tests` generates unit instructions, tests, and hidden reference solutions. Each unit must pass the generation quality checks.
 4. **Practise:** Use `proctor next`, implement the assignment, and run `proctor check`. Project stages share a workspace and are tested together.
@@ -102,9 +108,10 @@ The curriculum validator checks prerequisites, workload against available hours,
 
 | Command | Description |
 |---|---|
+| `coursecrafter convert <file>... [--course DIR] [--yes]` | Rewrite a curriculum you made elsewhere, in any format, in the curriculum format (LLM). Keeps your units and content; an existing `curriculum.md` is retained. |
 | `coursecrafter new "<goal>" [--from FILE] [--course DIR] [--yes]` | Plan a curriculum with an LLM. `--from` adds a syllabus or notes. |
 | `coursecrafter prompt [--lang L] [--level beginner] [--hours 10]` | Print a prompt for a chat assistant. |
-| `coursecrafter import <file> [--course DIR] [--yes] [--paste]` | Validate and import a curriculum. |
+| `coursecrafter import <file> [--course DIR] [--yes] [--paste]` | Validate and import a curriculum already in the curriculum format (no LLM). |
 | `coursecrafter revise "<changes>" [--course DIR] [--yes]` | Revise the curriculum with an LLM. The previous version is retained. |
 | `coursecrafter show [file] [--course DIR] [--full]` | Show units, hours, difficulty, prerequisites, and approval status. |
 | `coursecrafter env` | Show detected tools and platform capabilities. |
