@@ -271,6 +271,10 @@ pub struct Unit {
     #[serde(default)]
     pub target: Target,
     pub goal: String,
+    /// Markdown shown right after the goal: a step-by-step walkthrough for
+    /// guided units (first contact with a language or a tool).
+    #[serde(default)]
+    pub lesson: Option<String>,
     #[serde(default)]
     pub functions: Vec<Func>,
     #[serde(default)]

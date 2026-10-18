@@ -54,6 +54,7 @@ Keys of a drill or stage:
 | `scaffold` | `none`, `minimal` (default) or `full`. |
 | `allows` | Libraries, modules or functions the student may use besides their own code. |
 | `stretch` | `true`: optional, the student may skip it. |
+| `guided` | `true` (drills only): the instructions walk the student through it step by step. The first unit of the course's language should be one, unless the student already writes it; drills may start at `d00` for it. |
 | `platform` | `linux`: needs Linux APIs; on other systems it runs in a container. |
 | `gradable` | `false` only when no program can check the result. |
 | `language` | Only when different from the course's. |

@@ -37,6 +37,8 @@ target: function               # function: proctor's own main calls yours | prog
 scaffold: minimal              # none (student creates everything) | minimal | full
 stubs: src/str_basics.c        # where empty mandatory functions are written on unlock
 goal: One sentence.
+lesson: |                      # optional markdown, shown as a Walkthrough after the goal (guided units)
+  ### Step 1: ...
 functions:                     # "Expected functions (minimal)" in the instructions
   - { name: str_len, sig: "size_t str_len(const char *s)", returns: bytes before the NUL }
 files:                         # the soft tree; listing any rule makes other files unexpected

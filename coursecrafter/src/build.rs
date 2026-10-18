@@ -505,6 +505,19 @@ impl<'a> Builder<'a> {
         if self.plan.platform(u).is_some() {
             s.push_str("platform: linux (built, run and tested on Linux: Ubuntu 24.04, /bin/sh is dash, GNU coreutils)\n");
         }
+        if f.guided {
+            s.push_str(&format!(
+                "guided: true. The student has never used {lang}. Also send a <lesson>...</lesson> block after the <unit> block (plain markdown, NOT inside the YAML): a \
+                 walkthrough (headings ###, no ## headings, at most about 150 lines) that takes them by the hand, in \
+                 numbered steps with the exact commands and the expected output: check the toolchain is installed (and \
+                 where to get it if not), create the workspace and the files the contract expects, write a first program \
+                 and explain every line of it, build and run it, read a compiler error on purpose, then a short tour of \
+                 the syntax this unit introduces with small examples, then run `proctor check`. The walkthrough may \
+                 show complete code for the first program; for the rest of the requirements it explains the syntax with \
+                 different examples and leaves the solution to the student.\n",
+                lang = self.plan.language(u)
+            ));
+        }
         let notes: Vec<String> = self
             .plan
             .notes_for(&u.id)
@@ -609,6 +622,17 @@ impl<'a> Builder<'a> {
         if let Some(p) = self.plan.platform(u) {
             m.insert(s("platform"), s(&p));
         }
+        // Plan keys the model may echo back; they are not part of a unit spec.
+        let plan_only = [
+            "done_when",
+            "guided",
+            "kind",
+            "gradable",
+            "allows",
+            "teaches",
+            "with",
+            "minimum",
+        ];
         let fixed = [
             "platform",
             "id",
@@ -633,7 +657,10 @@ impl<'a> Builder<'a> {
         }
         for (k, v) in model {
             let key = k.as_str().unwrap_or_default();
-            if fixed.contains(&key) || (key == "target" && u.f.target.is_some()) {
+            if fixed.contains(&key)
+                || plan_only.contains(&key)
+                || (key == "target" && u.f.target.is_some())
+            {
                 continue;
             }
             m.insert(k.clone(), v.clone());
@@ -724,6 +751,14 @@ impl<'a> Builder<'a> {
                 "too many requirements (keep at most 6): split the unit or merge bullets".into(),
             );
         }
+        if u.f.guided
+            && unit
+                .lesson
+                .as_deref()
+                .is_none_or(|l| l.lines().filter(|x| !x.trim().is_empty()).count() < 20)
+        {
+            p.push("a guided unit needs `lesson`: a step-by-step walkthrough in markdown (see the request)".into());
+        }
         let all_text = text.to_lowercase();
         if text.contains('\u{2014}') || text.contains('\u{2013}') {
             p.push("never use long dashes; use a colon or a new sentence".into());
@@ -761,7 +796,13 @@ impl<'a> Builder<'a> {
             let problems: Vec<String> = match llm::yaml_block(&reply, "unit") {
                 None => vec!["missing <unit> block".into()],
                 Some(y) => match llm::parse_yaml(&y) {
-                    Ok(Yaml::Mapping(model)) => {
+                    Ok(Yaml::Mapping(mut model)) => {
+                        // Markdown with code blocks does not survive inside YAML: it comes apart.
+                        if let Some(l) =
+                            llm::block(&reply, "lesson").filter(|l| !l.trim().is_empty())
+                        {
+                            model.insert(s("lesson"), s(l.trim()));
+                        }
                         let m = self.merge_contract(u, &model);
                         let p = self.check_contract(u, &m, languages);
                         if p.is_empty() {

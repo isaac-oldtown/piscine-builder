@@ -75,6 +75,10 @@ pub struct Fields {
     /// Optional unit, skippable by the student.
     #[serde(default)]
     pub stretch: bool,
+    /// The instructions walk the student through it step by step (a first
+    /// contact with a language or its toolchain).
+    #[serde(default)]
+    pub guided: bool,
     /// `linux`: needs Linux APIs; built and tested in a Linux container on
     /// other systems. On a project, applies to every stage.
     #[serde(default)]
@@ -422,19 +426,20 @@ impl Plan {
                 .parse()
                 .unwrap_or(0)
         };
-        let (mut last_d, mut last_p) = (0, 0);
+        // Drills may start at d00 (a first-steps unit before d01).
+        let (mut last_d, mut last_p): (Option<u32>, u32) = (None, 0);
         for e in &self.entries {
             match e.kind {
                 Kind::Drill => {
                     let n = num(&e.id);
-                    if n <= last_d {
+                    if let Some(l) = last_d.filter(|l| n <= *l) {
                         p.push(Problem::err(
                             e.line,
                             Some(&e.id),
-                            format!("drill numbers must grow in order (after d{last_d:02})"),
+                            format!("drill numbers must grow in order (after d{l:02})"),
                         ));
                     }
-                    last_d = n;
+                    last_d = Some(n);
                 }
                 Kind::Project => {
                     let n = num(&e.id);
@@ -662,6 +667,26 @@ impl Plan {
                 p.push(Problem::err(1, None, format!("required units total {req:.0} h for a budget of {budget:.0} h (hours_per_week x weeks): cut scope, mark units `stretch: true`, or extend the weeks")));
             } else if req > budget * 0.88 {
                 p.push(Problem::warn(1, None, format!("required units total {req:.0} h of a {budget:.0} h budget: keep 10 to 15% free for debugging and revisiting concepts")));
+            }
+        }
+        // First steps: the first unit of the course's language takes the student
+        // by the hand (toolchain, compiling and running, basic syntax).
+        let mut seen_langs: BTreeSet<String> = BTreeSet::new();
+        for u in &units {
+            let lang = self.language(u);
+            let main = self.meta.language.as_deref().map(str::to_lowercase);
+            if seen_langs.insert(lang.clone())
+                && !u.f.guided
+                && main.as_deref() == Some(lang.as_str())
+            {
+                p.push(Problem::warn(u.line, Some(&u.id), format!("the first {lang} unit is not `guided: true`: start the language with a short guided first-steps drill (install check, compiling and running, basic syntax, a first program built step by step), unless the student already writes {lang}")));
+            }
+            if u.f.guided && u.kind != Kind::Drill {
+                p.push(Problem::err(
+                    u.line,
+                    Some(&u.id),
+                    "`guided` is for drills: a project stage is not walked through",
+                ));
             }
         }
         // Stretch goals: optional means nothing required may depend on them.
@@ -1324,6 +1349,20 @@ mod tests {
         assert!(fixed.contains("## d01-a: A"), "{fixed}");
         assert!(fixed.contains("## d02-ab: B"), "{fixed}");
         assert!(fixed.contains("See d01-a first."), "{fixed}");
+    }
+
+    #[test]
+    fn first_steps_are_guided_and_may_be_d00() {
+        let r = report(&problems_of(GOOD));
+        assert!(r.contains("the first c unit is not `guided: true`"), "{r}");
+        let t = GOOD.replace(
+            "## d01-hello: Hello\n",
+            "## d00-hello: Hello\nguided: true\n",
+        );
+        let r = report(&problems_of(&t));
+        assert!(!r.contains("guided") && !r.contains("must grow"), "{r}");
+        let t = GOOD.replace("assumes: [make]\n", "assumes: [make]\nguided: true\n");
+        assert!(report(&problems_of(&t)).contains("`guided` is for drills"));
     }
 
     #[test]

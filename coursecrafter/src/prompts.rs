@@ -43,6 +43,7 @@ Keys of a drill or stage:
 - scaffold: none | minimal | full
 - allows: [libraries, modules or functions the student may use besides their own code]
 - stretch: true   (optional unit: the student may skip it)
+- guided: true   (drills only: the instructions walk the student through it step by step)
 - platform: linux   (only when the unit needs Linux APIs: fork, exec, pipes, signals, process groups,
   /proc, Unix permissions; such units are built and tested in a Linux container on other systems)
 - gradable: false   (only if no program can check the result)
@@ -67,6 +68,15 @@ Prerequisites
 - A note is only for notions a short page can explain (what a Makefile is). Anything
   that needs practice gets its own drill or stage. Principles that recur (resource
   cleanup, error propagation) are repeated in the briefs where they apply, not taught once.
+
+First steps
+- `level` is how well the student programs, not how well they know this language.
+  Unless the student already writes the course's language, the course starts with a
+  guided drill (`guided: true`, usually d00 or d01, about 1 to 2 hours, difficulty 1):
+  checking the toolchain is installed, creating, compiling and running a project, the
+  basic syntax, and a first program built step by step. Its brief lists what the
+  walkthrough covers. The same holds for each later language a course adds.
+- The first ordinary drills then introduce at most three concepts each.
 
 Progression
 - Never jump from first meeting a concept to building a major feature with it. Before
@@ -167,6 +177,7 @@ goal: Compile and run a first program that prints to standard output.
 concept_difficulty: 1
 difficulty: 1
 hours: 1.5
+guided: true
 done_when: the program prints its greeting and exits with status 0
 introduces: [compiling with cc, main, printf, if and loops]
 target: program
@@ -261,7 +272,10 @@ pub const REVIEW_CHECKLIST: &str = r#"Review the curriculum as a demanding teach
    flow, collections, printing and debug output, formatting, annotations). Anything not
    introduced earlier is a gap. Anything a hard stage relies on must have been practised
    in a graded unit, not only introduced or explained in a note.
-2. Progression: before each project stage that needs a hard concept, is there a small
+2. First steps: unless the student already writes this language, does the course open with a
+   guided drill that installs nothing by surprise and builds a first program step by step?
+   Do the first ordinary drills introduce at most three concepts each?
+   Progression: before each project stage that needs a hard concept, is there a small
    drill that checks the concept first? Does any stage introduce more than two new concepts?
 3. Testing: is the test tool introduced in the first three units, do project briefs ask
    for tests and regression tests, and do the `hours` include testing and debugging?
@@ -470,7 +484,7 @@ with `extra_flags: [-Dmalloc=sc_malloc]` in <tests>, then: then(fail_alloc_after
 
 pub fn contract_request(context: &str, entry: &str, project: &str, language: &str) -> String {
     format!(
-        "# Course so far\n{context}\n{project}# Language\n{language}\n\n# Unit to write\n{entry}\n\nReply with only the <unit>...</unit> block holding the contract YAML. Do NOT write tests, reference files or scaffolds now: they are requested separately, once the contract is accepted."
+        "# Course so far\n{context}\n{project}# Language\n{language}\n\n# Unit to write\n{entry}\n\nReply with only the <unit>...</unit> block holding the contract YAML (plus the <lesson> block when the unit asks for one). Do NOT write tests, reference files or scaffolds now: they are requested separately, once the contract is accepted."
     )
 }
 

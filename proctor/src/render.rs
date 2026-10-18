@@ -116,6 +116,9 @@ pub fn unit_md(c: &CourseDir, u: &Unit) -> String {
         ),
     ]));
     s.push_str(&format!("\n## Goal\n\n{}\n", u.goal.trim()));
+    if let Some(lesson) = u.lesson.as_deref().filter(|l| !l.trim().is_empty()) {
+        s.push_str(&format!("\n## Walkthrough\n\n{}\n", lesson.trim()));
+    }
 
     if !u.functions.is_empty() {
         s.push_str("\n## Expected functions (minimal)\n\n| Name | Signature | Returns |\n|------|-----------|---------|\n");
