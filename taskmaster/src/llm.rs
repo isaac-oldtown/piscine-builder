@@ -114,11 +114,11 @@ impl Llm {
     pub fn resolve(c: Choice, cfg: &Config) -> Result<Llm, String> {
         let base_override = c
             .base_url
-            .or_else(|| env_get("LEVELUP_BASE_URL"))
+            .or_else(|| env_get("PISCINEBUILDER_BASE_URL"))
             .or_else(|| cfg.base_url.clone());
         let provider = c
             .provider
-            .or_else(|| env_get("LEVELUP_PROVIDER"))
+            .or_else(|| env_get("PISCINEBUILDER_PROVIDER"))
             .or_else(|| cfg.provider.clone())
             .unwrap_or_else(|| {
                 if base_override.is_some() {
@@ -134,11 +134,11 @@ impl Llm {
             .trim_end_matches('/')
             .to_string();
         if base_url.is_empty() {
-            return Err("provider `custom` needs --base-url (or LEVELUP_BASE_URL, or base_url in the config)".into());
+            return Err("provider `custom` needs --base-url (or PISCINEBUILDER_BASE_URL, or base_url in the config)".into());
         }
         let model = c
             .model
-            .or_else(|| env_get("LEVELUP_MODEL"))
+            .or_else(|| env_get("PISCINEBUILDER_MODEL"))
             .or_else(|| cfg.model.clone())
             .or_else(|| p.default_model.map(str::to_string))
             .ok_or_else(|| format!("provider `{provider}` has no default model; pass --model"))?;
@@ -147,13 +147,12 @@ impl Llm {
             Some(name) => Some(
                 env_get(&name).ok_or_else(|| format!("API key variable `{name}` is not set"))?,
             ),
-            None => {
-                env_get("LEVELUP_API_KEY").or_else(|| p.key_envs.iter().find_map(|k| env_get(k)))
-            }
+            None => env_get("PISCINEBUILDER_API_KEY")
+                .or_else(|| p.key_envs.iter().find_map(|k| env_get(k))),
         };
         if key.is_none() && !(p.keyless_ok || is_loopback(&base_url)) {
             return Err(format!(
-                "no API key for {base_url}: set LEVELUP_API_KEY (or {}), or name a variable with --api-key-env",
+                "no API key for {base_url}: set PISCINEBUILDER_API_KEY (or {}), or name a variable with --api-key-env",
                 p.key_envs.join(" / ")
             ));
         }

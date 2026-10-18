@@ -51,7 +51,7 @@ fn context() -> Result<Vec<(String, Vec<u8>)>, String> {
     let workspace = crate_dir.parent().unwrap_or(crate_dir);
     let missing = || {
         format!(
-            "skillcheck's source is no longer at {SOURCE}, and the Linux image is built from it: reinstall skillcheck with `cargo install --path skillcheck` from the levelup folder"
+            "skillcheck's source is no longer at {SOURCE}, and the Linux image is built from it: reinstall skillcheck with `cargo install --path skillcheck` from the PiscineBuilder folder"
         )
     };
     let mut out = vec![("Dockerfile".to_string(), DOCKERFILE.as_bytes().to_vec())];
@@ -152,14 +152,14 @@ pub fn image() -> Result<String, String> {
         fnv(&mut h, p.as_bytes());
         fnv(&mut h, body);
     }
-    let tag = format!("levelup-skillcheck:{h:016x}");
+    let tag = format!("piscinebuilder-skillcheck:{h:016x}");
     if quiet(Command::new("docker").args(["image", "inspect", &tag])) {
         return Ok(tag);
     }
     eprintln!(
         "Building the Linux image for Linux units (first time, or after a skillcheck update; a few minutes)..."
     );
-    let dir = std::env::temp_dir().join(format!("levelup-image-{h:016x}"));
+    let dir = std::env::temp_dir().join(format!("piscinebuilder-image-{h:016x}"));
     let _ = fs::remove_dir_all(&dir);
     for (p, body) in &files {
         let path = dir.join(p);
@@ -208,9 +208,13 @@ fn run_command(
     }
     cmd.arg("-v").arg(format!("{}:/course", root.display()));
     // Builds stay in fast Linux storage, apart from the Windows ones.
-    cmd.args(["-v", "levelup-cargo-registry:/usr/local/cargo/registry"]);
-    cmd.arg("-v")
-        .arg(format!("levelup-cache-{h:016x}:/course/.skillcheck/cache"));
+    cmd.args([
+        "-v",
+        "piscinebuilder-cargo-registry:/usr/local/cargo/registry",
+    ]);
+    cmd.arg("-v").arg(format!(
+        "piscinebuilder-cache-{h:016x}:/course/.skillcheck/cache"
+    ));
     let rel = rel.to_string_lossy().replace('\\', "/");
     cmd.arg("-w")
         .arg(format!("/course/{rel}").trim_end_matches('/'));

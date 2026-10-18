@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-taskmaster: creates levelup courses. The only part of levelup that uses an LLM.
+taskmaster: creates PiscineBuilder courses. The only part of PiscineBuilder that uses an LLM.
 
   taskmaster prompt [--lang L] [--level beginner] [--hours 10]
         print a prompt for any chat assistant; it ends with a curriculum file
@@ -36,7 +36,7 @@ taskmaster: creates levelup courses. The only part of levelup that uses an LLM.
         write the unit specs, notes, tests and hidden references (uses the LLM)
 
 LLM options (build, new, revise): --provider anthropic|meridian|openai  --base-url URL  --model NAME
-  --api-key-env VAR. Defaults come from LEVELUP_* variables, then the config file,
+  --api-key-env VAR. Defaults come from PISCINEBUILDER_* variables, then the config file,
   then: provider anthropic, model claude-sonnet-5-5. Run `taskmaster config` to see the file path.";
 
 pub fn ask_yes(question: &str) -> bool {

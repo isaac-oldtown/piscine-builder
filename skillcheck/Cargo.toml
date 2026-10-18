@@ -1,6 +1,6 @@
 [package]
 name = "skillcheck"
-description = "levelup's offline grader: runs compact test specs against student work"
+description = "PiscineBuilder's offline grader: runs compact test specs against student work"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true

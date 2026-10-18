@@ -1,13 +1,13 @@
-# levelup
+# PiscineBuilder
 
 Intensive, hands-on programming courses in any language: planned and generated once
 with an LLM, then practised offline with an automatic grader.
 
-I made levelup for myself, to learn by building real projects with immediate, honest
+I made PiscineBuilder for myself, to learn by building real projects with immediate, honest
 feedback. It is shared as is: it works for my courses and my machine (Windows, with Docker
 for the Linux parts), and may need adjusting for yours.
 
-levelup has two tools:
+PiscineBuilder has two tools:
 
 - **taskmaster** creates a course: it plans the curriculum with you, then writes every
   unit's instructions, tests and a hidden reference solution, and keeps only what passes
@@ -136,8 +136,8 @@ stopped and resumed at any time.
 
 **LLM options** (`new`, `revise`, `build`): `--provider anthropic|meridian|openai`,
 `--base-url URL` (any OpenAI-compatible server), `--model NAME` (default
-`claude-sonnet-5-5`), `--api-key-env VAR`. Defaults come from `LEVELUP_PROVIDER`,
-`LEVELUP_BASE_URL`, `LEVELUP_MODEL` and `LEVELUP_API_KEY`, then the provider's usual
+`claude-sonnet-5-5`), `--api-key-env VAR`. Defaults come from `PISCINEBUILDER_PROVIDER`,
+`PISCINEBUILDER_BASE_URL`, `PISCINEBUILDER_MODEL` and `PISCINEBUILDER_API_KEY`, then the provider's usual
 variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`), then the config file (`provider`,
 `base_url`, `model`, `api_key_env`). Keys are never written to files.
 

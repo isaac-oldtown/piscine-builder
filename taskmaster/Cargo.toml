@@ -1,6 +1,6 @@
 [package]
 name = "taskmaster"
-description = "levelup's course creator: turns a curriculum into specs, tests and references with an LLM"
+description = "PiscineBuilder's course creator: turns a curriculum into specs, tests and references with an LLM"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true

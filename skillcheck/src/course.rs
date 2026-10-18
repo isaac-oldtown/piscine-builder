@@ -33,7 +33,7 @@ impl CourseDir {
             .ancestors()
             .find(|d| d.join(HIDDEN).join("course.yaml").is_file())
             .ok_or(
-                "not inside a levelup course (no .skillcheck/course.yaml above this directory)",
+                "not inside a PiscineBuilder course (no .skillcheck/course.yaml above this directory)",
             )?;
         CourseDir::load(root)
     }

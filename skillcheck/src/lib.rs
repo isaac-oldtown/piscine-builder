@@ -1,4 +1,4 @@
-//! skillcheck: levelup's offline grader. Reads compact unit specs from a
+//! skillcheck: PiscineBuilder's offline grader. Reads compact unit specs from a
 //! course's hidden `.skillcheck/` directory and checks the student's work
 //! with no network and no LLM.
 

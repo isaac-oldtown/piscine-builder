@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const USAGE: &str = "\
-skillcheck: levelup's grader. Works offline, never calls an LLM.
+skillcheck: PiscineBuilder's grader. Works offline, never calls an LLM.
 
   skillcheck check [unit] [--seed HEX] [--verbose] [--no-prompt]
                                check your work (default: the current unit)

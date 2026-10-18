@@ -293,7 +293,7 @@ fn wsl_path(a: &Access) -> bool {
         "\nWith WSL you follow the whole course inside Linux. In `wsl -d {distro}`:\n\
          \x20 sudo apt update && sudo apt install -y build-essential curl git\n\
          \x20 curl -sSf https://sh.rustup.rs | sh -s -- -y --component clippy,rustfmt\n\
-         \x20 then clone levelup there and run `cargo install --path skillcheck` and `cargo install --path taskmaster`.\n\
+         \x20 then clone PiscineBuilder there and run `cargo install --path skillcheck` and `cargo install --path taskmaster`.\n\
          Keep the course in the Linux home folder (~/), not under /mnt/c: builds there are much faster.\n\
          VS Code opens it with its WSL extension (`code .` inside WSL)."
     );

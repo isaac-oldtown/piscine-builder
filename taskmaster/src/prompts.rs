@@ -1,7 +1,7 @@
 //! Prompt text. Stable parts are constants placed first in every request, so
 //! providers with prompt caching only bill them once per run.
 
-pub const PLAN_FORMAT: &str = r#"# levelup curriculum format
+pub const PLAN_FORMAT: &str = r#"# PiscineBuilder curriculum format
 
 A curriculum is ONE markdown file. Output only that file.
 
@@ -338,7 +338,7 @@ pub fn review_request() -> String {
 
 // ------------------------------------------------------------------ guided
 
-pub const GUIDED_SYSTEM: &str = r#"You plan programming courses for levelup. Talk briefly.
+pub const GUIDED_SYSTEM: &str = r#"You plan programming courses for PiscineBuilder. Talk briefly.
 
 When important information is missing (language, current level, weekly time, number of weeks, final goal, libraries allowed), ask about it, ONE question per reply, so each question can build on the answers so far:
 <questions>
@@ -385,7 +385,7 @@ pub fn gen_system(langs: &[String]) -> String {
     s
 }
 
-const GEN_INTRO: &str = r#"You write exercises for levelup, a hands-on course system. A grader, skillcheck, checks the student's work offline from one YAML spec per unit and renders the instructions from it, so you produce data only. The student sees the rendered contract, never your tests or your reference solution.
+const GEN_INTRO: &str = r#"You write exercises for PiscineBuilder, a hands-on course system. A grader, skillcheck, checks the student's work offline from one YAML spec per unit and renders the instructions from it, so you produce data only. The student sees the rendered contract, never your tests or your reference solution.
 
 # Contract (the <unit> block)
 

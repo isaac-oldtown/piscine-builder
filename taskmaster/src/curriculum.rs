@@ -1122,7 +1122,7 @@ pub fn report(problems: &[Problem]) -> String {
 pub fn paste_block(problems: &[Problem]) -> String {
     let errors: Vec<Problem> = problems.iter().filter(|p| !p.warning).cloned().collect();
     format!(
-        "The levelup importer rejected the curriculum. Fix these problems and send the complete file again, in the same format:\n\n{}",
+        "The PiscineBuilder importer rejected the curriculum. Fix these problems and send the complete file again, in the same format:\n\n{}",
         report(&errors)
     )
 }

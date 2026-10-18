@@ -1,5 +1,5 @@
-//! Optional user config: `%APPDATA%\levelup\config.yaml` on Windows,
-//! `$XDG_CONFIG_HOME/levelup/config.yaml` or `~/.config/levelup/config.yaml`
+//! Optional user config: `%APPDATA%\piscinebuilder\config.yaml` on Windows,
+//! `$XDG_CONFIG_HOME/piscinebuilder/config.yaml` or `~/.config/piscinebuilder/config.yaml`
 //! elsewhere. Holds choices, never secrets: keys stay in the environment.
 
 use serde::Deserialize;
@@ -16,7 +16,7 @@ pub struct Config {
 }
 
 pub fn path() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("LEVELUP_CONFIG") {
+    if let Ok(p) = std::env::var("PISCINEBUILDER_CONFIG") {
         return Some(PathBuf::from(p));
     }
     let base = if cfg!(windows) {
@@ -26,7 +26,7 @@ pub fn path() -> Option<PathBuf> {
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
     }?;
-    Some(base.join("levelup").join("config.yaml"))
+    Some(base.join("piscinebuilder").join("config.yaml"))
 }
 
 pub fn load() -> Result<Config, String> {

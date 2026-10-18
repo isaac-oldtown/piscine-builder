@@ -93,7 +93,7 @@ fn version_of(program: &str, args: &[&str]) -> Option<String> {
 /// AddressSanitizer is often installed with the compiler but unusable
 /// (MinGW, some macOS setups): try it for real.
 fn asan_works(cc: &str) -> bool {
-    let dir = std::env::temp_dir().join(format!("levelup-asan-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("piscinebuilder-asan-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     let src = dir.join("t.c");
     let bin = dir.join(lang::exe("t"));
