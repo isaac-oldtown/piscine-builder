@@ -342,6 +342,31 @@ pub fn cargo_package(ws: &Path) -> Result<String, BuildError> {
     Err(BuildError::new("Cargo.toml has no [package] name"))
 }
 
+/// The executable cargo builds: the only `[[bin]]` name if there is one,
+/// else the package name.
+pub fn cargo_binary(ws: &Path) -> Result<String, BuildError> {
+    let text = fs::read_to_string(ws.join("Cargo.toml"))
+        .map_err(|_| BuildError::new("Cargo.toml is missing"))?;
+    let mut in_bin = false;
+    let mut bins = Vec::new();
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            in_bin = t == "[[bin]]";
+        } else if in_bin
+            && let Some(v) = t
+                .strip_prefix("name")
+                .and_then(|r| r.trim_start().strip_prefix('='))
+        {
+            bins.push(v.trim().trim_matches('"').to_string());
+        }
+    }
+    match bins.as_slice() {
+        [one] => Ok(one.clone()),
+        _ => cargo_package(ws),
+    }
+}
+
 /// Builds the student's program; returns the command that runs it.
 pub fn build_program(
     ctx: &Ctx,
@@ -416,7 +441,7 @@ pub fn build_program(
                     log: o.stderr,
                 });
             }
-            let pkg = cargo_package(ctx.ws)?;
+            let pkg = cargo_binary(ctx.ws)?;
             let bin = ctx.cache.join("target").join("debug").join(exe(&pkg));
             vars.push(("{cargo_bin}", bin.to_string_lossy().into_owned()));
             if run_cmd.is_none() {

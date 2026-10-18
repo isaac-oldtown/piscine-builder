@@ -10,7 +10,7 @@ use crate::prompts;
 use skillcheck::course::CourseDir;
 use skillcheck::unit::{LangConfig, Target, Unit};
 use skillcheck::{engine, lang, selftest, sig};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use yaml_serde::{Mapping, Value as Yaml};
@@ -86,7 +86,9 @@ impl<'a> Builder<'a> {
         opts: Options,
         env_block: &str,
     ) -> Builder<'a> {
-        let system = format!("{}\n\n{env_block}", prompts::GEN_SYSTEM);
+        let langs: BTreeSet<String> = plan.units().iter().map(|u| plan.language(u)).collect();
+        let langs: Vec<String> = langs.into_iter().collect();
+        let system = format!("{}\n\n{env_block}", prompts::gen_system(&langs));
         Builder {
             root,
             plan,
@@ -312,6 +314,7 @@ impl<'a> Builder<'a> {
                 .map_err(|e| format!("{e}\n(the Linux units are tested in a Docker container)"))?;
         }
         let mut failed: Vec<String> = Vec::new();
+        let mut waiting: Vec<String> = Vec::new();
         let mut done_before = 0;
         for (i, u) in units.iter().enumerate() {
             if !self.selected(u) {
@@ -328,6 +331,22 @@ impl<'a> Builder<'a> {
             }
             if self.has_suite(&u.id) && !self.explicit(u) {
                 done_before += 1;
+                continue;
+            }
+            // A stage builds on the previous stage's reference and must pass its
+            // tests: without them it would be written blind and fail for nothing.
+            if let Some(prev) = self.previous_stage(u)
+                && prev.f.gradable != Some(false)
+                && !self.has_suite(&prev.id)
+            {
+                status(&format!(
+                    "[tests {}/{}] {}: waits for {}, which has no correction suite yet",
+                    i + 1,
+                    units.len(),
+                    u.id,
+                    prev.id
+                ));
+                waiting.push(u.id.clone());
                 continue;
             }
             status(&format!("[tests {}/{}] {}", i + 1, units.len(), u.id));
@@ -359,7 +378,20 @@ impl<'a> Builder<'a> {
                 failed.join(", ")
             ));
         }
-        Ok(failed.is_empty())
+        if !waiting.is_empty() {
+            status(&format!(
+                "{} stage(s) were not built because an earlier stage of their project has no suite: {}. They are built once it passes.",
+                waiting.len(),
+                waiting.join(", ")
+            ));
+        }
+        Ok(failed.is_empty() && waiting.is_empty())
+    }
+
+    fn previous_stage(&self, u: &Entry) -> Option<&'a Entry> {
+        let stages = self.plan.stages(u.parent.as_deref()?);
+        let pos = stages.iter().position(|x| x.id == u.id)?;
+        pos.checked_sub(1).map(|p| stages[p])
     }
 
     fn language_settings(&mut self, lang_name: &str) -> Result<Yaml, String> {
@@ -471,7 +503,7 @@ impl<'a> Builder<'a> {
             s.push_str("stretch: true (optional unit; the student may skip it)\n");
         }
         if self.plan.platform(u).is_some() {
-            s.push_str("platform: linux (built, run and tested on Linux: Ubuntu 24.04, /bin/sh is dash, GNU coreutils; on Windows the student's skillcheck runs it in a container by itself)\n");
+            s.push_str("platform: linux (built, run and tested on Linux: Ubuntu 24.04, /bin/sh is dash, GNU coreutils)\n");
         }
         let notes: Vec<String> = self
             .plan
@@ -606,6 +638,22 @@ impl<'a> Builder<'a> {
             }
             m.insert(k.clone(), v.clone());
         }
+        // How the program runs is decided here, not by the model: C and Rust
+        // run what they built, and a project keeps its first stage's command.
+        if matches!(self.plan.language(u).as_str(), "c" | "rust") {
+            m.remove(s("run"));
+            m.remove(s("build"));
+        } else if let Some(first) = u
+            .parent
+            .as_deref()
+            .and_then(|p| self.plan.stages(p).first().map(|f| f.id.clone()))
+            .filter(|f| *f != u.id)
+            && let Some(run) = self
+                .read_unit_map(&first)
+                .and_then(|f| f.get(s("run")).cloned())
+        {
+            m.insert(s("run"), run);
+        }
         m
     }
 
@@ -680,8 +728,16 @@ impl<'a> Builder<'a> {
         if text.contains('\u{2014}') || text.contains('\u{2013}') {
             p.push("never use long dashes; use a colon or a new sentence".into());
         }
-        if all_text.contains("skillcheck") || all_text.contains("harness") {
-            p.push("the contract must not mention the grader or its harness".into());
+        // The student's commands may be named; the hidden parts may not.
+        if all_text.contains("harness") || all_text.contains("reference solution") {
+            p.push("the contract must not reveal the hidden tests, the reference solution or how the checks work".into());
+        }
+        if let Some(r) = &unit.run
+            && (r.contains("target/") || r.contains("target\\"))
+        {
+            p.push(format!(
+                "`run: {r}` points into a build folder, which skillcheck places elsewhere: remove `run` (a Rust or C program runs as built) or run it through its interpreter"
+            ));
         }
         p
     }
@@ -743,6 +799,67 @@ impl<'a> Builder<'a> {
         out
     }
 
+    /// `cases` and `random` of each earlier stage of `u`'s project.
+    fn earlier_tests(&self, u: &Entry) -> Vec<(String, String)> {
+        let Some(p) = &u.parent else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for st in self.plan.stages(p) {
+            if st.id == u.id {
+                break;
+            }
+            let Some(m) = self.read_unit_map(&st.id) else {
+                continue;
+            };
+            let mut t = Mapping::new();
+            for k in ["cases", "random"] {
+                if let Some(v) = m.get(s(k)) {
+                    t.insert(s(k), v.clone());
+                }
+            }
+            if !t.is_empty()
+                && let Ok(y) = yaml_serde::to_string(&Yaml::Mapping(t))
+            {
+                out.push((st.id.clone(), y));
+            }
+        }
+        out
+    }
+
+    /// Allowed entries of `u` and the earlier stages of its project (as the
+    /// grader merges them), or `None` when nothing is restricted.
+    fn allowed_so_far(&self, u: &Entry, contract: &Mapping) -> Option<Vec<String>> {
+        let list = |m: &Mapping| -> Option<Vec<String>> {
+            match m.get(s("allowed"))? {
+                Yaml::Sequence(v) => Some(
+                    v.iter()
+                        .filter_map(|x| x.as_str().map(String::from))
+                        .collect(),
+                ),
+                _ => None,
+            }
+        };
+        let mut all = list(contract)?;
+        if let Some(p) = &u.parent {
+            for st in self.plan.stages(p) {
+                if st.id == u.id {
+                    break;
+                }
+                for a in self
+                    .read_unit_map(&st.id)
+                    .and_then(|m| list(&m))
+                    .unwrap_or_default()
+                {
+                    if !all.contains(&a) {
+                        all.push(a);
+                    }
+                }
+            }
+        }
+        Some(all)
+    }
+
     fn tests(&mut self, u: &Entry, upto: &[&Entry], languages: &Mapping) -> Result<(), String> {
         let h = hidden(&self.root);
         let contract = self
@@ -753,18 +870,10 @@ impl<'a> Builder<'a> {
         contract.remove(s("random"));
         let contract_text =
             yaml_serde::to_string(&Yaml::Mapping(contract.clone())).map_err(|e| e.to_string())?;
-        let previous = match &u.parent {
-            Some(p) => {
-                let stages = self.plan.stages(p);
-                let pos = stages.iter().position(|x| x.id == u.id).unwrap_or(0);
-                if pos > 0 {
-                    self.ref_text(&stages[pos - 1].id)
-                } else {
-                    String::new()
-                }
-            }
-            None => String::new(),
-        };
+        let previous = self
+            .previous_stage(u)
+            .map(|p| self.ref_text(&p.id))
+            .unwrap_or_default();
         let lib_path = h.join("lib.yaml");
         let lib_text = fs::read_to_string(&lib_path).unwrap_or_default();
         let later: Vec<String> = match &u.parent {
@@ -778,14 +887,30 @@ impl<'a> Builder<'a> {
                 .collect(),
             None => Vec::new(),
         };
+        let earlier = self.earlier_tests(u);
+        let allowed = self.allowed_so_far(u, &contract);
+        let forbidden: Vec<String> = match contract.get(s("forbidden")) {
+            Some(Yaml::Sequence(v)) => v
+                .iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect(),
+            _ => Vec::new(),
+        };
+        let language = self.language_info(&self.plan.language(u), languages);
         let req = prompts::tests_request(
             &contract_text,
-            &previous,
-            &lib_text,
-            &self.language_info(&self.plan.language(u), languages),
-            &later,
+            &prompts::TestsContext {
+                previous_ref: &previous,
+                lib: &lib_text,
+                language: &language,
+                later_stages: &later,
+                earlier_tests: &earlier,
+                allowed: allowed.as_deref(),
+                forbidden: &forbidden,
+            },
         );
         let mut messages = vec![Msg::system(self.system.clone()), Msg::user(req)];
+        let mut draft = Draft::default();
         let mut last = String::new();
         for attempt in 0..=self.opts.retries {
             let reply = match self.chat(&format!("tests-{}", u.id), &messages) {
@@ -795,7 +920,9 @@ impl<'a> Builder<'a> {
                     break;
                 }
             };
-            match self.try_tests(u, upto, &contract, &reply, &lib_text, languages) {
+            // A retry sends only what changes: merge it into what came before.
+            draft.merge(&reply);
+            match self.try_tests(u, upto, &contract, &draft, &lib_text, languages) {
                 Ok(()) => return Ok(()),
                 Err(problem) => {
                     last = problem;
@@ -819,10 +946,7 @@ impl<'a> Builder<'a> {
                         llm::cut(last.lines().next().unwrap_or(""), 180)
                     ));
                     messages.push(Msg::assistant(reply));
-                    messages.push(Msg::user(prompts::feedback(
-                        &last,
-                        "the <tests> block and every <file> block",
-                    )));
+                    messages.push(Msg::user(prompts::tests_retry(&last)));
                 }
             }
         }
@@ -839,12 +963,12 @@ impl<'a> Builder<'a> {
         u: &Entry,
         upto: &[&Entry],
         contract: &Mapping,
-        reply: &str,
+        draft: &Draft,
         lib_text: &str,
         languages: &Mapping,
     ) -> Result<(), String> {
         let h = hidden(&self.root);
-        let tests_yaml = llm::yaml_block(reply, "tests").ok_or("missing <tests> block")?;
+        let tests_yaml = draft.tests.clone().ok_or("missing <tests> block")?;
         let tests: Mapping = match llm::parse_yaml(&tests_yaml) {
             Ok(Yaml::Mapping(m)) => m,
             Ok(_) => {
@@ -870,14 +994,13 @@ impl<'a> Builder<'a> {
             ));
         }
         // Support files for helpers live in the hidden folder, per unit.
-        let support = llm::files(reply, "support");
         let support_dir = h.join("support").join(&u.id);
         let _ = fs::remove_dir_all(&support_dir);
-        if support.is_empty() {
+        if draft.support.is_empty() {
             unit.remove(s("support"));
         } else {
             let mut list = Vec::new();
-            for (path, body) in &support {
+            for (path, body) in &draft.support {
                 if path.contains("..") || path.starts_with('/') {
                     return Err(format!(
                         "support path `{path}` must be a plain relative name"
@@ -888,11 +1011,11 @@ impl<'a> Builder<'a> {
             }
             unit.insert(s("support"), seq(&list));
         }
-        let refs = llm::files(reply, "file");
+        let refs = &draft.files;
         if refs.is_empty() {
             return Err("missing the reference solution (<file path=\"...\"> blocks)".into());
         }
-        for (path, _) in &refs {
+        for path in refs.keys() {
             if path.starts_with('/') || path.contains("..") || path.contains(':') {
                 return Err(format!(
                     "reference path `{path}` must be relative to the workspace"
@@ -904,10 +1027,10 @@ impl<'a> Builder<'a> {
             Ok(Yaml::Mapping(m)) => m,
             _ => Mapping::new(),
         };
-        if let Some(l) = llm::block(reply, "lib")
+        if let Some(l) = &draft.lib
             && !l.trim().is_empty()
         {
-            match yaml_serde::from_str::<Yaml>(&l) {
+            match yaml_serde::from_str::<Yaml>(l) {
                 Ok(Yaml::Mapping(new)) => {
                     for (k, v) in new {
                         if !lib.contains_key(&k) {
@@ -931,13 +1054,19 @@ impl<'a> Builder<'a> {
         )?;
         let ref_dir = h.join("refs").join(&u.id);
         let _ = fs::remove_dir_all(&ref_dir);
-        for (path, body) in &refs {
+        for (path, body) in refs {
             write(&ref_dir.join(path), body)?;
+        }
+        if self.plan.language(u) == "rust" {
+            // Formatting is mechanical: done here rather than asked of the model.
+            let mut fmt = std::process::Command::new(lang::resolve("cargo"));
+            fmt.arg("fmt").current_dir(&ref_dir);
+            let _ = skillcheck::run::run(&mut fmt, None, std::time::Duration::from_secs(60));
         }
         let scaffold_dir = h.join("scaffold").join(&u.id);
         let _ = fs::remove_dir_all(&scaffold_dir);
-        for (path, body) in llm::files(reply, "scaffold") {
-            write(&scaffold_dir.join(path), &body)?;
+        for (path, body) in &draft.scaffold {
+            write(&scaffold_dir.join(path), body)?;
         }
         // Gate: the course up to this unit must load, parse and self-test.
         self.write_course(upto, languages)?;
@@ -991,4 +1120,57 @@ impl<'a> Builder<'a> {
 
 fn s_key(k: &str) -> Yaml {
     Yaml::String(k.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_retry_replaces_only_what_it_sends() {
+        let mut d = Draft::default();
+        d.merge("<tests>\ncases: |\n  f(1) == 1\n</tests>\n<file path=\"src/main.rs\">\nfn main() {}\n</file>\n<file path=\"Cargo.toml\">\n[package]\n</file>\n");
+        d.merge("<file path=\"src/main.rs\">\nfn main() { println!(); }\n</file>\n<file path=\"old.rs\">\n</file>\n");
+        assert!(d.tests.as_deref().is_some_and(|t| t.contains("f(1) == 1")));
+        assert!(d.files["src/main.rs"].contains("println"));
+        assert!(d.files.contains_key("Cargo.toml"));
+        assert!(!d.files.contains_key("old.rs"));
+    }
+}
+
+/// One unit's suite as the model has sent it so far. The first reply holds
+/// everything; a retry sends only what changes, merged in here, so fixing one
+/// error cannot break what already worked.
+#[derive(Default)]
+struct Draft {
+    tests: Option<String>,
+    lib: Option<String>,
+    files: BTreeMap<String, String>,
+    support: BTreeMap<String, String>,
+    scaffold: BTreeMap<String, String>,
+}
+
+impl Draft {
+    fn merge(&mut self, reply: &str) {
+        if let Some(t) = llm::yaml_block(reply, "tests") {
+            self.tests = Some(t);
+        }
+        if let Some(l) = llm::block(reply, "lib") {
+            self.lib = Some(l);
+        }
+        for (tag, map) in [
+            ("file", &mut self.files),
+            ("support", &mut self.support),
+            ("scaffold", &mut self.scaffold),
+        ] {
+            for (path, body) in llm::files(reply, tag) {
+                // An empty block deletes the file.
+                if body.trim().is_empty() {
+                    map.remove(&path);
+                } else {
+                    map.insert(path, body);
+                }
+            }
+        }
+    }
 }

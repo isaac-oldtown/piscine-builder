@@ -454,6 +454,19 @@ fn allowed_by(path: &str, allowed: &BTreeSet<String>, seps: &[&str]) -> bool {
         .any(|e| path == e || seps.iter().any(|s| path.starts_with(&format!("{e}{s}"))))
 }
 
+/// The whitelist and the forbidden items, both matched as prefixes: `std`
+/// covers `std::mem::take`, and forbidding `std::mem::swap` removes just that.
+struct Rules {
+    allowed: BTreeSet<String>,
+    forbidden: BTreeSet<String>,
+}
+
+impl Rules {
+    fn ok(&self, name: &str, seps: &[&str]) -> bool {
+        allowed_by(name, &self.allowed, seps) && !allowed_by(name, &self.forbidden, seps)
+    }
+}
+
 pub struct AllowedReport {
     pub checked: usize,
     pub violations: Vec<Violation>,
@@ -466,8 +479,33 @@ pub fn check_allowed(
     extra: &[String],
     opts: &SrcOpts,
 ) -> Result<AllowedReport, String> {
-    let allowed: BTreeSet<String> = allowed.iter().map(|s| s.trim().to_string()).collect();
-    let srcs = sources_ext(lang, ws, opts);
+    check_rules(lang, ws, allowed, &[], extra, opts)
+}
+
+/// The student's own tests (a top-level `tests/` folder) may use anything:
+/// the rules are about the exercise's code.
+fn is_test_source(rel: &str) -> bool {
+    rel.starts_with("tests/")
+}
+
+pub fn check_rules(
+    lang: &str,
+    ws: &Path,
+    allowed: &[String],
+    forbidden: &[String],
+    extra: &[String],
+    opts: &SrcOpts,
+) -> Result<AllowedReport, String> {
+    let set =
+        |l: &[String]| -> BTreeSet<String> { l.iter().map(|s| s.trim().to_string()).collect() };
+    let allowed = Rules {
+        allowed: set(allowed),
+        forbidden: set(forbidden),
+    };
+    let srcs: Vec<Source> = sources_ext(lang, ws, opts)
+        .into_iter()
+        .filter(|s| !is_test_source(&s.rel))
+        .collect();
     let mut r = AllowedReport {
         checked: 0,
         violations: Vec::new(),
@@ -638,7 +676,7 @@ fn is_ident(t: &str) -> bool {
         .is_some_and(|c| c.is_alphabetic() || c == '_')
 }
 
-fn allowed_c(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mut AllowedReport) {
+fn allowed_c(ws: &Path, srcs: &[Source], allowed: &Rules, r: &mut AllowedReport) {
     let own_files: BTreeSet<String> = walk(ws)
         .iter()
         .map(|p| p.rsplit('/').next().unwrap_or(p).to_string())
@@ -674,7 +712,7 @@ fn allowed_c(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mut All
             r.checked += 1;
             // Quoted includes are the student's own headers by convention.
             let own = &c[1] == "\"" || own_files.contains(&base);
-            if !own && !allowed.contains(&header) && !allowed.contains(&base) {
+            if !own && !allowed.ok(&header, &[]) && !allowed.ok(&base, &[]) {
                 r.violations.push(Violation {
                     what: format!("#include <{header}>"),
                     at: format!("{}:{}", s.rel, n + 1),
@@ -695,7 +733,7 @@ fn allowed_c(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mut All
             }
             // A declaration like `char *foo(int);` that has no body is still a call target.
             r.checked += 1;
-            if !allowed.contains(t) {
+            if !allowed.ok(t, &[]) {
                 r.violations.push(Violation {
                     what: format!("{t}()"),
                     at: format!("{}:{}", s.rel, toks[i].line),
@@ -719,7 +757,7 @@ fn own_python_modules(ws: &Path) -> BTreeSet<String> {
     own
 }
 
-fn allowed_python(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mut AllowedReport) {
+fn allowed_python(ws: &Path, srcs: &[Source], allowed: &Rules, r: &mut AllowedReport) {
     let own = own_python_modules(ws);
     let import_re = Regex::new(r"(?m)^[ \t]*import[ \t]+([^\n]+)").expect("regex");
     let from_re = Regex::new(r"(?m)^[ \t]*from[ \t]+([\w.]+)[ \t]+import[ \t]+(\([^)]*\)|[^\n]+)")
@@ -730,7 +768,7 @@ fn allowed_python(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mu
         if path.starts_with('.') || own.contains(&root) || root == "__future__" {
             return;
         }
-        if !allowed_by(&path, allowed, &["."]) {
+        if !allowed.ok(&path, &["."]) {
             r.violations.push(Violation {
                 what: format!("import {path}"),
                 at: format!("{}:{}", s.rel, line_of(&s.code, idx)),
@@ -864,7 +902,7 @@ pub fn cargo_dependencies(ws: &Path) -> Vec<(String, usize)> {
     out
 }
 
-fn allowed_rust(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mut AllowedReport) {
+fn allowed_rust(ws: &Path, srcs: &[Source], allowed: &Rules, r: &mut AllowedReport) {
     let mut own: BTreeSet<String> = ["crate", "self", "super", "Self"]
         .iter()
         .map(|s| s.to_string())
@@ -880,7 +918,7 @@ fn allowed_rust(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mut 
     }
     for (dep, line) in cargo_dependencies(ws) {
         r.checked += 1;
-        if !allowed.contains(&dep) && !allowed.contains(&dep.replace('-', "_")) {
+        if !allowed.ok(&dep, &[]) && !allowed.ok(&dep.replace('-', "_"), &[]) {
             r.violations.push(Violation {
                 what: format!("crate `{dep}`"),
                 at: format!("Cargo.toml:{line}"),
@@ -890,6 +928,7 @@ fn allowed_rust(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mut 
     let use_re = Regex::new(r"\buse\s+([^;]+);").expect("regex");
     let path_re = Regex::new(r"\b(?:std|core|alloc)(?:::[A-Za-z_]\w*)+").expect("regex");
     let extern_re = Regex::new(r"\bextern\s+crate\s+([A-Za-z_]\w*)").expect("regex");
+    let short_re = Regex::new(r"\b([A-Za-z_]\w*)((?:::[A-Za-z_]\w*)+)").expect("regex");
     for s in srcs {
         let mut found: Vec<(String, usize)> = Vec::new();
         for c in use_re.captures_iter(&s.code) {
@@ -910,13 +949,41 @@ fn allowed_rust(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mut 
         for c in extern_re.captures_iter(&s.code) {
             found.push((c[1].to_string(), c.get(0).map_or(0, |m| m.start())));
         }
+        // `use std::mem;` then `mem::swap(..)`: the short path is std::mem::swap,
+        // which matters for forbidden items (the module itself was checked above).
+        let aliases: Vec<(String, String)> = found
+            .iter()
+            .filter_map(|(p, _)| {
+                let (path, name) = match p.split_once(" as ") {
+                    Some((path, alias)) => (path.trim(), alias.trim()),
+                    None => (p.as_str(), p.rsplit("::").next().unwrap_or(p)),
+                };
+                (path.contains("::") && name != "self" && name != "*")
+                    .then(|| (name.to_string(), path.to_string()))
+            })
+            .collect();
+        for c in short_re.captures_iter(&s.code) {
+            let start = c.get(0).map_or(0, |m| m.start());
+            if use_spans.iter().any(|(a, b)| (*a..*b).contains(&start)) {
+                continue;
+            }
+            if let Some((_, full)) = aliases.iter().find(|(n, _)| *n == c[1]) {
+                let path = format!("{full}{}", &c[2]);
+                if allowed_by(&path, &allowed.forbidden, &["::"]) {
+                    r.violations.push(Violation {
+                        what: path,
+                        at: format!("{}:{}", s.rel, line_of(&s.code, start)),
+                    });
+                }
+            }
+        }
         for (path, at) in found {
             let root = path.split("::").next().unwrap_or("");
             r.checked += 1;
             if own.contains(root) {
                 continue;
             }
-            if !allowed_by(&path, allowed, &["::"]) {
+            if !allowed.ok(&path, &["::"]) {
                 r.violations.push(Violation {
                     what: path.clone(),
                     at: format!("{}:{}", s.rel, line_of(&s.code, at)),
@@ -1009,7 +1076,7 @@ const SHELL_BUILTINS: &[&str] = &[
     "))",
 ];
 
-fn allowed_bash(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mut AllowedReport) {
+fn allowed_bash(ws: &Path, srcs: &[Source], allowed: &Rules, r: &mut AllowedReport) {
     let own_files: BTreeSet<String> = walk(ws).into_iter().collect();
     let func_re =
         Regex::new(r"(?m)^\s*(?:function\s+)?([A-Za-z_][\w-]*)\s*\(\s*\)").expect("regex");
@@ -1149,7 +1216,7 @@ fn allowed_bash(ws: &Path, srcs: &[Source], allowed: &BTreeSet<String>, r: &mut 
                 if !skip && !local {
                     r.checked += 1;
                     let base = name.rsplit('/').next().unwrap_or(name);
-                    if !allowed.contains(name) && !allowed.contains(base) {
+                    if !allowed.ok(name, &[]) && !allowed.ok(base, &[]) {
                         r.violations.push(Violation {
                             what: format!("command `{name}`"),
                             at: format!("{}:{ln}", s.rel),
@@ -1167,7 +1234,7 @@ fn allowed_regex(
     lang: &str,
     _ws: &Path,
     srcs: &[Source],
-    allowed: &BTreeSet<String>,
+    allowed: &Rules,
     patterns: &[String],
     r: &mut AllowedReport,
 ) -> Result<(), String> {
@@ -1190,7 +1257,7 @@ fn allowed_regex(
                 if name.starts_with('.') || name.starts_with('/') {
                     continue;
                 }
-                if !allowed_by(&name, allowed, &[".", "/", "::"]) {
+                if !allowed.ok(&name, &[".", "/", "::"]) {
                     r.violations.push(Violation {
                         what: format!("import {name}"),
                         at: format!("{}:{}", s.rel, line_of(&text, m.start())),
@@ -1466,6 +1533,37 @@ mod tests {
                 "std::fs::read"
             ]
         );
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn rust_module_allows_all_inside_but_forbidden_and_tests_apart() {
+        let d = tmp(
+            "rsforbid",
+            &[
+                (
+                    "src/main.rs",
+                    "use std::mem;\nfn main() { let mut a = 1; let mut b = 2; mem::swap(&mut a, &mut b); let _ = std::mem::take(&mut a); }\n",
+                ),
+                (
+                    "tests/cli.rs",
+                    "use std::process::Command;\n#[test] fn t() { let _ = Command::new(\"x\"); }\n",
+                ),
+            ],
+        );
+        let r = check_rules(
+            "rust",
+            &d,
+            &allowed(&["std"]),
+            &allowed(&["std::mem::swap"]),
+            &[],
+            &SrcOpts::default(),
+        )
+        .unwrap();
+        let what: Vec<&str> = r.violations.iter().map(|v| v.what.as_str()).collect();
+        // `mem::swap` after `use std::mem;` is std::mem::swap; std::mem::take stays
+        // allowed; Command in tests/ is not checked.
+        assert_eq!(what, vec!["std::mem::swap"]);
         let _ = fs::remove_dir_all(d);
     }
 

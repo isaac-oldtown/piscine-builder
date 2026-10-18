@@ -351,105 +351,121 @@ Ask at most 6 questions in a conversation; after that, assume your recommended o
 
 // --------------------------------------------------------------- generation
 
-pub const GEN_SYSTEM: &str = r#"You write exercises for levelup, an intensive, hands-on course system. A grader called skillcheck checks the student's work offline: it reads a YAML spec per unit and renders the instructions from it, so you only produce data, never the instruction markdown. The student never sees your tests or reference solution, only the rendered contract.
+/// The generation rules, with the notes of the course's languages only.
+pub fn gen_system(langs: &[String]) -> String {
+    let has = |l: &str| langs.iter().any(|x| x == l);
+    let function_langs: Vec<&str> = ["c", "python", "rust"]
+        .into_iter()
+        .filter(|l| has(l))
+        .collect();
+    let mut s = String::from(GEN_INTRO);
+    if !function_langs.is_empty() {
+        s.push_str(&GEN_FUNCTION_TESTS.replace("{langs}", &function_langs.join(", ")));
+    }
+    s.push_str(GEN_PROGRAM_TESTS);
+    s.push_str(&format!(
+        "Expressions: literals, == != < <= > >= && || ! + - * / %, x.field, x[i], the student's functions, \
+         run(args=[...], stdin=\"...\") for programs, and only these built-ins: {}. There are no user functions or lambdas.\n",
+        skillcheck::expr::BUILTINS.join(" ")
+    ));
+    s.push_str(GEN_RULES);
+    s.push_str("\n# Language notes\n");
+    for l in langs {
+        s.push_str(match l.as_str() {
+            "c" => GEN_C,
+            "python" => GEN_PYTHON,
+            "rust" => GEN_RUST,
+            "bash" | "sh" | "shell" => GEN_BASH,
+            _ => GEN_OTHER,
+        });
+    }
+    if has("c") || has("python") {
+        s.push_str(GEN_HELPERS);
+    }
+    s
+}
 
-# Unit contract (the <unit> block)
+const GEN_INTRO: &str = r#"You write exercises for levelup, a hands-on course system. A grader, skillcheck, checks the student's work offline from one YAML spec per unit and renders the instructions from it, so you produce data only. The student sees the rendered contract, never your tests or your reference solution.
 
-YAML with these keys (the tool adds id, title, language, difficulty, concepts, notes):
-- target: function | program
-    function: skillcheck compiles/imports the student's code and calls the functions itself (c, python, rust only).
-    program: the student's program is run as a whole (args, stdin, stdout, stderr, exit code).
+# Contract (the <unit> block)
+
+YAML with these keys (taskmaster adds id, title, language, difficulty, concepts, notes, platform):
+- target: function | program. function: skillcheck calls the listed functions itself. program: the whole program is run (arguments, stdin, stdout, stderr, exit code).
 - goal: one sentence.
-- functions: list of {name, sig, returns}. The MINIMAL set the student must write, as exact signatures:
-    c:      "size_t str_len(const char *s)". Harness types: integers, double, bool, char, char *, char **. No structs.
-    python: "def parse_line(line: str) -> dict | None"; name is dotted with the module: logstat.parse_line.
-    rust:   "pub fn word_count(text: &str) -> usize"; free functions in src/lib.rs. Types: integers, f64, bool, char,
-            &str/String, Vec/slices of those, Option, Result<_, E: Debug>, tuples, maps. No custom structs, generic type
-            parameters, trait bounds or closures in signatures: the grader calls concrete types only. To practise generics
-            or traits, have the student write them and expose concrete wrapper functions (fn largest_i32(v: &[i32]) -> Option<i32>).
-    For a program target, list functions only if their presence should be checked; usually none or `main`.
-    For a project stage, list only the functions this stage adds; earlier ones stay required automatically.
-- files: the "soft" expected tree: list of {path, rule, note}; rule = required (default) | one_or_more | free | forbidden.
-    Globs: * inside a folder, ** across folders. Listing any rule makes every unlisted file unexpected, so for
-    projects add {path: "**", rule: free} unless the layout must be exact. Build output is ignored automatically.
-- requirements: at most 6 short bullets of BEHAVIOUR: edge cases, formats, errors, exit codes. Every behaviour your
-    tests check must be stated here or follow directly from the functions table. Never restate the table.
-    When the unit has a done_when line, the requirements and the tests together must establish it.
-- allowed: strict whitelist of what the student may use besides their own code. Language built-ins are implicit
-    and never listed: C keywords and operators (NOT headers or libc functions: list each header and each function),
-    Python built-in functions (list every module, e.g. sys, re, collections), Rust prelude (list std paths like
-    std::collections::HashMap and any crate). Stages include the previous stage's list. Omit `allowed` only if
-    the exercise genuinely has no restriction.
-- stubs: path where skillcheck writes empty bodies of the functions when the unit unlocks (function target). Must
-    fit the files rules. python: the module file, e.g. logstat/__init__.py. rust: src/lib.rs. c: e.g. src/str.c.
-- run: program target only, when the language has no default: how to run it, e.g. "python -m logstat", "bash wc.sh".
-- module: python only, if function names are not dotted.
+- functions: [{name, sig, returns}], the minimal set the student writes, as exact signatures (see the language notes). A program target usually lists none. A stage lists only the functions it adds.
+- files: the expected tree, [{path, rule, note}] with rule = required (default) | one_or_more | free | forbidden; `*` inside a folder, `**` across folders. Listing any rule makes unlisted files unexpected, so a project adds {path: "**", rule: free} unless the layout must be exact.
+- requirements: at most 6 short bullets of behaviour: edge cases, formats, errors, exit codes. Everything the tests check is stated here or follows from the functions. With a done_when line, the requirements and the tests together establish it.
+- allowed: what the exercise's code may use besides its own code and the language built-ins. An entry covers everything inside it (`std::io` allows std::io::stdin and the rest of std::io). Restrict only what the brief restricts; when the brief allows the standard library, list it whole. Omit `allowed` when nothing is restricted. Earlier stages' entries carry over: a stage lists only what it adds. The student's own tests in `tests/` are never checked.
+- forbidden: items banned even though `allowed` covers them, when the brief bans a few things (allowed: [std], forbidden: [std::mem::swap]).
+- stubs: function target only, where the empty functions are written at unlock; it must fit the files rules.
 - environment: one line, only if the student must install or set something unusual.
-- wrap: prefix for every run of the student's code, e.g. "valgrind --leak-check=full --error-exitcode=99" for leak checks.
-    Only when the student environment has the tool. A run whose wrapper reports a problem fails.
-- extra_flags: compiler flags added for this unit (C), e.g. [-fsanitize=address] when the environment says it works,
-    or [-Dmalloc=sc_malloc] together with an allocation shim (see helpers).
-Writing style: plain, short sentences. Never use long dashes. Never mention tests, the grader's internals, or AI.
+Style: plain, short sentences, no long dashes. Never reveal the tests, the reference solution or how the checks work inside. Naming the student's commands (`skillcheck check`, `skillcheck shell`) is fine when the brief does.
 
 # Tests (the <tests> block)
 
 YAML with `cases` (a block string, one test per line) and optional `random`.
+"#;
 
-Function target, one boolean expression per line:
+const GEN_FUNCTION_TESTS: &str = r#"Function target ({langs}), one boolean expression per line:
   str_len("abc") == 3
-  logstat.parse_line("x") == null
-  raises(parse(""))                     # the call must raise / return Err / panic
-  reverse("abc") == "cba"               # C/Rust: a function returning nothing that modifies a `char *`
-                                        # (not const) or `&mut` argument evaluates to that argument after the call
-Program target, one run per line:  [args] [@file="content"] [<<< "stdin"] => checks
+  parse_port("80") == 80               # a returned Ok(v) or Some(v) is v; None is null
+  raises(parse_port("x"))              # the call returns Err, raises or panics
+  reverse("abc") == "cba"              # a function returning nothing that modifies a `char *` or `&mut`
+                                       # argument evaluates to that argument after the call
+"#;
+
+const GEN_PROGRAM_TESTS: &str = r#"Program target, one run per line:  [args] [@file="content"] [<<< "stdin"] => checks
   checks: out == "..."  out ~ "regex"  out !~ "regex"  out empty  err == / err ~ / err empty  exit N
   <<< "a b\n" => out == "2\n" exit 0
   missing.txt => err ~ "(?i)no such file" exit 2
 Strings use \n \t \" escapes. Keep fixed cases small and obviously correct by inspection.
 
 random:
-  rounds: 200                 # default; use 20-40 for program targets (each round runs processes)
-  fuzz:                       # compare with your reference solution on generated inputs
-    - str_len                 # generators derived from parameter types
+  rounds: 200                 # default; use 20 to 40 for program targets (each round runs processes)
+  fuzz:                       # compared with your reference on generated inputs
+    - str_len                 # generators derived from the parameter types
     - { fn: str_split, args: { s: 'string "ab," 0..30', sep: "lit ','" } }
     - { name: report, stdin: "lines(log_line) 0..40", argv: 'lit ["-c"]' }   # program target
   laws:                       # invariants that need no reference
     - { name: counts agree, gen: { s: 'string "ab \n" 0..40' }, check: ["word_count(s) == len(words(s))"] }
     - { roundtrip: [encode, decode] }    # decode(encode(x)) == x
     - { idempotent: normalize }          # f(f(x)) == f(x)
-    - { name: padding is ignored, gen: { log: "lines(log_line) 0..20" }, check: ['run(stdin=log).out == run(stdin="\n" + log).out'] }
-
 Generators: int lo..hi [wN zero-padded], uint, float lo..hi, bool, char "abc", string "alphabet" lo..hi, word, ascii,
-list(g) lo..hi, lines(g) lo..hi, opt(g), choice ["a", "b"], lit <value>, and templates in the <lib> block:
+list(g) lo..hi, lines(g) lo..hi, opt(g), choice ["a", "b"], lit <value>, and named templates in a <lib> block:
   log_line: { fmt: "{h}:{m} {lvl} {msg}", vars: { h: int 0..23 w2, m: int 0..59 w2, lvl: 'choice ["INFO","WARN"]', msg: word } }
-Expressions: literals, == != < <= > >= && || ! + - * / %, x.field, x[i], the student's functions, run(args=[...], stdin="...")
-for programs, and only these built-ins: len bytes sorted reversed sum min max abs count contains join split words lines lower
-upper trim chars unique keys values get all any int float str is_sorted permutation repeat range slice starts_with ends_with
-matches replace nonempty concat flatten approx raises then. `then(a, b)` evaluates a, then b, and returns b.
-There are no user functions or lambdas.
+"#;
 
-Test helpers (function target, C or Python): test-only functions the student never writes or sees. Declare them in
-the <tests> block as `helpers: [{name, sig}]` and give their code in <support path="file.c"> blocks (compiled with the
-test program; Python: importable modules). Typical C use, allocation failures: support file
-  static int n = -1; void fail_alloc_after(int k) { n = k; }
-  void *sc_malloc(size_t s) { if (n == 0) { n = -1; return NULL; } if (n > 0) n--; return malloc(s); }
-with `extra_flags: [-Dmalloc=sc_malloc]` in the unit, then: then(fail_alloc_after(0), str_dup("x")) == null
-
-Test rules:
-- Fuzz what the requirements fully specify; prefer laws for structural truths; generate only valid inputs
-  unless the requirements say how invalid ones behave.
-- Every function needs at least one test that fails when the function is an empty stub (returns 0, NULL, None, or panics).
+const GEN_RULES: &str = r#"Test rules:
+- Fuzz what the requirements fully specify; prefer laws for structural truths; generate only valid inputs unless the requirements say how invalid ones behave.
+- Every function needs a test that fails when the function is an empty stub.
 - Deterministic: no timing-dependent checks, no network, no files outside the working directory.
-- For a stage, test only what this stage adds; earlier stages are re-run automatically.
+- For a stage, test only what it adds: the earlier stages' tests run again, unchanged, against this stage's program.
 
 # Reference solution (<file path="..."> blocks)
 
-The complete workspace that passes every test: every file the files rules require, using only the allowed list,
-warning-free under the course's checks (C: -std=c11 -Wall -Wextra -Werror; Rust: rustfmt-formatted, clippy -D warnings
-clean, with a Cargo.toml whose package name matches and that contains an empty `[workspace]` table). For a stage,
-the whole project at this stage, building on the previous stage's reference.
-Optional <scaffold path="..."> blocks: files the student receives at unlock (e.g. a Rust Cargo.toml). Never put
-solution code in a scaffold.
+The complete workspace that passes every test, using only what the contract allows, warning-free under the course's checks (see the language notes). For a stage: the whole project at this stage, built on the previous stage's reference, and still passing the earlier stages' tests.
+Optional <scaffold path="..."> blocks: files the student receives at unlock. Never solution code.
+"#;
+
+const GEN_C: &str = r#"C: signatures like "size_t str_len(const char *s)"; harness types: integers, double, bool, char, char *, char **, no structs. stubs: e.g. src/str.c. Built with cc -std=c11 -Wall -Wextra -Werror. `allowed` lists each header and each libc function (keywords and operators are built-ins). Optional `wrap` (a prefix for every run, e.g. "valgrind --leak-check=full --error-exitcode=99", only when the environment has the tool) and `extra_flags` (e.g. [-fsanitize=address] when the environment says it works).
+"#;
+
+const GEN_PYTHON: &str = r#"Python: signatures like "def parse_line(line: str) -> dict | None", named with their module (logstat.parse_line) or with a `module:` key. stubs: the module file, e.g. logstat/__init__.py. `allowed` lists every imported module (built-in functions are implicit). A program target needs `run:`, e.g. "python -m logstat": one command for a whole project.
+"#;
+
+const GEN_RUST: &str = r#"Rust: signatures like "pub fn word_count(text: &str) -> usize", free functions in src/lib.rs (stubs: src/lib.rs). Types: integers, f64, bool, char, &str/String, Vec and slices of those, Option, Result<_, E: Debug>, tuples, maps. No custom structs, generic parameters, trait bounds or closures in signatures, since the grader calls concrete types: to practise generics, have the student write them and expose concrete wrappers (fn largest_i32(v: &[i32]) -> Option<i32>). The prelude is implicit in `allowed`; list std modules (or `std` whole) and crates. A program target runs the built binary: never set `run` or `build`. Reference: a Cargo.toml whose package name matches and that has an empty `[workspace]` table, clean under cargo clippy -D warnings (formatting is applied for you). Crates: nix 0.29 (features such as process, signal, fs, poll, term, user; there is no `unistd` feature, nix::unistd is always there) and libc 0.2.
+"#;
+
+const GEN_BASH: &str = r#"Bash: program target only; `run:` e.g. "bash wc.sh" (one command for a whole project); `allowed` lists the external commands.
+"#;
+
+const GEN_OTHER: &str = r#"Other languages: program target only, built and run by the course settings shown with each request; set `run:` only to override them (one command for a whole project).
+"#;
+
+const GEN_HELPERS: &str = r#"Test helpers (function target, C or Python): test-only functions the student never writes or sees. Declare them in <tests> as `helpers: [{name, sig}]` and give their code in <support path="file.c"> blocks (compiled with the test program; Python: importable modules). C allocation failures, support file:
+  static int n = -1; void fail_alloc_after(int k) { n = k; }
+  void *sc_malloc(size_t s) { if (n == 0) { n = -1; return NULL; } if (n > 0) n--; return malloc(s); }
+with `extra_flags: [-Dmalloc=sc_malloc]` in <tests>, then: then(fail_alloc_after(0), str_dup("x")) == null
 "#;
 
 pub fn contract_request(context: &str, entry: &str, project: &str, language: &str) -> String {
@@ -458,14 +474,59 @@ pub fn contract_request(context: &str, entry: &str, project: &str, language: &st
     )
 }
 
-pub fn tests_request(
-    unit_yaml: &str,
-    previous_ref: &str,
-    lib: &str,
-    language: &str,
-    later_stages: &[String],
-) -> String {
+/// What the tests request carries besides the contract.
+pub struct TestsContext<'a> {
+    pub previous_ref: &'a str,
+    pub lib: &'a str,
+    pub language: &'a str,
+    pub later_stages: &'a [String],
+    /// The earlier stages' tests, as (stage id, YAML).
+    pub earlier_tests: &'a [(String, String)],
+    /// Everything the code may use at this stage, earlier stages included.
+    pub allowed: Option<&'a [String]>,
+    pub forbidden: &'a [String],
+}
+
+pub fn tests_request(unit_yaml: &str, cx: &TestsContext) -> String {
+    let TestsContext {
+        previous_ref,
+        lib,
+        language,
+        later_stages,
+        ..
+    } = *cx;
     let mut s = format!("# Language\n{language}\n\n# Unit contract\n```yaml\n{unit_yaml}\n```\n");
+    if let Some(list) = cx.allowed {
+        s.push_str(&format!(
+            "\n# What the reference may use\nIn its code (not in `tests/`): its own code, the language built-ins and anything inside {}. Nothing else.{}\n",
+            if list.is_empty() {
+                "nothing more".to_string()
+            } else {
+                list.iter()
+                    .map(|a| format!("`{a}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
+            if cx.forbidden.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " Forbidden even so: {}.",
+                    cx.forbidden
+                        .iter()
+                        .map(|a| format!("`{a}`"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            }
+        ));
+    }
+    if !cx.earlier_tests.is_empty() {
+        s.push_str("\n# Tests of the earlier stages\nThey run again, unchanged, against this stage's program, which must still pass them all:\n");
+        for (id, yaml) in cx.earlier_tests {
+            s.push_str(&format!("## {id}\n```yaml\n{}\n```\n", yaml.trim_end()));
+        }
+    }
     if !later_stages.is_empty() {
         s.push_str(&format!(
             "\n# Later stages\nThese tests run again, unchanged, at every later stage of this project, against the later program:\n{}\nSo test only behaviour that stays true in all of them. Never test that a feature is missing or unsupported, the output for input a later stage gives a meaning to, or a usage message a later stage may change.\n",
@@ -513,5 +574,14 @@ pub fn note_request(title: &str, teaches: &[String], brief: &str) -> String {
 pub fn feedback(problems: &str, what: &str) -> String {
     format!(
         "The quality gate rejected your answer:\n\n{problems}\n\nFix every point and send {what} again, complete, in the same format."
+    )
+}
+
+/// After a gate failure: fix the error, change nothing else.
+pub fn tests_retry(problems: &str) -> String {
+    format!(
+        "The quality gate rejected it:\n\n{problems}\n\nFix exactly this and change nothing else. Send only what changes: \
+         each corrected file, complete, in its <file path=\"...\"> block (files you do not send stay as they are; \
+         an empty block deletes a file), and <tests>, <lib>, <support> or <scaffold> only if that part itself must change."
     )
 }

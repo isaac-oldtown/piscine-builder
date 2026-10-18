@@ -106,6 +106,17 @@ consolidation stage at the end (refactor, tests, documented limitations).
    model with the exact failure, up to `--retries` (default 3); a unit that never
    passes keeps its contract but no tests, and the run exits non-zero.
 
+What is mechanical is done by taskmaster, not asked of the model: Rust references
+are run through `cargo fmt`; C and Rust programs run as built (the model never sets
+`run`, and a `run` into `target/` is rejected), and every stage of a project uses its
+first stage's command. A stage's request carries what the model cannot guess: the
+earlier stages' tests (they run again against it), and what the code may use with the
+earlier stages' Allowed entries merged. A retry asks for the fix only: the model sends
+the files it changes, the rest of its earlier reply is kept, so fixing one error does
+not break what worked. A stage whose previous stage has no suite is not generated
+(it would be written without the code it builds on); it waits for the next run. The
+generation prompt only holds the notes for the course's languages.
+
 Token use: the model returns data only (the instructions are rendered by
 skillcheck), every request starts with the same system prompt (cacheable), a unit
 request carries a one-line digest of earlier units instead of their files, and
@@ -196,6 +207,9 @@ files:                         # the soft tree; listing any rule makes other fil
   - { path: "**", rule: free }                                      # allows anything else
 requirements: [Behaviour only, one bullet each.]
 allowed: [stdlib.h, malloc, free]   # strict whitelist; absent = unrestricted; [] = built-ins only
+                                    # an entry covers what is inside it (`std` = all of Rust's std)
+forbidden: [std::mem::swap]         # banned even though `allowed` covers it (needs `allowed`)
+                                    # neither applies to the student's own tests in tests/
 run: python -m logstat         # program target ({exe}, {python}, {cargo_bin} placeholders)
 env: { LC_ALL: C }             # set for builds and runs, listed in the instructions
 static: [{ name: lint, cmd: "ruff check ." }]

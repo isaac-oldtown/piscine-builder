@@ -728,7 +728,9 @@ impl<'a> Engine<'a> {
         if let Some(list) = allowed {
             let extra = self.c.import_patterns(self.unit);
             let opts = self.src_opts();
-            let r = scan::check_allowed(&self.lang, &src, &list, &extra, &opts)?;
+            // The current stage's forbidden list: a later stage may lift a ban.
+            let r =
+                scan::check_rules(&self.lang, &src, &list, &self.unit.forbidden, &extra, &opts)?;
             let checked = r.checked;
             let items: Vec<Item> = if r.violations.is_empty() {
                 vec![Item::pass("whitelist", format!("{checked} use(s) checked"))]
@@ -1333,6 +1335,12 @@ pub fn validate(c: &CourseDir) -> Vec<String> {
     for u in &c.units {
         let chain = c.chain(u);
         let lang = c.language(u);
+        if !u.forbidden.is_empty() && u.allowed.is_none() {
+            problems.push(format!(
+                "{}: `forbidden` needs an `allowed` list (for example `allowed: [std]` to allow all of std but the forbidden items)",
+                u.id
+            ));
+        }
         if let Some(p) = u.platform.as_deref().filter(|p| *p != "linux") {
             problems.push(format!("{}: unknown platform `{p}` (only `linux`)", u.id));
         }

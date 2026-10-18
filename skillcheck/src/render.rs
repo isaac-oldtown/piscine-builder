@@ -177,8 +177,16 @@ pub fn unit_md(c: &CourseDir, u: &Unit) -> String {
         }
         Some(list) => {
             s.push_str(&code_list(list));
-            s.push_str("\n\nAnything not listed here, and not written by you, is off limits.\n");
+            s.push_str("\n\nA module covers everything inside it. Anything not listed here, and not written by you, is off limits.\n");
         }
+    }
+    if !u.forbidden.is_empty() {
+        s.push_str("\nForbidden even so: ");
+        s.push_str(&code_list(&u.forbidden));
+        s.push('\n');
+    }
+    if u.allowed.is_some() || !u.forbidden.is_empty() {
+        s.push_str("\nYour own tests in `tests/` may use anything.\n");
     }
 
     if u.environment.is_some() || !u.env.is_empty() {

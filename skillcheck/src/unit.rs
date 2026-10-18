@@ -280,6 +280,11 @@ pub struct Unit {
     /// Absent = unrestricted. Present = strict whitelist (built-ins implied).
     #[serde(default)]
     pub allowed: Option<Vec<String>>,
+    /// Items the exercise's code may not use even though `allowed` covers
+    /// them (`std` allowed, `std::mem::swap` forbidden). Prefix match; the
+    /// student's tests in `tests/` are not checked.
+    #[serde(default)]
+    pub forbidden: Vec<String>,
     #[serde(default)]
     pub environment: Option<String>,
     #[serde(default)]
