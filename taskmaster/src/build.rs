@@ -98,6 +98,20 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// Named by `--only`: redone even if already built.
+    fn explicit(&self, e: &Entry) -> bool {
+        !self.opts.only.is_empty() && self.selected(e)
+    }
+
+    /// A unit whose correction suite already passed the gate: its spec holds
+    /// tests and its reference exists (a failed unit is restored to neither).
+    fn has_suite(&self, id: &str) -> bool {
+        let tested = self
+            .read_unit_map(id)
+            .is_some_and(|m| m.contains_key(s("cases")) || m.contains_key(s("random")));
+        tested && hidden(&self.root).join("refs").join(id).is_dir()
+    }
+
     fn selected(&self, e: &Entry) -> bool {
         self.opts.only.is_empty()
             || self
@@ -244,7 +258,9 @@ impl<'a> Builder<'a> {
         // Pass 1: contracts.
         let units: Vec<&Entry> = self.plan.units();
         for (i, u) in units.iter().enumerate() {
-            if !self.selected(u) && self.unit_path(&u.id).is_file() {
+            // Existing contracts are kept (rewriting one would drop its tests);
+            // `--only` redoes the named units.
+            if self.unit_path(&u.id).is_file() && !self.explicit(u) {
                 continue;
             }
             status(&format!("[contract {}/{}] {}", i + 1, units.len(), u.id));
@@ -253,6 +269,9 @@ impl<'a> Builder<'a> {
             write(&self.unit_path(&u.id), &text)?;
             for n in self.plan.notes_for(&u.id) {
                 let path = h.join("notes").join(format!("{}.md", note_slug(&n.id)));
+                if path.is_file() && !self.explicit(u) {
+                    continue;
+                }
                 status(&format!("[note] {}", n.id));
                 let body = self.note(n)?;
                 write(&path, &body)?;
@@ -281,6 +300,7 @@ impl<'a> Builder<'a> {
 
         // Pass 2: tests + reference, unit by unit, each gated.
         let mut failed: Vec<String> = Vec::new();
+        let mut done_before = 0;
         for (i, u) in units.iter().enumerate() {
             if !self.selected(u) {
                 continue;
@@ -294,6 +314,10 @@ impl<'a> Builder<'a> {
                 ));
                 continue;
             }
+            if self.has_suite(&u.id) && !self.explicit(u) {
+                done_before += 1;
+                continue;
+            }
             status(&format!("[tests {}/{}] {}", i + 1, units.len(), u.id));
             if let Err(e) = self.tests(u, &units[..=i], &languages) {
                 if self.provider_down {
@@ -303,6 +327,11 @@ impl<'a> Builder<'a> {
                 status(&format!("  FAILED {}: {e}", u.id));
                 failed.push(u.id.clone());
             }
+        }
+        if done_before > 0 {
+            status(&format!(
+                "{done_before} unit(s) already had a correction suite and were kept (`--only <id>` redoes one)"
+            ));
         }
         self.write_course(&units, &languages)?;
         status(&format!(
