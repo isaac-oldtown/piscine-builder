@@ -1,15 +1,15 @@
 //! `taskmaster build`: curriculum -> course.
 //!   pass 1: one contract per unit (and notes, and settings for unknown languages)
-//!   pass 2: tests, generators, reference solution, scaffold; gated by skillcheck selftest
+//!   pass 2: tests, generators, reference solution, scaffold; gated by skillchecker selftest
 //! Each LLM reply is cached on disk by a hash of its request, so a re-run only
 //! pays for what changed. Nothing that fails the gate is kept.
 
 use crate::curriculum::{Entry, Kind, Plan};
 use crate::llm::{self, Llm, Msg};
 use crate::prompts;
-use skillcheck::course::CourseDir;
-use skillcheck::unit::{LangConfig, Target, Unit};
-use skillcheck::{engine, lang, selftest, sig};
+use skillchecker::course::CourseDir;
+use skillchecker::unit::{LangConfig, Target, Unit};
+use skillchecker::{engine, lang, selftest, sig};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ pub struct Builder<'a> {
 }
 
 fn hidden(root: &Path) -> PathBuf {
-    root.join(".skillcheck")
+    root.join(skillchecker::course::HIDDEN)
 }
 
 fn fnv(parts: &[&str]) -> String {
@@ -296,7 +296,7 @@ impl<'a> Builder<'a> {
         };
         if !want_tests {
             status(
-                "Skipped the correction suite: skillcheck will check structure, prototypes, allowed and the build only. Run `taskmaster build --tests` later to add it.",
+                "Skipped the correction suite: skillchecker will check structure, prototypes, allowed and the build only. Run `taskmaster build --tests` later to add it.",
             );
             return Ok(true);
         }
@@ -310,7 +310,7 @@ impl<'a> Builder<'a> {
             });
         if linux_pending {
             // Linux units are gated in a container: fail early, not as rejected attempts.
-            skillcheck::docker::image()
+            skillchecker::docker::image()
                 .map_err(|e| format!("{e}\n(the Linux units are tested in a Docker container)"))?;
         }
         let mut failed: Vec<String> = Vec::new();
@@ -699,8 +699,8 @@ impl<'a> Builder<'a> {
         if let Some(st) = &unit.stubs {
             let fits = unit.files.is_empty()
                 || unit.files.iter().any(|r| {
-                    r.rule != skillcheck::unit::Rule::Forbidden
-                        && skillcheck::structure::glob(&r.path, st)
+                    r.rule != skillchecker::unit::Rule::Forbidden
+                        && skillchecker::structure::glob(&r.path, st)
                 });
             if !fits {
                 p.push(format!(
@@ -736,7 +736,7 @@ impl<'a> Builder<'a> {
             && (r.contains("target/") || r.contains("target\\"))
         {
             p.push(format!(
-                "`run: {r}` points into a build folder, which skillcheck places elsewhere: remove `run` (a Rust or C program runs as built) or run it through its interpreter"
+                "`run: {r}` points into a build folder, which skillchecker places elsewhere: remove `run` (a Rust or C program runs as built) or run it through its interpreter"
             ));
         }
         p
@@ -788,7 +788,7 @@ impl<'a> Builder<'a> {
     fn ref_text(&self, id: &str) -> String {
         let dir = hidden(&self.root).join("refs").join(id);
         let mut out = String::new();
-        for rel in skillcheck::scan::walk(&dir) {
+        for rel in skillchecker::scan::walk(&dir) {
             if rel.ends_with("Cargo.lock") {
                 continue;
             }
@@ -1061,7 +1061,7 @@ impl<'a> Builder<'a> {
             // Formatting is mechanical: done here rather than asked of the model.
             let mut fmt = std::process::Command::new(lang::resolve("cargo"));
             fmt.arg("fmt").current_dir(&ref_dir);
-            let _ = skillcheck::run::run(&mut fmt, None, std::time::Duration::from_secs(60));
+            let _ = skillchecker::run::run(&mut fmt, None, std::time::Duration::from_secs(60));
         }
         let scaffold_dir = h.join("scaffold").join(&u.id);
         let _ = fs::remove_dir_all(&scaffold_dir);
@@ -1079,9 +1079,9 @@ impl<'a> Builder<'a> {
             return Err(problems.join("\n"));
         }
         let unit = c.unit(&u.id).ok_or("unit missing after write")?;
-        let seed = skillcheck::gens::Rng::new(skillcheck::journal::now()).next_u64();
-        let r = if skillcheck::docker::needed(unit) {
-            skillcheck::docker::selftest(&c, &[unit], seed)?
+        let seed = skillchecker::gens::Rng::new(skillchecker::journal::now()).next_u64();
+        let r = if skillchecker::docker::needed(unit) {
+            skillchecker::docker::selftest(&c, &[unit], seed)?
                 .pop()
                 .ok_or("no report from the Linux container")?
         } else {
@@ -1089,7 +1089,7 @@ impl<'a> Builder<'a> {
         };
         let mut issues = Vec::new();
         if let Err(e) = &r.reference {
-            issues.push(format!("your reference solution fails skillcheck: {e}"));
+            issues.push(format!("your reference solution fails skillchecker: {e}"));
         }
         for v in &r.vacuous {
             issues.push(format!(

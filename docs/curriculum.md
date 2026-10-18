@@ -83,7 +83,7 @@ scope. A note has `teaches` and `with` (the unit it is revealed with).
 Before validating, taskmaster fixes mechanical slips itself: numbers that do not grow,
 stages numbered out of sequence (references follow the new ids), a missing `hours` (filled
 from the difficulty), and values YAML would misread, which get quoted. Fixes and problems
-are logged to `.skillcheck/taskmaster/validator.log`.
+are logged to `.skillchecker/taskmaster/validator.log`.
 
 ## How the planner plans
 

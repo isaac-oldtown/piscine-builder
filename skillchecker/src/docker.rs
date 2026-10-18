@@ -1,7 +1,7 @@
 //! Units marked `platform: linux` need Linux APIs (fork, signals, /proc).
-//! Elsewhere, skillcheck reruns the same command in an Ubuntu container: it
+//! Elsewhere, skillchecker reruns the same command in an Ubuntu container: it
 //! builds the image itself, from its own source, the first time it is needed
-//! and again whenever skillcheck changes. The course folder is mounted, so the
+//! and again whenever skillchecker changes. The course folder is mounted, so the
 //! student keeps working in their own editor and terminal.
 
 use crate::course::{CourseDir, strip_verbatim};
@@ -13,9 +13,9 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 /// Set inside the container, so a command there never delegates again.
-const INSIDE: &str = "SKILLCHECK_IN_CONTAINER";
+const INSIDE: &str = "SKILLCHECKER_IN_CONTAINER";
 
-/// skillcheck's own source, where `cargo install --path` built it from.
+/// skillchecker's own source, where `cargo install --path` built it from.
 const SOURCE: &str = env!("CARGO_MANIFEST_DIR");
 
 const DOCKERFILE: &str = r#"FROM ubuntu:24.04
@@ -27,7 +27,7 @@ ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/ca
 RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
     --default-toolchain stable --component clippy,rustfmt
 COPY src /src
-RUN cargo install --path /src/skillcheck --root /usr/local \
+RUN cargo install --path /src/skillchecker --root /usr/local \
  && rm -rf /src /usr/local/cargo/registry/cache
 "#;
 
@@ -51,17 +51,17 @@ fn context() -> Result<Vec<(String, Vec<u8>)>, String> {
     let workspace = crate_dir.parent().unwrap_or(crate_dir);
     let missing = || {
         format!(
-            "skillcheck's source is no longer at {SOURCE}, and the Linux image is built from it: reinstall skillcheck with `cargo install --path skillcheck` from the PiscineBuilder folder"
+            "skillchecker's source is no longer at {SOURCE}, and the Linux image is built from it: reinstall skillchecker with `cargo install --path skillchecker` from the PiscineBuilder folder"
         )
     };
     let mut out = vec![("Dockerfile".to_string(), DOCKERFILE.as_bytes().to_vec())];
-    // A workspace of skillcheck alone: the other tools are not needed.
+    // A workspace of skillchecker alone: the other tools are not needed.
     let ws = fs::read_to_string(workspace.join("Cargo.toml")).map_err(|_| missing())?;
     let ws: String = ws
         .lines()
         .map(|l| {
             if l.trim_start().starts_with("members") {
-                "members = [\"skillcheck\"]"
+                "members = [\"skillchecker\"]"
             } else {
                 l
             }
@@ -73,7 +73,7 @@ fn context() -> Result<Vec<(String, Vec<u8>)>, String> {
         out.push(("src/Cargo.lock".into(), lock));
     }
     out.push((
-        "src/skillcheck/Cargo.toml".into(),
+        "src/skillchecker/Cargo.toml".into(),
         fs::read(crate_dir.join("Cargo.toml")).map_err(|_| missing())?,
     ));
     let mut stack = vec![crate_dir.join("src")];
@@ -86,7 +86,7 @@ fn context() -> Result<Vec<(String, Vec<u8>)>, String> {
             } else if let Ok(rel) = p.strip_prefix(crate_dir) {
                 let rel = rel.to_string_lossy().replace('\\', "/");
                 sources.push((
-                    format!("src/skillcheck/{rel}"),
+                    format!("src/skillchecker/{rel}"),
                     fs::read(&p).map_err(|e| e.to_string())?,
                 ));
             }
@@ -143,7 +143,7 @@ fn check_docker() -> Result<(), String> {
     }
 }
 
-/// The image tag, building the image first if this skillcheck has none yet.
+/// The image tag, building the image first if this skillchecker has none yet.
 pub fn image() -> Result<String, String> {
     check_docker()?;
     let files = context()?;
@@ -152,12 +152,12 @@ pub fn image() -> Result<String, String> {
         fnv(&mut h, p.as_bytes());
         fnv(&mut h, body);
     }
-    let tag = format!("piscinebuilder-skillcheck:{h:016x}");
+    let tag = format!("piscinebuilder-skillchecker:{h:016x}");
     if quiet(Command::new("docker").args(["image", "inspect", &tag])) {
         return Ok(tag);
     }
     eprintln!(
-        "Building the Linux image for Linux units (first time, or after a skillcheck update; a few minutes)..."
+        "Building the Linux image for Linux units (first time, or after a skillchecker update; a few minutes)..."
     );
     let dir = std::env::temp_dir().join(format!("piscinebuilder-image-{h:016x}"));
     let _ = fs::remove_dir_all(&dir);
@@ -213,13 +213,13 @@ fn run_command(
         "piscinebuilder-cargo-registry:/usr/local/cargo/registry",
     ]);
     cmd.arg("-v").arg(format!(
-        "piscinebuilder-cache-{h:016x}:/course/.skillcheck/cache"
+        "piscinebuilder-cache-{h:016x}:/course/.skillchecker/cache"
     ));
     let rel = rel.to_string_lossy().replace('\\', "/");
     cmd.arg("-w")
         .arg(format!("/course/{rel}").trim_end_matches('/'));
     cmd.args(["-e", &format!("{INSIDE}=1")]);
-    for k in ["NO_COLOR", "SKILLCHECK_ASCII"] {
+    for k in ["NO_COLOR", "SKILLCHECKER_ASCII"] {
         if std::env::var_os(k).is_some() {
             cmd.args(["-e", k]);
         }
@@ -234,7 +234,7 @@ fn interactive() -> bool {
 
 /// Runs `args` in the container with the terminal attached; returns the exit code.
 pub fn delegate(c: &CourseDir, args: &[String]) -> Result<u8, String> {
-    let mut full = vec!["skillcheck".to_string()];
+    let mut full = vec!["skillchecker".to_string()];
     full.extend(args.iter().cloned());
     let status = run_command(c, &full, interactive(), None)?
         .status()
@@ -259,7 +259,7 @@ pub fn shell(c: &CourseDir, dir: &Path, port: Option<u16>) -> Result<u8, String>
 /// Self-tests `units` in the container with `seed`.
 pub fn selftest(c: &CourseDir, units: &[&Unit], seed: u64) -> Result<Vec<UnitReport>, String> {
     let mut args: Vec<String> = [
-        "skillcheck",
+        "skillchecker",
         "selftest",
         "--json",
         "--no-validate",

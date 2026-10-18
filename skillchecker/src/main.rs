@@ -1,31 +1,31 @@
-use skillcheck::course::{CourseDir, State};
-use skillcheck::engine::{self, Against, Engine, Kind, Options};
-use skillcheck::gens;
-use skillcheck::journal::{self, Event};
-use skillcheck::report::{self, Style, Term};
-use skillcheck::unit::Unit;
-use skillcheck::{ask, progress, scaffold, selftest};
+use skillchecker::course::{CourseDir, State};
+use skillchecker::engine::{self, Against, Engine, Kind, Options};
+use skillchecker::gens;
+use skillchecker::journal::{self, Event};
+use skillchecker::report::{self, Style, Term};
+use skillchecker::unit::Unit;
+use skillchecker::{ask, progress, scaffold, selftest};
 use std::path::Path;
 use std::process::ExitCode;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const USAGE: &str = "\
-skillcheck: PiscineBuilder's grader. Works offline, never calls an LLM.
+skillchecker: PiscineBuilder's grader. Works offline, never calls an LLM.
 
-  skillcheck check [unit] [--seed HEX] [--verbose] [--no-prompt]
+  skillchecker check [unit] [--seed HEX] [--verbose] [--no-prompt]
                                check your work (default: the current unit)
-  skillcheck next              reveal the next unit once the current one passes
-  skillcheck skip              skip the current unit if it is a stretch goal (optional)
-  skillcheck status            where you are in the course
-  skillcheck progress          regenerate and summarize PROGRESS.md
-  skillcheck explain [unit]    show exactly what the checks run (generators, rounds)
-  skillcheck shell [unit] [--port N]
+  skillchecker next              reveal the next unit once the current one passes
+  skillchecker skip              skip the current unit if it is a stretch goal (optional)
+  skillchecker status            where you are in the course
+  skillchecker progress          regenerate and summarize PROGRESS.md
+  skillchecker explain [unit]    show exactly what the checks run (generators, rounds)
+  skillchecker shell [unit] [--port N]
                                a terminal in the Linux container, for Linux units
                                (--port publishes port N on 127.0.0.1 of this machine)
 
-  Course authors: skillcheck validate | skillcheck selftest [unit...]
+  Course authors: skillchecker validate | skillchecker selftest [unit...]
 
-Exit codes: 0 OK, 1 KO, 2 usage or course error. NO_COLOR and SKILLCHECK_ASCII are honoured.";
+Exit codes: 0 OK, 1 KO, 2 usage or course error. NO_COLOR and SKILLCHECKER_ASCII are honoured.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -81,7 +81,7 @@ fn pick<'a>(c: &'a CourseDir, state: &State, explicit: Option<&str>) -> Result<&
         return Ok(u);
     }
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-    let cwd = skillcheck::course::strip_verbatim(&cwd.canonicalize().unwrap_or(cwd));
+    let cwd = skillchecker::course::strip_verbatim(&cwd.canonicalize().unwrap_or(cwd));
     let in_ws = c
         .units
         .iter()
@@ -89,7 +89,7 @@ fn pick<'a>(c: &'a CourseDir, state: &State, explicit: Option<&str>) -> Result<&
         .filter(|u| state.unlocked.contains(&u.id))
         .find(|u| {
             let ws = c.workspace(u);
-            let ws = skillcheck::course::strip_verbatim(&ws.canonicalize().unwrap_or(ws));
+            let ws = skillchecker::course::strip_verbatim(&ws.canonicalize().unwrap_or(ws));
             cwd.starts_with(&ws)
         });
     if let Some(u) = in_ws {
@@ -104,7 +104,7 @@ fn pick<'a>(c: &'a CourseDir, state: &State, explicit: Option<&str>) -> Result<&
         Some(id) => c
             .unit(id)
             .ok_or_else(|| format!("unknown current unit `{id}`")),
-        None => Err("nothing unlocked yet: run `skillcheck next` to start".into()),
+        None => Err("nothing unlocked yet: run `skillchecker next` to start".into()),
     }
 }
 
@@ -138,12 +138,12 @@ fn offer_next(root: &Path, after: Option<&str>, prompt: bool) -> Result<(), Stri
         let label = if same_project { "stage" } else { "exercise" };
         if !prompt || !ask::interactive() {
             let hint = if next.stretch {
-                " (a stretch goal: `skillcheck skip` skips it)"
+                " (a stretch goal: `skillchecker skip` skips it)"
             } else {
                 ""
             };
             println!(
-                "Run `skillcheck next` when you are ready for {}{hint}.",
+                "Run `skillchecker next` when you are ready for {}{hint}.",
                 next.id
             );
             return Ok(());
@@ -175,7 +175,10 @@ fn offer_next(root: &Path, after: Option<&str>, prompt: bool) -> Result<(), Stri
                     continue;
                 }
                 _ => {
-                    println!("Run `skillcheck next` when you are ready for {}.", next.id);
+                    println!(
+                        "Run `skillchecker next` when you are ready for {}.",
+                        next.id
+                    );
                     return Ok(());
                 }
             }
@@ -188,7 +191,10 @@ fn offer_next(root: &Path, after: Option<&str>, prompt: bool) -> Result<(), Stri
         ) {
             print_reveal(&c, next, &scaffold::unlock(&c, next)?);
         } else {
-            println!("Run `skillcheck next` when you are ready for {}.", next.id);
+            println!(
+                "Run `skillchecker next` when you are ready for {}.",
+                next.id
+            );
         }
         return Ok(());
     }
@@ -224,7 +230,7 @@ fn cmd_skip() -> Result<ExitCode, String> {
     }
     record(&c, "skip", &target.id)?;
     println!(
-        "Skipped {} (stretch goal). You can still come back to it with `skillcheck check {}`.",
+        "Skipped {} (stretch goal). You can still come back to it with `skillchecker check {}`.",
         target.id, target.id
     );
     progress::write(&CourseDir::load(&c.root)?)?;
@@ -256,10 +262,10 @@ fn cmd_check(args: &[String]) -> Result<ExitCode, String> {
     let c = course()?;
     let state = c.state();
     let u = pick(&c, &state, explicit.as_deref())?;
-    if skillcheck::docker::needed(u) {
+    if skillchecker::docker::needed(u) {
         let mut full = vec!["check".to_string()];
         full.extend(args.iter().cloned());
-        return skillcheck::docker::delegate(&c, &full).map(ExitCode::from);
+        return skillchecker::docker::delegate(&c, &full).map(ExitCode::from);
     }
     let seed = seed.unwrap_or_else(random_seed);
     let opts = Options {
@@ -344,12 +350,12 @@ fn print_reveal(c: &CourseDir, u: &Unit, r: &scaffold::Revealed) {
                 .join("\n")
         );
     }
-    if skillcheck::docker::needed(u) {
+    if skillchecker::docker::needed(u) {
         println!(
-            "  this unit needs Linux: `skillcheck check` builds and tests it in a Linux container (Docker Desktop must be running), and `skillcheck shell` opens a terminal there to run your program by hand"
+            "  this unit needs Linux: `skillchecker check` builds and tests it in a Linux container (Docker Desktop must be running), and `skillchecker shell` opens a terminal there to run your program by hand"
         );
     }
-    if u.scaffold == skillcheck::unit::Scaffold::None {
+    if u.scaffold == skillchecker::unit::Scaffold::None {
         println!(
             "  no workspace was created: setting it up is part of the exercise ({}/)",
             c.workspace_name(u)
@@ -367,9 +373,9 @@ fn cmd_next(args: &[String]) -> Result<ExitCode, String> {
     {
         let stretch = c.unit(cur).is_some_and(|u| u.stretch);
         return Err(format!(
-            "finish `{cur}` first: `skillcheck check` must print OK{}",
+            "finish `{cur}` first: `skillchecker check` must print OK{}",
             if stretch {
-                " (it is a stretch goal: `skillcheck skip` skips it)"
+                " (it is a stretch goal: `skillchecker skip` skips it)"
             } else {
                 ""
             }
@@ -427,7 +433,7 @@ fn cmd_status() -> Result<ExitCode, String> {
     if let Some(cur) = current.filter(|u| state.done(&u.id)) {
         match state.next_locked(&c) {
             Some(next) => println!(
-                "\n{} is done. Run `skillcheck next` to unlock {}.",
+                "\n{} is done. Run `skillchecker next` to unlock {}.",
                 cur.id, next.id
             ),
             None => println!("\nCourse complete."),
@@ -440,7 +446,7 @@ fn cmd_status() -> Result<ExitCode, String> {
             c.subject_rel(cur).to_string_lossy().replace('\\', "/")
         );
     } else {
-        println!("\nRun `skillcheck next` to start.");
+        println!("\nRun `skillchecker next` to start.");
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -583,7 +589,7 @@ fn cmd_shell(args: &[String]) -> Result<ExitCode, String> {
     if cfg!(target_os = "linux") {
         return Err("you are already on Linux: run your program in this terminal".into());
     }
-    skillcheck::docker::shell(&c, &dir, port).map(ExitCode::from)
+    skillchecker::docker::shell(&c, &dir, port).map(ExitCode::from)
 }
 
 fn cmd_selftest(args: &[String]) -> Result<ExitCode, String> {
@@ -626,7 +632,7 @@ fn cmd_selftest(args: &[String]) -> Result<ExitCode, String> {
     let mut all_ok = problems.is_empty();
     let style = Style::detect();
     let (linux, here): (Vec<&Unit>, Vec<&Unit>) =
-        ids.iter().partition(|u| skillcheck::docker::needed(u));
+        ids.iter().partition(|u| skillchecker::docker::needed(u));
     let mut reports: Vec<selftest::UnitReport> =
         here.iter().map(|u| selftest::unit(&c, u, seed)).collect();
     if !linux.is_empty() {
@@ -634,7 +640,7 @@ fn cmd_selftest(args: &[String]) -> Result<ExitCode, String> {
             "{} Linux unit(s): testing in the Linux container...",
             linux.len()
         );
-        reports.extend(skillcheck::docker::selftest(&c, &linux, seed)?);
+        reports.extend(skillchecker::docker::selftest(&c, &linux, seed)?);
     }
     // Back in course order.
     reports.sort_by_key(|r| ids.iter().position(|u| u.id == r.unit));

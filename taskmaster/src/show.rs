@@ -3,7 +3,7 @@
 
 use crate::curriculum::{self, Entry, Kind, Plan};
 use crate::{Args, approval_path, text_hash};
-use skillcheck::report::Style;
+use skillchecker::report::Style;
 
 /// Terminal width from `COLUMNS`, else 100.
 fn width() -> usize {

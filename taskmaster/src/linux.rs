@@ -4,8 +4,8 @@
 //! taskmaster installs or starts it, after asking.
 
 use crate::curriculum::Plan;
-use skillcheck::ask::{self, Answer};
-use skillcheck::docker::{self, Status};
+use skillchecker::ask::{self, Answer};
+use skillchecker::docker::{self, Status};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -58,7 +58,7 @@ fn wsl_distros() -> Vec<String> {
 }
 
 fn exists(program: &str) -> bool {
-    skillcheck::run::exists(&skillcheck::lang::resolve(program))
+    skillchecker::run::exists(&skillchecker::lang::resolve(program))
 }
 
 pub fn detect() -> Access {
@@ -107,7 +107,7 @@ impl Access {
             "# Linux\nThis machine is not Linux: Linux-only APIs (fork, exec, pipes, signals, process groups, /proc, Unix permissions, the nix crate) do not work natively. {}.{wsl}\n\
              Plan with that in mind:\n\
              - Prefer portable units and projects. Use Linux APIs only where the student's goal needs them, and mark those units (or the whole project) `platform: linux`.\n\
-             - A `platform: linux` unit is built and tested in an Ubuntu container that skillcheck starts by itself with Docker, so the student can stay on this machine. taskmaster offers to install or start Docker, or WSL, once the curriculum is approved.\n\
+             - A `platform: linux` unit is built and tested in an Ubuntu container that skillchecker starts by itself with Docker, so the student can stay on this machine. taskmaster offers to install or start Docker, or WSL, once the curriculum is approved.\n\
              - When the student's goal could be met either way (for example a shell, process management, a server with signal handling), ask ONE question about it: a portable variant, or the Linux variant run through a container, and say which you recommend and why. Do not ask when the goal clearly needs Linux, or clearly does not.\n",
             self.docker_text()
         )
@@ -248,10 +248,10 @@ fn docker_path(a: &Access) -> bool {
     }
 }
 
-/// Builds skillcheck's Linux image now rather than at the first check.
+/// Builds skillchecker's Linux image now rather than at the first check.
 fn prebuild_image() -> bool {
     if !crate::ask_yes(
-        "Build skillcheck's Linux image now (a few minutes, once), instead of at the first Linux unit?",
+        "Build skillchecker's Linux image now (a few minutes, once), instead of at the first Linux unit?",
     ) {
         println!("It will be built at the first Linux unit.");
         return true;
@@ -293,7 +293,7 @@ fn wsl_path(a: &Access) -> bool {
         "\nWith WSL you follow the whole course inside Linux. In `wsl -d {distro}`:\n\
          \x20 sudo apt update && sudo apt install -y build-essential curl git\n\
          \x20 curl -sSf https://sh.rustup.rs | sh -s -- -y --component clippy,rustfmt\n\
-         \x20 then clone PiscineBuilder there and run `cargo install --path skillcheck` and `cargo install --path taskmaster`.\n\
+         \x20 then clone PiscineBuilder there and run `cargo install --path skillchecker` and `cargo install --path taskmaster`.\n\
          Keep the course in the Linux home folder (~/), not under /mnt/c: builds there are much faster.\n\
          VS Code opens it with its WSL extension (`code .` inside WSL)."
     );
@@ -336,16 +336,16 @@ pub fn offer(plan: &Plan, interactive: bool) -> bool {
     }
     let docker_label = match a.docker {
         Status::Ready => {
-            "Docker Desktop: already running; skillcheck runs the Linux units in a container, you stay on this machine"
+            "Docker Desktop: already running; skillchecker runs the Linux units in a container, you stay on this machine"
         }
         Status::Stopped => {
-            "Docker Desktop: start it; skillcheck runs the Linux units in a container, you stay on this machine"
+            "Docker Desktop: start it; skillchecker runs the Linux units in a container, you stay on this machine"
         }
         Status::WindowsContainers => {
-            "Docker Desktop: switch it to Linux containers; skillcheck then runs the Linux units in a container"
+            "Docker Desktop: switch it to Linux containers; skillchecker then runs the Linux units in a container"
         }
         Status::Missing => {
-            "Docker Desktop: install it; skillcheck runs the Linux units in a container, you stay on this machine"
+            "Docker Desktop: install it; skillchecker runs the Linux units in a container, you stay on this machine"
         }
     };
     let mut options = vec![docker_label.to_string()];

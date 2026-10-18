@@ -1,4 +1,4 @@
-//! A course on disk: `<root>/.skillcheck/` holds everything hidden; the
+//! A course on disk: `<root>/.skillchecker/` holds everything hidden; the
 //! student sees `subjects/`, `notes/`, `PROGRESS.md` and their workspaces.
 
 use crate::gens::Lib;
@@ -9,7 +9,26 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const HIDDEN: &str = ".skillcheck";
+pub const HIDDEN: &str = ".skillchecker";
+
+/// The folder's name before the grader was renamed.
+const OLD_HIDDEN: &str = ".skillcheck";
+
+/// Renames an old `.skillcheck/` folder in `root` to `.skillchecker/`, once.
+pub fn migrate(root: &Path) -> Result<(), String> {
+    let old = root.join(OLD_HIDDEN);
+    let new = root.join(HIDDEN);
+    if old.join("course.yaml").is_file() && !new.exists() {
+        fs::rename(&old, &new)
+            .map_err(|e| format!("renaming {} to {}: {e}", old.display(), new.display()))?;
+        eprintln!(
+            "Renamed {} to {} (the grader is now skillchecker).",
+            old.display(),
+            new.display()
+        );
+    }
+    Ok(())
+}
 
 pub struct CourseDir {
     pub root: PathBuf,
@@ -24,21 +43,25 @@ fn read_yaml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, String> {
 }
 
 impl CourseDir {
-    /// Nearest ancestor of `start` (inclusive) holding `.skillcheck/course.yaml`.
+    /// Nearest ancestor of `start` (inclusive) holding `.skillchecker/course.yaml`.
     pub fn discover(start: &Path) -> Result<CourseDir, String> {
         let start = start
             .canonicalize()
             .map_err(|e| format!("{}: {e}", start.display()))?;
         let root = start
             .ancestors()
-            .find(|d| d.join(HIDDEN).join("course.yaml").is_file())
+            .find(|d| {
+                d.join(HIDDEN).join("course.yaml").is_file()
+                    || d.join(OLD_HIDDEN).join("course.yaml").is_file()
+            })
             .ok_or(
-                "not inside a PiscineBuilder course (no .skillcheck/course.yaml above this directory)",
+                "not inside a PiscineBuilder course (no .skillchecker/course.yaml above this directory)",
             )?;
         CourseDir::load(root)
     }
 
     pub fn load(root: &Path) -> Result<CourseDir, String> {
+        migrate(root)?;
         let hidden = root.join(HIDDEN);
         let course: Course = read_yaml(&hidden.join("course.yaml"))?;
         let mut units = Vec::new();

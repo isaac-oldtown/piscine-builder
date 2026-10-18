@@ -7,7 +7,7 @@ PiscineBuilder is a command-line system for learning programming by building rea
 It has two tools:
 
 - **taskmaster** plans a curriculum with drills and multi-stage projects, then generates each unit's instructions, tests, and hidden reference solution. Units are kept only if they pass the quality checks.
-- **skillcheck** reveals one unit at a time, grades your work, and tracks progress, schedule, and weekly reviews. It needs no LLM, API key, or network access.
+- **skillchecker** reveals one unit at a time, grades your work, and tracks progress, schedule, and weekly reviews. It needs no LLM, API key, or network access.
 
 This is a personal project, shared as is. It works for my courses and my machine (Windows, with Docker for Linux-specific units) and may need adjustments for yours.
 
@@ -16,7 +16,7 @@ This is a personal project, shared as is. It works for my courses and my machine
 Install stable Rust from [rustup.rs](https://rustup.rs). From the repository root:
 
 ```
-cargo install --path skillcheck
+cargo install --path skillchecker
 cargo install --path taskmaster
 ```
 
@@ -26,7 +26,7 @@ Docker Desktop is needed for Linux-specific units on Windows or macOS. `taskmast
 
 An LLM provider is needed only to create courses: Anthropic, OpenAI, an OpenAI-compatible server, or a Claude Code login through [Meridian](https://github.com/rynfar/meridian). Students using an existing course don't need one.
 
-Keep this repository in its current location after installation; skillcheck builds its Linux image from this source tree.
+Keep this repository in its current location after installation; skillchecker builds its Linux image from this source tree.
 
 ## Quickstart
 
@@ -37,20 +37,20 @@ The demo contains units in C, Bash, Rust, and Perl (an optional stretch goal), p
 ```
 cd examples/demo-course
 
-skillcheck next
+skillchecker next
 cd d01-string-basics
 
 # Implement the assignment, then:
-skillcheck check
+skillchecker check
 ```
 
-`skillcheck next` reveals the next unit. `skillcheck check` grades your work and prints a report. Once you pass, you can unlock the next unit.
+`skillchecker next` reveals the next unit. `skillchecker check` grades your work and prints a report. Once you pass, you can unlock the next unit.
 
 Useful commands:
 
 ```
-skillcheck status    # Course map
-skillcheck progress  # Progress dashboard
+skillchecker status    # Course map
+skillchecker progress  # Progress dashboard
 ```
 
 ### Create a course
@@ -64,7 +64,7 @@ cd my-course
 taskmaster new "learn C pointers, then write a small HTTP server" --provider meridian
 taskmaster build --tests --provider meridian
 
-skillcheck next
+skillchecker next
 ```
 
 `taskmaster new` scans your environment, asks planning questions, and presents a curriculum with estimated hours, difficulty, and prerequisites. You can approve it, request changes, or edit it yourself.
@@ -92,7 +92,7 @@ With a Claude Code subscription through Meridian, there is no per-token cost, bu
 1. **Plan:** `taskmaster new` for interactive planning, or `taskmaster prompt` followed by `taskmaster import` using a chat assistant.
 2. **Review:** Inspect and edit `curriculum.md`. The plan must be approved before it can be built.
 3. **Build:** `taskmaster build --tests` generates unit instructions, tests, and hidden reference solutions. Each unit must pass the generation quality checks.
-4. **Practise:** Use `skillcheck next`, implement the assignment, and run `skillcheck check`. Project stages share a workspace and are tested together.
+4. **Practise:** Use `skillchecker next`, implement the assignment, and run `skillchecker check`. Project stages share a workspace and are tested together.
 
 The curriculum validator checks prerequisites, workload against available hours, project stages, and minimum viable results. Optional stretch goals can be skipped.
 
@@ -116,21 +116,21 @@ LLM commands accept `--provider anthropic|meridian|openai`, `--base-url URL`, `-
 
 Configuration comes from the `PISCINEBUILDER_*` environment variables, provider-specific API key variables, or the config file. API keys are never written to files.
 
-### skillcheck
+### skillchecker
 
 | Command | Description |
 |---|---|
-| `skillcheck next` | Reveal the next unit's instructions, notes, and workspace scaffold. |
-| `skillcheck check [unit] [--seed HEX] [--verbose] [--no-prompt]` | Grade a unit. Exit codes: 0 pass, 1 fail, 2 course or usage error. |
-| `skillcheck skip` | Skip the current unit if it is an optional stretch goal. |
-| `skillcheck status` | Show passed, skipped, current, and locked units. Locked titles remain hidden. |
-| `skillcheck progress` | Regenerate `PROGRESS.md` and print the dashboard. |
-| `skillcheck explain [unit]` | Explain the checks run for a unit. |
-| `skillcheck shell [unit] [--port N]` | Open a Bash shell in the Linux container for a Linux unit. |
-| `skillcheck validate` | Validate unit specifications without running checks. |
-| `skillcheck selftest [unit...]` | Check that reference solutions pass and required functions have tests that fail on empty stubs. |
+| `skillchecker next` | Reveal the next unit's instructions, notes, and workspace scaffold. |
+| `skillchecker check [unit] [--seed HEX] [--verbose] [--no-prompt]` | Grade a unit. Exit codes: 0 pass, 1 fail, 2 course or usage error. |
+| `skillchecker skip` | Skip the current unit if it is an optional stretch goal. |
+| `skillchecker status` | Show passed, skipped, current, and locked units. Locked titles remain hidden. |
+| `skillchecker progress` | Regenerate `PROGRESS.md` and print the dashboard. |
+| `skillchecker explain [unit]` | Explain the checks run for a unit. |
+| `skillchecker shell [unit] [--port N]` | Open a Bash shell in the Linux container for a Linux unit. |
+| `skillchecker validate` | Validate unit specifications without running checks. |
+| `skillchecker selftest [unit...]` | Check that reference solutions pass and required functions have tests that fail on empty stubs. |
 
-Set `NO_COLOR` to disable colors. Set `SKILLCHECK_ASCII` to replace check marks.
+Set `NO_COLOR` to disable colors. Set `SKILLCHECKER_ASCII` to replace check marks.
 
 ## Grading and progress
 
@@ -138,15 +138,15 @@ Checks cover file layout, required function signatures, allowed functions and mo
 
 Supported languages include C, Python, Rust, Bash, JavaScript, TypeScript, Go, Java, Ruby, and other languages declared through the language configuration.
 
-After each check, skillcheck updates `PROGRESS.md` with completed units, attempts, active time, common failures, results by difficulty, weekly activity, and schedule adherence. Weekly reviews are written to `reviews/week-NN.md`.
+After each check, skillchecker updates `PROGRESS.md` with completed units, attempts, active time, common failures, results by difficulty, weekly activity, and schedule adherence. Weekly reviews are written to `reviews/week-NN.md`.
 
 ## Linux units on Windows and macOS
 
-Units marked `platform: linux` run in an Ubuntu 24.04 container when the host isn't Linux. Docker Desktop must be running; you keep editing and running `skillcheck check` in your usual terminal.
+Units marked `platform: linux` run in an Ubuntu 24.04 container when the host isn't Linux. Docker Desktop must be running; you keep editing and running `skillchecker check` in your usual terminal.
 
-The image includes Rust with clippy and rustfmt, gcc, python3, dash as `/bin/sh`, and GNU coreutils. It is built on first use and rebuilt after skillcheck changes.
+The image includes Rust with clippy and rustfmt, gcc, python3, dash as `/bin/sh`, and GNU coreutils. It is built on first use and rebuilt after skillchecker changes.
 
-Use `skillcheck shell` to run your program by hand in the container. `--port N` publishes a port on `127.0.0.1`; start your server with `--bind 0.0.0.0`.
+Use `skillchecker shell` to run your program by hand in the container. `--port N` publishes a port on `127.0.0.1`; start your server with `--bind 0.0.0.0`.
 
 To have rust-analyzer check this code as Linux code, run `rustup target add x86_64-unknown-linux-gnu` once and set `"rust-analyzer.cargo.target": "x86_64-unknown-linux-gnu"` in your workspace settings.
 
@@ -159,7 +159,7 @@ To have rust-analyzer check this code as Linux code, run `rustup target add x86_
 | The build stopped on a rate limit or quota | Run the same command again. Completed work is kept, and cached replies cost nothing. |
 | A unit `FAILED` during the build | Run `taskmaster build --tests --only <id>`. Later stages of its project wait for it. |
 | `curriculum.md changed since it was approved` | Review the plan and approve it again. |
-| A check fails randomly | Replay the same inputs with `skillcheck check --seed <hex>`, using the seed from the report. |
+| A check fails randomly | Replay the same inputs with `skillchecker check --seed <hex>`, using the seed from the report. |
 
 ## Reference
 
@@ -171,7 +171,7 @@ To have rust-analyzer check this code as Linux code, run `rustup target add x86_
 ## Repository layout
 
 ```
-skillcheck/            The grader (library and CLI)
+skillchecker/            The grader (library and CLI)
 taskmaster/            The course builder (CLI)
 examples/demo-course/  A small course to try without an LLM
 docs/                  Reference documentation

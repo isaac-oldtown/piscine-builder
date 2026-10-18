@@ -3,8 +3,8 @@
 //! optionally, declared in the curriculum front matter when it differs.
 //! Planning and generation only rely on tools listed here.
 
-use skillcheck::lang;
-use skillcheck::run;
+use skillchecker::lang;
+use skillchecker::run;
 use std::process::Command;
 use std::thread;
 use std::time::Duration;

@@ -66,7 +66,7 @@ pub fn open_editor(path: &Path) -> Result<(), String> {
                 "vi".into()
             }
         });
-    let mut words = skillcheck::run::split_words(&editor);
+    let mut words = skillchecker::run::split_words(&editor);
     if words.is_empty() {
         return Err("no editor".into());
     }
@@ -136,9 +136,14 @@ impl Args {
         )
     }
     fn course(&self) -> PathBuf {
-        self.get("course")
+        let dir = self
+            .get("course")
             .map(PathBuf::from)
-            .unwrap_or_else(|| PathBuf::from("."))
+            .unwrap_or_else(|| PathBuf::from("."));
+        if let Err(e) = skillchecker::course::migrate(&dir) {
+            eprintln!("warning: {e}");
+        }
+        dir
     }
 }
 
@@ -294,7 +299,7 @@ fn print_problems(problems: &[curriculum::Problem], paste: bool) {
 
 pub fn approval_path(course: &Path) -> PathBuf {
     course
-        .join(".skillcheck")
+        .join(".skillchecker")
         .join("taskmaster")
         .join("approved")
 }
@@ -425,10 +430,10 @@ fn cmd_build(raw: &[String]) -> Result<bool, String> {
         yes: a.has("yes"),
     };
     let root = std::fs::canonicalize(&course).map_err(|e| e.to_string())?;
-    let root = skillcheck::course::strip_verbatim(&root);
+    let root = skillchecker::course::strip_verbatim(&root);
     let environment = env::detect(plan.meta.environment.clone());
     let env_file = root
-        .join(".skillcheck")
+        .join(".skillchecker")
         .join("taskmaster")
         .join("environment.txt");
     if let Some(d) = env_file.parent() {
@@ -438,7 +443,7 @@ fn cmd_build(raw: &[String]) -> Result<bool, String> {
     let ok =
         build::Builder::new(root.clone(), &plan, &llm, opts, &environment.prompt_block()).run()?;
     println!(
-        "\nCourse ready in {}. Students start with: cd {} && skillcheck next",
+        "\nCourse ready in {}. Students start with: cd {} && skillchecker next",
         root.display(),
         root.display()
     );

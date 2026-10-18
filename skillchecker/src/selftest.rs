@@ -159,7 +159,7 @@ pub fn unit(c: &CourseDir, u: &Unit, seed: u64) -> UnitReport {
     r.reference = if !ref_dir.is_dir() {
         if u.has_tests() || !u.functions.is_empty() {
             Err(format!(
-                "no reference solution in .skillcheck/refs/{}/",
+                "no reference solution in .skillchecker/refs/{}/",
                 u.id
             ))
         } else {

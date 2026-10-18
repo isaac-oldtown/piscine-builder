@@ -1,5 +1,5 @@
-//! skillcheck: PiscineBuilder's offline grader. Reads compact unit specs from a
-//! course's hidden `.skillcheck/` directory and checks the student's work
+//! skillchecker: PiscineBuilder's offline grader. Reads compact unit specs from a
+//! course's hidden `.skillchecker/` directory and checks the student's work
 //! with no network and no LLM.
 
 pub mod ask;

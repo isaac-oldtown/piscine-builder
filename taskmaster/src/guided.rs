@@ -12,7 +12,7 @@ use crate::llm::{self, Llm, Msg};
 use crate::prompts;
 use crate::{Args, LLM_OPTS, read_line};
 use serde::Deserialize;
-use skillcheck::ask::{self, Answer};
+use skillchecker::ask::{self, Answer};
 use std::collections::BTreeSet;
 use std::io::IsTerminal;
 use std::path::Path;
@@ -185,7 +185,7 @@ pub fn cmd_revise(raw: &[String]) -> Result<bool, String> {
     })?;
     // The draft replaces curriculum.md while you review it: keep the old one.
     let backup = course
-        .join(".skillcheck")
+        .join(".skillchecker")
         .join("taskmaster")
         .join("curriculum.previous.md");
     if let Some(d) = backup.parent() {

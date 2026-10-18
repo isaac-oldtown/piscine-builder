@@ -14,7 +14,7 @@ On Windows, `bash` resolves to msys2 or Git Bash, never WSL's `System32\bash.exe
 ## Language settings are data
 
 The presets for C, C++, Python, Rust, Bash, JavaScript, TypeScript, Go, Java and Ruby are a
-YAML block embedded in skillcheck (`skillcheck/src/defaults.rs`). Only the function harnesses
+YAML block embedded in skillchecker (`skillchecker/src/defaults.rs`). Only the function harnesses
 and the dedicated Allowed scanners are code. A course overrides any preset field in its
 `languages:` block, and a list set there replaces the preset's list (`static: []` removes
 Rust's fmt and clippy).
@@ -44,7 +44,7 @@ languages:
 
 ## Leak checks, sanitizers and allocation failures
 
-These are course content, not skillcheck features: `wrap` (valgrind) or `flags`
+These are course content, not skillchecker features: `wrap` (valgrind) or `flags`
 (`-fsanitize=address`) make a run fail when the tool reports a problem, and the harness must
 exit cleanly, so leaks reported at exit fail the check. Units can add `extra_flags`, `wrap`,
 `support` files and `helpers` (test-only functions from support files):

@@ -567,7 +567,7 @@ fn render_text(v: &Value, g: &Gen) -> String {
     }
 }
 
-/// Human description used by `skillcheck explain`.
+/// Human description used by `skillchecker explain`.
 pub fn describe(g: &Gen) -> String {
     match g {
         Gen::Int { lo, hi, width } => {

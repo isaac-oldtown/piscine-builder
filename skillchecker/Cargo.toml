@@ -1,5 +1,5 @@
 [package]
-name = "skillcheck"
+name = "skillchecker"
 description = "PiscineBuilder's offline grader: runs compact test specs against student work"
 version.workspace = true
 edition.workspace = true

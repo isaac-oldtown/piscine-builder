@@ -1,7 +1,7 @@
 # How `taskmaster build` works
 
 `taskmaster build` turns an approved `curriculum.md` into a course in the hidden
-`.skillcheck/` folder. It runs in two passes.
+`.skillchecker/` folder. It runs in two passes.
 
 ## Pass 1: contracts
 
@@ -18,7 +18,7 @@ next build, with no LLM call.
 ## Pass 2: the correction suite
 
 With `--tests` (or when you answer yes), each unit gets its tests, generators, hidden
-reference solution and scaffold files. A unit is kept only if `skillcheck selftest` passes:
+reference solution and scaffold files. A unit is kept only if `skillchecker selftest` passes:
 the reference passes every check, including Allowed and the linters, and every function has
 a test that fails on an empty stub. Linux units are self-tested in the Linux container.
 
@@ -47,6 +47,6 @@ command again. Existing contracts and notes are kept, units with a suite are ski
 every reply is cached on disk by a hash of its request, so a re-run only pays for what
 changed. `--only <id>` redoes a unit (or every stage of a project) from scratch.
 
-The model returns data only (skillcheck renders the instructions), every request starts with
+The model returns data only (skillchecker renders the instructions), every request starts with
 the same system prompt (cacheable by the provider) holding only the notes for the course's
 languages, and earlier units are summarized in one line each. The run ends with a token count.

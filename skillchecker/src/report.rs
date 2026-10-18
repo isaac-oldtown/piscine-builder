@@ -23,7 +23,7 @@ impl Style {
     pub fn detect() -> Style {
         Style {
             color: std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none(),
-            ascii: std::env::var_os("SKILLCHECK_ASCII").is_some(),
+            ascii: std::env::var_os("SKILLCHECKER_ASCII").is_some(),
         }
     }
     fn paint(&self, code: &str, s: &str) -> String {
@@ -84,7 +84,7 @@ impl Reporter for Term {
         let s = &self.style;
         self.out(&format!(
             "{} {}  {}",
-            s.bold("skillcheck"),
+            s.bold("skillchecker"),
             s.bold(&unit.id),
             s.dim(&format!("seed {seed:016x}  against {against}"))
         ));
@@ -176,7 +176,9 @@ pub fn verdict_line(v: &Verdict, seed: u64, style: &Style) -> String {
                 ),
             };
             if item.random {
-                line.push_str(&format!("   (replay: skillcheck check --seed {seed:016x})"));
+                line.push_str(&format!(
+                    "   (replay: skillchecker check --seed {seed:016x})"
+                ));
             }
             style.red(&line)
         }
