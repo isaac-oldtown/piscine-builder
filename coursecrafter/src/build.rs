@@ -189,7 +189,11 @@ impl<'a> Builder<'a> {
         }
         m.insert(
             s("units"),
-            seq(&units.iter().map(|u| u.id.clone()).collect::<Vec<_>>()),
+            seq(&units
+                .iter()
+                .filter(|u| self.unit_path(&u.id).is_file())
+                .map(|u| u.id.clone())
+                .collect::<Vec<_>>()),
         );
         let mut projects = Mapping::new();
         for p in self.plan.entries.iter().filter(|e| e.kind == Kind::Project) {
@@ -267,6 +271,7 @@ impl<'a> Builder<'a> {
 
         // Pass 1: contracts.
         let units: Vec<&Entry> = self.plan.units();
+        let mut no_contract: Vec<String> = Vec::new();
         for (i, u) in units.iter().enumerate() {
             // Existing contracts are kept (rewriting one would drop its tests);
             // `--only` redoes the named units.
@@ -276,7 +281,16 @@ impl<'a> Builder<'a> {
                 continue;
             }
             status(&format!("[contract {}/{}] {}", i + 1, units.len(), u.id));
-            let m = self.contract(u, &units[..i], &languages)?;
+            // A rejected contract is reported, and the other units go on.
+            let m = match self.contract(u, &units[..i], &languages) {
+                Ok(m) => m,
+                Err(e) if self.provider_down => return Err(e),
+                Err(e) => {
+                    status(&format!("  FAILED {e}"));
+                    no_contract.push(u.id.clone());
+                    continue;
+                }
+            };
             let text = yaml_serde::to_string(&Yaml::Mapping(m)).map_err(|e| e.to_string())?;
             write(&self.unit_path(&u.id), &text)?;
             for n in self.plan.notes_for(&u.id) {
@@ -292,9 +306,16 @@ impl<'a> Builder<'a> {
         self.write_course(&units, &languages)?;
         status(&format!(
             "contracts written for {} unit(s). {}",
-            units.len(),
+            units.len() - no_contract.len(),
             self.llm.usage_line()
         ));
+        if !no_contract.is_empty() {
+            status(&format!(
+                "{} unit(s) have no contract because it was rejected every time: {}. They are left out of the course for now; run `coursecrafter build --only <id>` to retry.",
+                no_contract.len(),
+                no_contract.join(", ")
+            ));
+        }
 
         if self.opts.text_only {
             let mut failed = Vec::new();
@@ -314,7 +335,7 @@ impl<'a> Builder<'a> {
             }
             status(&self.llm.usage_line());
             self.refresh_unlocked();
-            return Ok(failed.is_empty());
+            return Ok(failed.is_empty() && no_contract.is_empty());
         }
         let want_tests = match self.opts.tests {
             Some(t) => t,
@@ -328,7 +349,7 @@ impl<'a> Builder<'a> {
                 "Skipped the correction suite: proctor will check structure, prototypes, allowed and the build only. Run `coursecrafter build --tests` later to add it.",
             );
             self.refresh_unlocked();
-            return Ok(true);
+            return Ok(no_contract.is_empty());
         }
 
         // Pass 2: tests + reference, unit by unit, each gated.
@@ -348,6 +369,9 @@ impl<'a> Builder<'a> {
         let mut done_before = 0;
         for (i, u) in units.iter().enumerate() {
             if !self.selected(u) {
+                continue;
+            }
+            if !self.unit_path(&u.id).is_file() {
                 continue;
             }
             if u.f.gradable == Some(false) {
@@ -416,7 +440,7 @@ impl<'a> Builder<'a> {
             ));
         }
         self.refresh_unlocked();
-        Ok(failed.is_empty() && waiting.is_empty())
+        Ok(failed.is_empty() && waiting.is_empty() && no_contract.is_empty())
     }
 
     /// Units the student already unlocked get their instructions rendered
@@ -942,9 +966,12 @@ impl<'a> Builder<'a> {
         if text.contains('\u{2014}') || text.contains('\u{2013}') {
             p.push("never use long dashes; use a colon or a new sentence".into());
         }
-        // The student's commands may be named; the hidden parts may not.
-        if all_text.contains("harness") || all_text.contains("reference solution") {
-            p.push("the contract must not reveal the hidden tests, the reference solution or how the checks work".into());
+        // The student's commands may be named; the hidden parts may not. Plain
+        // words such as "test harness" (Rust's own term) are fine.
+        if let Some(phrase) = revealing_phrase(&all_text) {
+            p.push(format!(
+                "the contract says `{phrase}`: it must not reveal the hidden tests, the reference solution or how the checks work; reword that part"
+            ));
         }
         if let Some(r) = &unit.run
             && (r.contains("target/") || r.contains("target\\"))
@@ -1474,6 +1501,22 @@ fn uncovered_concepts(lesson: &str, introduces: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// A phrase (in lowercase text) that would tell the student about the hidden
+/// parts of the grading.
+fn revealing_phrase(text: &str) -> Option<&'static str> {
+    [
+        "reference solution",
+        "hidden reference",
+        "hidden test",
+        "proctor's harness",
+        "proctor harness",
+        "grading harness",
+        "harness of proctor",
+    ]
+    .into_iter()
+    .find(|p| text.contains(p))
+}
+
 /// Requirements that restate what the page or RULES.md already says.
 fn redundant_requirement(text: &str) -> Option<&'static str> {
     let t = text.to_lowercase();
@@ -1624,6 +1667,20 @@ mod tests {
             Some("the linters")
         );
         assert_eq!(redundant_requirement("Print `LEVEL count` lines."), None);
+    }
+
+    #[test]
+    fn rust_test_harness_is_not_a_revealed_secret() {
+        let ok = "the test harness collects it and runs it on its own.";
+        assert_eq!(revealing_phrase(ok), None);
+        assert_eq!(
+            revealing_phrase("compare with the reference solution"),
+            Some("reference solution")
+        );
+        assert_eq!(
+            revealing_phrase("the hidden tests check it"),
+            Some("hidden test")
+        );
     }
 
     #[test]
