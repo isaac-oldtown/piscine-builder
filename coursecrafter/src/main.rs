@@ -6,6 +6,7 @@ mod guided;
 mod linux;
 mod llm;
 mod prompts;
+mod session;
 mod show;
 
 use curriculum::Plan;
@@ -20,12 +21,12 @@ coursecrafter: creates PiscineBuilder courses. The only part of PiscineBuilder t
         print a prompt for any chat assistant; it ends with a curriculum file
   coursecrafter import <curriculum.md> [--course DIR] [--yes] [--paste]
         validate a curriculum, show it, and approve it into the course folder
-  coursecrafter new \"<what you want to learn>\" [--from FILE]... [--course DIR] [--yes]
+  coursecrafter new \"<what you want to learn>\" [--from FILE]... [--course DIR] [--yes] [--debug]
         plan a curriculum in a short terminal conversation (uses the LLM)
-  coursecrafter convert <file>... [--course DIR] [--yes]
+  coursecrafter convert <file>... [--course DIR] [--yes] [--debug]
         rewrite a curriculum you made elsewhere in the curriculum format,
         keeping its units and content (uses the LLM)
-  coursecrafter revise \"<changes>\" [--course DIR] [--yes]
+  coursecrafter revise \"<changes>\" [--course DIR] [--yes] [--debug]
         have the planner rewrite curriculum.md with your changes (uses the LLM)
   coursecrafter show [curriculum.md] [--course DIR] [--full]
         display the curriculum: units, hours, difficulties, prerequisites, approval
@@ -40,6 +41,9 @@ coursecrafter: creates PiscineBuilder courses. The only part of PiscineBuilder t
         (installs or starts it after asking; `new` offers the same)
   coursecrafter build [--course DIR] [--yes] [--tests | --no-tests | --text-only] [--only ID]... [--retries N]
         write the unit specs, notes, tests and hidden references (uses the LLM)
+
+new, revise and convert log every call (time, tokens, errors, fixes) to .proctor/coursecrafter/logs/;
+  --debug also prints it here.
 
 LLM options (build, new, revise, convert): --provider anthropic|meridian|openai  --base-url URL  --model NAME
   --api-key-env VAR. Defaults come from PISCINEBUILDER_* variables, then the config file,

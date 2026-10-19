@@ -10,6 +10,7 @@
 use crate::curriculum::{self, Plan};
 use crate::llm::{self, Llm, Msg};
 use crate::prompts;
+use crate::session::Session;
 use crate::{Args, LLM_OPTS, read_line};
 use proctor::ask::{self, Answer};
 use serde::Deserialize;
@@ -141,7 +142,7 @@ fn decide() -> Decision {
 pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
     let mut valued = vec!["course", "from"];
     valued.extend(LLM_OPTS);
-    let a = Args::parse(raw, &valued, &["yes"])?;
+    let a = Args::parse(raw, &valued, &["yes", "debug"])?;
     let course = a.course();
     let mut intake = a.positional.join(" ");
     for f in a.all("from") {
@@ -156,15 +157,22 @@ pub fn cmd_new(raw: &[String]) -> Result<bool, String> {
     }
     let interactive = std::io::stdin().is_terminal() && !a.has("yes");
     let llm = a.llm()?;
-    eprintln!("model {} at {}", llm.model, llm.base_url);
-    converse(&course, &llm, intake, interactive, None, Mode::New)
+    run(
+        &course,
+        &llm,
+        intake,
+        interactive,
+        None,
+        Mode::New,
+        a.has("debug"),
+    )
 }
 
 /// `coursecrafter revise` : the planner rewrites the current curriculum.md.
 pub fn cmd_revise(raw: &[String]) -> Result<bool, String> {
     let mut valued = vec!["course"];
     valued.extend(LLM_OPTS);
-    let a = Args::parse(raw, &valued, &["yes"])?;
+    let a = Args::parse(raw, &valued, &["yes", "debug"])?;
     let changes = a.positional.join(" ");
     if changes.trim().is_empty() {
         return Err(
@@ -196,15 +204,15 @@ pub fn cmd_revise(raw: &[String]) -> Result<bool, String> {
     std::fs::write(&backup, &text).map_err(|e| format!("{}: {e}", backup.display()))?;
     let interactive = std::io::stdin().is_terminal() && !a.has("yes");
     let llm = a.llm()?;
-    eprintln!("model {} at {}", llm.model, llm.base_url);
     eprintln!("previous version saved to {}", backup.display());
-    converse(
+    run(
         &course,
         &llm,
         prompts::revise_request(&text, &changes),
         interactive,
         Some(&plan),
         Mode::Revise,
+        a.has("debug"),
     )
 }
 
@@ -213,7 +221,7 @@ pub fn cmd_revise(raw: &[String]) -> Result<bool, String> {
 pub fn cmd_convert(raw: &[String]) -> Result<bool, String> {
     let mut valued = vec!["course"];
     valued.extend(LLM_OPTS);
-    let a = Args::parse(raw, &valued, &["yes"])?;
+    let a = Args::parse(raw, &valued, &["yes", "debug"])?;
     if a.positional.is_empty() {
         return Err("give the file(s) holding your curriculum: coursecrafter convert my-plan.md [notes.txt]...".into());
     }
@@ -243,14 +251,14 @@ pub fn cmd_convert(raw: &[String]) -> Result<bool, String> {
     }
     let interactive = std::io::stdin().is_terminal() && !a.has("yes");
     let llm = a.llm()?;
-    eprintln!("model {} at {}", llm.model, llm.base_url);
-    converse(
+    run(
         &course,
         &llm,
         prompts::convert_request(&source),
         interactive,
         None,
         Mode::Convert,
+        a.has("debug"),
     )
 }
 
@@ -274,11 +282,38 @@ impl Mode {
     }
 }
 
+/// `converse` with its log: the details go to the session log (and to the
+/// terminal with `--debug`), the conversation itself stays on screen.
+fn run(
+    course: &Path,
+    llm: &Llm,
+    intake: String,
+    interactive: bool,
+    current: Option<&Plan>,
+    mode: Mode,
+    debug: bool,
+) -> Result<bool, String> {
+    let mut log = Session::start(course, mode.name(), debug);
+    log.log(&format!("model {} at {}", llm.model, llm.base_url));
+    let res = converse(&mut log, course, llm, intake, interactive, current, mode);
+    let outcome = match &res {
+        Ok(true) => "approved".to_string(),
+        Ok(false) => "not approved, the draft is kept".to_string(),
+        Err(e) => format!("error: {e}"),
+    };
+    log.finish(llm, &outcome);
+    if debug || res.is_err() {
+        eprintln!("log: {}", log.path.display());
+    }
+    res
+}
+
 /// The planning loop shared by `new`, `revise` and `convert`. With `current`
 /// (a revision), its ids are the baseline of the change list. Only `new` gets
 /// the separate self-review: a revision request includes it, and a
 /// conversion must keep the author's plan rather than redesign it.
 fn converse(
+    log: &mut Session,
     course: &Path,
     llm: &Llm,
     intake: String,
@@ -304,15 +339,18 @@ fn converse(
     // reviewed draft may still need validator fixes first.
     let mut review_notes: Option<String> = None;
     let mut previous: Option<BTreeSet<String>> = current.map(ids);
+    let mut purpose = "first reply";
     loop {
         eprintln!("thinking...");
-        let reply = llm.chat(&messages)?;
+        let reply = log.chat(llm, purpose, &messages)?;
         if let (Some(q), None) = (
             llm::block(&reply, "questions"),
             llm::block(&reply, "curriculum"),
         ) {
             messages.push(Msg::assistant(reply));
             if asked >= MAX_QUESTIONS {
+                log.log("question limit reached: asking for the curriculum");
+                purpose = "draft";
                 messages.push(Msg::user(
                     "Use your recommended options and write the curriculum now.",
                 ));
@@ -325,13 +363,21 @@ fn converse(
                 }
                 Err(e) if !bad_questions => {
                     bad_questions = true;
+                    log.log(&format!(
+                        "questions not in the expected JSON ({e}): asking again"
+                    ));
+                    purpose = "format fix";
                     messages.push(Msg::user(format!(
                         "The <questions> block is not valid JSON in the required shape ({e}). \
                          Send it again as a JSON array of {{\"question\", \"options\", \"recommended\"}}."
                     )));
                     continue;
                 }
-                Err(_) => {
+                Err(e) => {
+                    log.log(&format!(
+                        "questions still malformed ({e}): asking for the curriculum"
+                    ));
+                    purpose = "draft";
                     messages.push(Msg::user(
                         "Use your recommended options and write the curriculum now.",
                     ));
@@ -343,8 +389,13 @@ fn converse(
                     "\nA few questions first. Enter keeps the recommended option; type a letter, or your own answer."
                 );
             }
-            let answers = ask_all(&qs, interactive, asked);
+            let answers = log.wait_user(|| ask_all(&qs, interactive, asked));
+            for (q, a) in qs.iter().zip(&answers) {
+                log.log(&format!("question: {} -> {a}", q.question.trim()));
+            }
             asked += qs.len();
+            log.questions = asked;
+            purpose = "after answers";
             messages.push(Msg::user(answers_message(&qs, &answers)));
             continue;
         }
@@ -354,8 +405,10 @@ fn converse(
             review_notes = Some(changes.trim().to_string());
         }
         let (text, fixed) = curriculum::autofix(&crate::unwrap_curriculum(&reply));
+        log.drafts += 1;
+        log.autofixes += fixed.len();
         for f in &fixed {
-            eprintln!("fixed: {f}");
+            log.log(&format!("autofix: {f}"));
         }
         // The planner continues from the corrected file, so later edits use the new ids.
         let reply = if fixed.is_empty() {
@@ -366,6 +419,13 @@ fn converse(
         let problems = curriculum::problems_of(&text);
         let source = mode.name();
         curriculum::log_validation(course, source, &fixed, &problems);
+        let units = curriculum::parse(&text).map_or(0, |p| p.units().len());
+        let errors = problems.iter().filter(|p| !p.warning).count();
+        log.log(&format!(
+            "draft {}: {units} unit(s), {errors} error(s), {} warning(s)",
+            log.drafts,
+            problems.len() - errors
+        ));
         if problems.iter().any(|p| !p.warning) {
             if fixes >= MAX_AUTOFIX {
                 std::fs::create_dir_all(course).map_err(|e| e.to_string())?;
@@ -374,12 +434,14 @@ fn converse(
                 return Err("the planner could not produce a valid curriculum; the last draft is in curriculum.md".into());
             }
             fixes += 1;
+            log.rejections += 1;
             let errors: Vec<curriculum::Problem> =
                 problems.iter().filter(|p| !p.warning).cloned().collect();
-            eprintln!(
+            log.log(&format!(
                 "draft rejected by the validator, asking the planner to fix:\n{}",
                 curriculum::report(&errors).trim_end()
-            );
+            ));
+            purpose = "validator fix";
             messages.push(Msg::assistant(reply));
             messages.push(Msg::user(curriculum::paste_block(&problems)));
             continue;
@@ -388,7 +450,8 @@ fn converse(
         if !reviewed {
             // One self-review per conversation, on the first valid draft.
             reviewed = true;
-            eprintln!("reviewing the draft against the planning checklist...");
+            log.log("asking the planner to review its draft against the checklist");
+            purpose = "self-review";
             messages.push(Msg::assistant(reply));
             messages.push(Msg::user(prompts::review_request()));
             continue;
@@ -415,7 +478,6 @@ fn converse(
         }
         if !interactive {
             let ok = crate::review(course, text.clone(), true)?.is_some();
-            eprintln!("{}", llm.usage_line());
             if ok && let Ok(plan) = curriculum::parse(&text) {
                 crate::linux::offer(&plan, false);
             }
@@ -432,18 +494,16 @@ fn converse(
         };
         println!("\n{}\n{}", plan.meta.title, curriculum::table(&plan));
         previous = Some(ids(&plan));
-        match decide() {
+        match log.wait_user(decide) {
             Decision::Approve => {
                 crate::approve(course, &text)?;
                 println!("Approved: {}.", course.join("curriculum.md").display());
-                eprintln!("{}", llm.usage_line());
                 crate::linux::offer(&plan, true);
                 println!("Next: coursecrafter build");
                 return Ok(true);
             }
             Decision::Edit => {
-                let approved = crate::review(course, text, false)?;
-                eprintln!("{}", llm.usage_line());
+                let approved = log.wait_user(|| crate::review(course, text, false))?;
                 if let Some(plan) = approved.as_deref().and_then(|t| curriculum::parse(t).ok()) {
                     crate::linux::offer(&plan, true);
                 }
@@ -457,6 +517,9 @@ fn converse(
                 return Ok(false);
             }
             Decision::Revise(c) => {
+                log.revisions += 1;
+                log.log(&format!("revision asked: {c}"));
+                purpose = "revision";
                 messages.push(Msg::assistant(reply));
                 messages.push(Msg::user(format!(
                     "Revise the curriculum: {c}\nCheck the result against the review list, then send the complete file again."

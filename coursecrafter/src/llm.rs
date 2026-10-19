@@ -4,10 +4,10 @@
 
 use crate::config::Config;
 use serde_json::{Value, json};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::env;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
 
@@ -47,6 +47,63 @@ pub struct Llm {
     pub prompt_tokens: Cell<u64>,
     pub completion_tokens: Cell<u64>,
     pub cached_tokens: Cell<u64>,
+    /// Input tokens written to the provider's prompt cache (billed above the
+    /// normal input price by Anthropic).
+    pub cache_write_tokens: Cell<u64>,
+    /// One record per `chat`, in order, failed ones included.
+    pub history: RefCell<Vec<CallRecord>>,
+}
+
+/// What one `chat` cost: wall time (retries and back-off included), HTTP
+/// attempts, the errors met on the way, and the tokens of the reply.
+#[derive(Clone, Debug, Default)]
+pub struct CallRecord {
+    pub ms: u128,
+    pub attempts: u32,
+    pub errors: Vec<String>,
+    pub ok: bool,
+    pub usage: Usage,
+}
+
+/// Tokens of one reply. `input` counts every prompt token, cached or not.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Usage {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_write: u64,
+}
+
+impl Usage {
+    /// Reads the usage object of OpenAI-style replies (Meridian, OpenAI,
+    /// Anthropic's compatibility endpoint) and of Anthropic's native one.
+    /// OpenAI-style `prompt_tokens` already include cache reads and writes;
+    /// Anthropic's `input_tokens` exclude them.
+    pub fn parse(u: &Value) -> Usage {
+        let n = |v: &Value| v.as_u64().unwrap_or(0);
+        let d = &u["prompt_tokens_details"];
+        let cache_read = n(&d["cached_tokens"]).max(n(&u["cache_read_input_tokens"]));
+        let cache_write = n(&d["cache_write_tokens"])
+            .max(n(&d["cache_creation_tokens"]))
+            .max(n(&u["cache_creation_input_tokens"]));
+        let input = if u["prompt_tokens"].is_u64() {
+            n(&u["prompt_tokens"])
+        } else {
+            n(&u["input_tokens"]) + cache_read + cache_write
+        };
+        Usage {
+            input,
+            output: n(&u["completion_tokens"]).max(n(&u["output_tokens"])),
+            cache_read,
+            cache_write,
+        }
+    }
+
+    /// Input tokens neither read from nor written to the cache.
+    pub fn fresh(&self) -> u64 {
+        self.input
+            .saturating_sub(self.cache_read + self.cache_write)
+    }
 }
 
 struct Preset {
@@ -170,11 +227,28 @@ impl Llm {
             prompt_tokens: Cell::new(0),
             completion_tokens: Cell::new(0),
             cached_tokens: Cell::new(0),
+            cache_write_tokens: Cell::new(0),
+            history: RefCell::new(Vec::new()),
         })
     }
 
     /// One non-streaming completion; retries transient failures.
     pub fn chat(&self, messages: &[Msg]) -> Result<String, String> {
+        let start = Instant::now();
+        let mut rec = CallRecord::default();
+        let res = self.chat_inner(messages, &mut rec);
+        rec.ms = start.elapsed().as_millis();
+        rec.ok = res.is_ok();
+        if let Err(e) = &res
+            && rec.errors.last() != Some(e)
+        {
+            rec.errors.push(e.clone());
+        }
+        self.history.borrow_mut().push(rec);
+        res
+    }
+
+    fn chat_inner(&self, messages: &[Msg], rec: &mut CallRecord) -> Result<String, String> {
         let body = json!({
             "model": self.model,
             "stream": false,
@@ -186,8 +260,10 @@ impl Llm {
         let mut last = String::new();
         for attempt in 0..4u64 {
             if attempt > 0 {
+                rec.errors.push(last.clone());
                 thread::sleep(Duration::from_secs(2 << attempt));
             }
+            rec.attempts += 1;
             let mut req = self
                 .agent
                 .post(&url)
@@ -214,24 +290,23 @@ impl Llm {
             if status >= 400 {
                 return Err(format!("HTTP {status}: {}", cut(&text, 500)));
             }
-            return self.extract(&text);
+            return self.extract(&text, rec);
         }
         Err(last)
     }
 
-    fn extract(&self, text: &str) -> Result<String, String> {
+    fn extract(&self, text: &str, rec: &mut CallRecord) -> Result<String, String> {
         let v: Value = serde_json::from_str(text)
             .map_err(|e| format!("response is not JSON ({e}): {}", cut(text, 200)))?;
+        // Counted even when the content turns out unusable: the tokens are billed.
         self.calls.set(self.calls.get() + 1);
-        let u = &v["usage"];
-        self.prompt_tokens
-            .set(self.prompt_tokens.get() + u["prompt_tokens"].as_u64().unwrap_or(0));
-        self.completion_tokens
-            .set(self.completion_tokens.get() + u["completion_tokens"].as_u64().unwrap_or(0));
-        let cached = u["prompt_tokens_details"]["cached_tokens"]
-            .as_u64()
-            .unwrap_or(0);
-        self.cached_tokens.set(self.cached_tokens.get() + cached);
+        let u = Usage::parse(&v["usage"]);
+        rec.usage = u;
+        let add = |c: &Cell<u64>, n: u64| c.set(c.get() + n);
+        add(&self.prompt_tokens, u.input);
+        add(&self.completion_tokens, u.output);
+        add(&self.cached_tokens, u.cache_read);
+        add(&self.cache_write_tokens, u.cache_write);
         match &v["choices"][0]["message"]["content"] {
             Value::String(s) if !s.trim().is_empty() => Ok(s.clone()),
             Value::Array(parts) => {
@@ -247,16 +322,17 @@ impl Llm {
     }
 
     pub fn usage_line(&self) -> String {
-        let cached = self.cached_tokens.get();
+        let (read, write) = (self.cached_tokens.get(), self.cache_write_tokens.get());
+        let cache = match (read, write) {
+            (0, 0) => String::new(),
+            (r, 0) => format!(" ({r} cached)"),
+            (0, w) => format!(" ({w} written to cache)"),
+            (r, w) => format!(" ({r} cached, {w} written to cache)"),
+        };
         format!(
-            "{} call(s), {} input tokens{}, {} output tokens ({})",
+            "{} call(s), {} input tokens{cache}, {} output tokens ({})",
             self.calls.get(),
             self.prompt_tokens.get(),
-            if cached > 0 {
-                format!(" ({cached} cached)")
-            } else {
-                String::new()
-            },
             self.completion_tokens.get(),
             self.model
         )
@@ -410,6 +486,25 @@ pub fn strip_fences(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usage_counts_cache_reads_and_writes_once() {
+        // Meridian, first and second call with the same prompt.
+        let w = Usage::parse(&json!({"prompt_tokens": 4658, "completion_tokens": 4,
+            "prompt_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 4656}}));
+        assert_eq!((w.input, w.cache_write, w.fresh()), (4658, 4656, 2));
+        let r = Usage::parse(&json!({"prompt_tokens": 4658, "completion_tokens": 4,
+            "prompt_tokens_details": {"cached_tokens": 4656, "cache_write_tokens": 0}}));
+        assert_eq!(
+            (r.input, r.cache_read, r.output, r.fresh()),
+            (4658, 4656, 4, 2)
+        );
+        // Anthropic's native shape: input_tokens exclude the cache.
+        let a = Usage::parse(&json!({"input_tokens": 2, "output_tokens": 4,
+            "cache_read_input_tokens": 4656, "cache_creation_input_tokens": 0}));
+        assert_eq!(a, r);
+        assert_eq!(Usage::parse(&Value::Null), Usage::default());
+    }
 
     #[test]
     fn yaml_block_ignores_extra_blocks() {

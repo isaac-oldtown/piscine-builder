@@ -22,7 +22,7 @@ course/
     notes/<name>.md      notes revealed with the units that list them
     journal.jsonl        event log; state and PROGRESS.md derive from it
     cache/               build cache (safe to delete)
-    coursecrafter/          approval, environment, validator log, LLM reply cache
+    coursecrafter/          approval, environment, validator log, LLM reply cache, logs/ of planning sessions
 ```
 
 ## Unit spec

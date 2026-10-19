@@ -127,11 +127,11 @@ The curriculum validator checks prerequisites, workload against available hours,
 
 | Command | Description |
 |---|---|
-| `coursecrafter convert <file>... [--course DIR] [--yes]` | Rewrite a curriculum you made elsewhere, in any format, in the curriculum format (LLM). Keeps your units and content; an existing `curriculum.md` is retained. |
-| `coursecrafter new "<goal>" [--from FILE] [--course DIR] [--yes]` | Plan a curriculum with an LLM. `--from` adds a syllabus or notes. |
+| `coursecrafter convert <file>... [--course DIR] [--yes] [--debug]` | Rewrite a curriculum you made elsewhere, in any format, in the curriculum format (LLM). Keeps your units and content; an existing `curriculum.md` is retained. |
+| `coursecrafter new "<goal>" [--from FILE] [--course DIR] [--yes] [--debug]` | Plan a curriculum with an LLM. `--from` adds a syllabus or notes. |
 | `coursecrafter prompt [--lang L] [--level beginner] [--hours 10]` | Print a prompt for a chat assistant. |
 | `coursecrafter import <file> [--course DIR] [--yes] [--paste]` | Validate and import a curriculum already in the curriculum format (no LLM). |
-| `coursecrafter revise "<changes>" [--course DIR] [--yes]` | Revise the curriculum with an LLM. The previous version is retained. |
+| `coursecrafter revise "<changes>" [--course DIR] [--yes] [--debug]` | Revise the curriculum with an LLM. The previous version is retained. |
 | `coursecrafter show [file] [--course DIR] [--full]` | Show units, hours, difficulty, prerequisites, and approval status. |
 | `coursecrafter preview <unit>... [--course DIR]` | Print the instructions of built units as proctor renders them, without unlocking anything. `d02` or `d02-control-flow`; a project id shows all its stages. |
 | `coursecrafter env` | Show detected tools and platform capabilities. |
@@ -140,6 +140,8 @@ The curriculum validator checks prerequisites, workload against available hours,
 | `coursecrafter config` | Show the configuration file path. |
 
 LLM commands accept `--provider anthropic|meridian|openai`, `--base-url URL`, `--model NAME`, and `--api-key-env VAR`.
+
+`new`, `convert` and `revise` keep the terminal for the conversation and write the details to `.proctor/coursecrafter/logs/<command>-<date>-<time>.log`: each LLM call with its purpose, duration, HTTP retries and errors, and its tokens (input split into fresh, cache read and cache write, and output), the drafts, validator rejections and autofixes, and a summary of the time spent waiting for the model, for you and on local work. `--debug` also prints the log as it is written.
 
 Configuration comes from the `PISCINEBUILDER_*` environment variables, provider-specific API key variables, or the config file. API keys are never written to files.
 
