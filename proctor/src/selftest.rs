@@ -84,10 +84,12 @@ impl UnitReport {
     }
 }
 
-/// Writes a workspace holding only mechanical stubs for `protos`.
+/// Writes a workspace holding only mechanical stubs for `protos`. `module` is
+/// the unit's `module:`, the Python module of undotted function names.
 pub fn stub_workspace(
     lang: &str,
     protos: &[Proto],
+    module: Option<&str>,
     dir: &Path,
     reference: &Path,
 ) -> Result<(), String> {
@@ -117,6 +119,7 @@ pub fn stub_workspace(
                     .name
                     .rsplit_once('.')
                     .map(|(m, _)| m.to_string())
+                    .or_else(|| module.map(str::to_string))
                     .unwrap_or_default();
                 by_module.entry(module).or_default().push(p.clone());
             }
@@ -199,7 +202,7 @@ pub fn unit(c: &CourseDir, u: &Unit, seed: u64) -> UnitReport {
         .join("cache")
         .join(format!("stubs-{}", u.id))
         .join("tree");
-    if let Err(e) = stub_workspace(&lang, &protos, &dir, &ref_dir) {
+    if let Err(e) = stub_workspace(&lang, &protos, u.module.as_deref(), &dir, &ref_dir) {
         r.notes.push(format!("stubs: {e}"));
         return r;
     }

@@ -7,6 +7,7 @@
 use crate::curriculum::{Entry, Kind, Plan};
 use crate::llm::{self, Llm, Msg};
 use crate::prompts;
+use crate::session::Session;
 use proctor::course::CourseDir;
 use proctor::unit::{LangConfig, Target, Unit};
 use proctor::{engine, lang, selftest, sig};
@@ -22,6 +23,8 @@ pub struct Options {
     pub yes: bool,
     /// Rewrite only the teaching text (lesson, requirements, Think about).
     pub text_only: bool,
+    /// Print the session log to the terminal as it is written.
+    pub debug: bool,
 }
 
 pub struct Builder<'a> {
@@ -29,7 +32,8 @@ pub struct Builder<'a> {
     pub plan: &'a Plan,
     pub llm: &'a Llm,
     pub opts: Options,
-    cache_hits: u32,
+    /// Calls, cache hits, rejections and timings of this run.
+    pub log: Session,
     /// Set when the LLM could not be reached: the build stops instead of
     /// failing every remaining unit the same way.
     provider_down: bool,
@@ -76,10 +80,6 @@ fn note_slug(id: &str) -> String {
     id.trim_start_matches("note-").to_string()
 }
 
-fn status(msg: &str) {
-    eprintln!("{msg}");
-}
-
 impl<'a> Builder<'a> {
     pub fn new(
         root: PathBuf,
@@ -91,12 +91,14 @@ impl<'a> Builder<'a> {
         let langs: BTreeSet<String> = plan.units().iter().map(|u| plan.language(u)).collect();
         let langs: Vec<String> = langs.into_iter().collect();
         let system = format!("{}\n\n{env_block}", prompts::gen_system(&langs));
+        let log = Session::start(&root, "build", opts.debug);
+        log.log(&format!("model {} at {}", llm.model, llm.base_url));
         Builder {
             root,
             plan,
             llm,
+            log,
             opts,
-            cache_hits: 0,
             provider_down: false,
             system,
         }
@@ -130,10 +132,12 @@ impl<'a> Builder<'a> {
             .join("cache")
             .join(format!("{label}-{key}.txt"));
         if let Ok(text) = fs::read_to_string(&path) {
-            self.cache_hits += 1;
+            self.log.cached(label);
             return Ok(text);
         }
-        let reply = self.llm.chat(messages).map_err(|e| {
+        let llm = self.llm;
+        let purpose = label.split('-').next().unwrap_or(label).to_string();
+        let reply = self.log.chat_as(llm, label, &purpose, messages).map_err(|e| {
             self.provider_down = true;
             format!(
                 "{e}\nThe provider did not answer (stopped, quota or rate limit). Everything finished so far is saved: run the same command again to resume; finished replies are reused at no cost."
@@ -264,7 +268,8 @@ impl<'a> Builder<'a> {
             if has_preset(&lang_name) || languages.contains_key(s(&lang_name)) {
                 continue;
             }
-            status(&format!("[language] {lang_name}: writing course settings"));
+            self.log
+                .say(&format!("[language] {lang_name}: writing course settings"));
             let block = self.language_settings(&lang_name)?;
             languages.insert(s(&lang_name), block);
         }
@@ -272,6 +277,7 @@ impl<'a> Builder<'a> {
         // Pass 1: contracts.
         let units: Vec<&Entry> = self.plan.units();
         let mut no_contract: Vec<String> = Vec::new();
+        let mut new_contracts = 0;
         for (i, u) in units.iter().enumerate() {
             // Existing contracts are kept (rewriting one would drop its tests);
             // `--only` redoes the named units.
@@ -280,37 +286,44 @@ impl<'a> Builder<'a> {
                 self.ensure_rust_scaffold(u)?;
                 continue;
             }
-            status(&format!("[contract {}/{}] {}", i + 1, units.len(), u.id));
+            self.log
+                .say(&format!("[contract {}/{}] {}", i + 1, units.len(), u.id));
             // A rejected contract is reported, and the other units go on.
             let m = match self.contract(u, &units[..i], &languages) {
                 Ok(m) => m,
                 Err(e) if self.provider_down => return Err(e),
                 Err(e) => {
-                    status(&format!("  FAILED {e}"));
+                    self.log.say(&format!("  FAILED {e}"));
                     no_contract.push(u.id.clone());
                     continue;
                 }
             };
             let text = yaml_serde::to_string(&Yaml::Mapping(m)).map_err(|e| e.to_string())?;
             write(&self.unit_path(&u.id), &text)?;
+            new_contracts += 1;
             for n in self.plan.notes_for(&u.id) {
                 let path = h.join("notes").join(format!("{}.md", note_slug(&n.id)));
                 if path.is_file() && !self.explicit(u) {
                     continue;
                 }
-                status(&format!("[note] {}", n.id));
+                self.log.say(&format!("[note] {}", n.id));
                 let body = self.note(n)?;
                 write(&path, &body)?;
             }
         }
         self.write_course(&units, &languages)?;
-        status(&format!(
-            "contracts written for {} unit(s). {}",
+        self.log.log(&format!(
+            "contracts ready for {} unit(s). {}",
             units.len() - no_contract.len(),
             self.llm.usage_line()
         ));
+        self.log.notes.push(format!(
+            "contracts   {new_contracts} written, {} kept, {} rejected",
+            units.len() - new_contracts - no_contract.len(),
+            no_contract.len()
+        ));
         if !no_contract.is_empty() {
-            status(&format!(
+            self.log.say(&format!(
                 "{} unit(s) have no contract because it was rejected every time: {}. They are left out of the course for now; run `coursecrafter build --only <id>` to retry.",
                 no_contract.len(),
                 no_contract.join(", ")
@@ -324,28 +337,30 @@ impl<'a> Builder<'a> {
                 if !self.unit_path(&u.id).is_file() {
                     continue;
                 }
-                status(&format!("[text] {}", u.id));
+                self.log.say(&format!("[text] {}", u.id));
                 if let Err(e) = self.rewrite_text(u, &languages) {
                     if self.provider_down {
                         return Err(e);
                     }
-                    status(&format!("  FAILED {}: {e}", u.id));
+                    self.log.say(&format!("  FAILED {}: {e}", u.id));
                     failed.push(u.id.clone());
                 }
             }
-            status(&self.llm.usage_line());
+            self.log.log(&self.llm.usage_line());
             self.refresh_unlocked();
             return Ok(failed.is_empty() && no_contract.is_empty());
         }
         let want_tests = match self.opts.tests {
             Some(t) => t,
             None if self.opts.yes => true,
-            None => crate::ask_yes(
-                "Generate the correction suite (tests and hidden reference solutions)?",
-            ),
+            None => self.log.wait_user(|| {
+                crate::ask_yes(
+                    "Generate the correction suite (tests and hidden reference solutions)?",
+                )
+            }),
         };
         if !want_tests {
-            status(
+            self.log.say(
                 "Skipped the correction suite: proctor will check structure, prototypes, allowed and the build only. Run `coursecrafter build --tests` later to add it.",
             );
             self.refresh_unlocked();
@@ -367,6 +382,7 @@ impl<'a> Builder<'a> {
         let mut failed: Vec<String> = Vec::new();
         let mut waiting: Vec<String> = Vec::new();
         let mut done_before = 0;
+        let mut built = 0;
         for (i, u) in units.iter().enumerate() {
             if !self.selected(u) {
                 continue;
@@ -375,7 +391,7 @@ impl<'a> Builder<'a> {
                 continue;
             }
             if u.f.gradable == Some(false) {
-                status(&format!(
+                self.log.say(&format!(
                     "[tests {}/{}] {}: not gradable, skipped",
                     i + 1,
                     units.len(),
@@ -393,7 +409,7 @@ impl<'a> Builder<'a> {
                 && prev.f.gradable != Some(false)
                 && !self.has_suite(&prev.id)
             {
-                status(&format!(
+                self.log.say(&format!(
                     "[tests {}/{}] {}: waits for {}, which has no correction suite yet",
                     i + 1,
                     units.len(),
@@ -403,37 +419,41 @@ impl<'a> Builder<'a> {
                 waiting.push(u.id.clone());
                 continue;
             }
-            status(&format!("[tests {}/{}] {}", i + 1, units.len(), u.id));
-            if let Err(e) = self.tests(u, &units[..=i], &languages) {
-                if self.provider_down {
+            self.log
+                .say(&format!("[tests {}/{}] {}", i + 1, units.len(), u.id));
+            match self.tests(u, &units[..=i], &languages) {
+                Ok(()) => built += 1,
+                Err(e) if self.provider_down => {
                     self.write_course(&units, &languages)?;
                     return Err(e);
                 }
-                status(&format!("  FAILED {}: {e}", u.id));
-                failed.push(u.id.clone());
+                Err(e) => {
+                    self.log.say(&format!("  FAILED {}: {e}", u.id));
+                    failed.push(u.id.clone());
+                }
             }
         }
+        self.log.notes.push(format!(
+            "suites      {built} built, {done_before} kept, {} failed, {} waiting",
+            failed.len(),
+            waiting.len()
+        ));
         if done_before > 0 {
-            status(&format!(
+            self.log.say(&format!(
                 "{done_before} unit(s) already had a correction suite and were kept (`--only <id>` redoes one)"
             ));
         }
         self.write_course(&units, &languages)?;
-        status(&format!(
-            "{} ({} cached repl{})",
-            self.llm.usage_line(),
-            self.cache_hits,
-            if self.cache_hits == 1 { "y" } else { "ies" }
-        ));
+        self.log.log(&self.llm.usage_line());
         if !failed.is_empty() {
-            status(&format!(
+            self.log.say(&format!(
                 "{} unit(s) have no correction suite because they never passed the gate: {}. Run `coursecrafter build --only <id>` to retry.",
                 failed.len(),
                 failed.join(", ")
             ));
         }
         if !waiting.is_empty() {
-            status(&format!(
+            self.log.say(&format!(
                 "{} stage(s) were not built because an earlier stage of their project has no suite: {}. They are built once it passes.",
                 waiting.len(),
                 waiting.join(", ")
@@ -457,7 +477,7 @@ impl<'a> Builder<'a> {
             }
         }
         if n > 0 {
-            status(&format!(
+            self.log.say(&format!(
                 "refreshed the instructions of {n} unlocked unit(s) in subjects/"
             ));
         }
@@ -550,7 +570,8 @@ impl<'a> Builder<'a> {
                 return write(&self.unit_path(&u.id), &text);
             }
             last = problems.join("\n");
-            status(&format!("  rejected: {}", llm::cut(&problems[0], 160)));
+            self.log
+                .log(&format!("  rejected: {}", problems.join("\n")));
             messages.push(Msg::assistant(reply));
             messages.push(Msg::user(prompts::feedback(
                 &last,
@@ -1028,7 +1049,8 @@ impl<'a> Builder<'a> {
                 },
             };
             last = problems.join("\n");
-            status(&format!("  rejected: {}", llm::cut(&problems[0], 160)));
+            self.log
+                .log(&format!("  rejected: {}", problems.join("\n")));
             messages.push(Msg::assistant(reply));
             messages.push(Msg::user(prompts::feedback(&last, "the <unit> block")));
         }
@@ -1196,11 +1218,8 @@ impl<'a> Builder<'a> {
                             }],
                         );
                     }
-                    status(&format!(
-                        "  attempt {} rejected: {}",
-                        attempt + 1,
-                        llm::cut(last.lines().next().unwrap_or(""), 180)
-                    ));
+                    self.log
+                        .log(&format!("  attempt {} rejected: {last}", attempt + 1));
                     messages.push(Msg::assistant(reply));
                     messages.push(Msg::user(prompts::tests_retry(&last)));
                 }
@@ -1397,7 +1416,7 @@ impl<'a> Builder<'a> {
         }
         if issues.is_empty() {
             let (p, t) = r.reference.unwrap_or((0, 0));
-            status(&format!(
+            self.log.log(&format!(
                 "  gate OK: reference {p}/{t}{}",
                 if r.vacuity_checked > 0 {
                     ", every function caught on stubs"

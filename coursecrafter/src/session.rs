@@ -1,6 +1,6 @@
-//! The log of one planning conversation (`new`, `revise`, `convert`): every
-//! LLM call with its purpose, time and tokens, validator rejections, autofixes,
-//! and a closing summary. It goes to
+//! The log of one coursecrafter run (`new`, `revise`, `convert`, `build`):
+//! every LLM call with its purpose, time and tokens, cache hits, rejections,
+//! autofixes, and a closing summary. It goes to
 //! `.proctor/coursecrafter/logs/<command>-<date>-<time>.log`; `--debug` also
 //! prints it to the terminal as it is written.
 
@@ -18,8 +18,12 @@ pub struct Session {
     llm_time: Duration,
     user_time: Duration,
     /// Calls per purpose: (count, tokens).
-    purposes: BTreeMap<&'static str, (u32, Usage)>,
-    calls: Vec<(&'static str, CallRecord)>,
+    purposes: BTreeMap<String, (u32, Usage)>,
+    calls: Vec<(String, CallRecord)>,
+    /// Replies read from the on-disk cache instead of asking the model.
+    pub cache_hits: u32,
+    /// Extra summary lines (the command's own counts).
+    pub notes: Vec<String>,
     pub questions: usize,
     pub drafts: u32,
     pub rejections: u32,
@@ -90,6 +94,8 @@ impl Session {
             user_time: Duration::ZERO,
             purposes: BTreeMap::new(),
             calls: Vec::new(),
+            cache_hits: 0,
+            notes: Vec::new(),
             questions: 0,
             drafts: 0,
             rejections: 0,
@@ -118,16 +124,31 @@ impl Session {
         }
     }
 
+    /// A line for the user: on the terminal, and in the log.
+    pub fn say(&self, msg: &str) {
+        self.log(msg);
+        if !self.debug {
+            eprintln!("{msg}");
+        }
+    }
+
     /// `llm.chat`, timed and logged under `purpose`.
-    pub fn chat(
+    pub fn chat(&mut self, llm: &Llm, purpose: &str, messages: &[Msg]) -> Result<String, String> {
+        self.chat_as(llm, purpose, purpose, messages)
+    }
+
+    /// Like `chat`; `label` names the call in its log line (`contract-d02`),
+    /// `purpose` groups it in the summary (`contract`).
+    pub fn chat_as(
         &mut self,
         llm: &Llm,
-        purpose: &'static str,
+        label: &str,
+        purpose: &str,
         messages: &[Msg],
     ) -> Result<String, String> {
         let chars: usize = messages.iter().map(|m| m.content.len()).sum();
         self.log(&format!(
-            "call {} ({purpose}): {} message(s), {chars} chars",
+            "call {} ({label}): {} message(s), {chars} chars",
             self.calls.len() + 1,
             messages.len()
         ));
@@ -153,11 +174,17 @@ impl Session {
             },
             tokens(&rec.usage)
         ));
-        let e = self.purposes.entry(purpose).or_default();
+        let e = self.purposes.entry(purpose.to_string()).or_default();
         e.0 += 1;
         add(&mut e.1, &rec.usage);
-        self.calls.push((purpose, rec));
+        self.calls.push((purpose.to_string(), rec));
         res
+    }
+
+    /// A reply served from the on-disk cache.
+    pub fn cached(&mut self, label: &str) {
+        self.cache_hits += 1;
+        self.log(&format!("cached reply ({label}): no call"));
     }
 
     /// Runs `f` (a question or a menu) and counts its time as the user's.
@@ -207,11 +234,22 @@ impl Session {
                 secs(self.llm_time / self.calls.len().max(1) as u32)
             ));
         }
-        s.push_str(&format!(
-            "  planning    {} question(s), {} draft(s), {} validator rejection(s), {} autofix(es), {} revision(s) asked",
-            self.questions, self.drafts, self.rejections, self.autofixes, self.revisions
-        ));
-        self.log(&s);
+        if self.cache_hits > 0 {
+            s.push_str(&format!(
+                "  cache       {} reply(ies) reused from disk at no cost\n",
+                self.cache_hits
+            ));
+        }
+        if self.drafts > 0 || self.questions > 0 {
+            s.push_str(&format!(
+                "  planning    {} question(s), {} draft(s), {} validator rejection(s), {} autofix(es), {} revision(s) asked\n",
+                self.questions, self.drafts, self.rejections, self.autofixes, self.revisions
+            ));
+        }
+        for n in &self.notes {
+            s.push_str(&format!("  {n}\n"));
+        }
+        self.log(s.trim_end());
     }
 }
 

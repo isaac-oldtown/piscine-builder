@@ -39,10 +39,10 @@ coursecrafter: creates PiscineBuilder courses. The only part of PiscineBuilder t
   coursecrafter setup [--course DIR]
         for a curriculum with Linux units: set up Docker Desktop or WSL here
         (installs or starts it after asking; `new` offers the same)
-  coursecrafter build [--course DIR] [--yes] [--tests | --no-tests | --text-only] [--only ID]... [--retries N]
+  coursecrafter build [--course DIR] [--yes] [--tests | --no-tests | --text-only] [--only ID]... [--retries N] [--debug]
         write the unit specs, notes, tests and hidden references (uses the LLM)
 
-new, revise and convert log every call (time, tokens, errors, fixes) to .proctor/coursecrafter/logs/;
+new, revise, convert and build log every call (time, tokens, errors, fixes) to .proctor/coursecrafter/logs/;
   --debug also prints it here.
 
 LLM options (build, new, revise, convert): --provider anthropic|meridian|openai  --base-url URL  --model NAME
@@ -437,7 +437,11 @@ fn cmd_import(raw: &[String]) -> Result<bool, String> {
 fn cmd_build(raw: &[String]) -> Result<bool, String> {
     let mut valued = vec!["course", "only", "retries"];
     valued.extend(LLM_OPTS);
-    let a = Args::parse(raw, &valued, &["yes", "tests", "no-tests", "text-only"])?;
+    let a = Args::parse(
+        raw,
+        &valued,
+        &["yes", "tests", "no-tests", "text-only", "debug"],
+    )?;
     let course = a.course();
     let file = course.join("curriculum.md");
     let text = std::fs::read_to_string(&file).map_err(|_| {
@@ -460,7 +464,6 @@ fn cmd_build(raw: &[String]) -> Result<bool, String> {
         return Ok(false);
     };
     let llm = a.llm()?;
-    eprintln!("model {} at {}", llm.model, llm.base_url);
     let opts = build::Options {
         retries: a
             .get("retries")
@@ -477,6 +480,7 @@ fn cmd_build(raw: &[String]) -> Result<bool, String> {
         only: a.all("only"),
         yes: a.has("yes"),
         text_only: a.has("text-only"),
+        debug: a.has("debug"),
     };
     let root = std::fs::canonicalize(&course).map_err(|e| e.to_string())?;
     let root = proctor::course::strip_verbatim(&root);
@@ -489,8 +493,20 @@ fn cmd_build(raw: &[String]) -> Result<bool, String> {
         let _ = std::fs::create_dir_all(d);
     }
     let _ = std::fs::write(&env_file, environment.summary());
-    let ok =
-        build::Builder::new(root.clone(), &plan, &llm, opts, &environment.prompt_block()).run()?;
+    let debug = opts.debug;
+    let mut builder =
+        build::Builder::new(root.clone(), &plan, &llm, opts, &environment.prompt_block());
+    let res = builder.run();
+    let outcome = match &res {
+        Ok(true) => "complete".to_string(),
+        Ok(false) => "finished with units to retry".to_string(),
+        Err(e) => format!("stopped: {e}"),
+    };
+    builder.log.finish(&llm, &outcome);
+    if debug || !matches!(res, Ok(true)) {
+        eprintln!("log: {}", builder.log.path.display());
+    }
+    let ok = res?;
     println!(
         "\nCourse ready in {}. Students start with: cd {} && proctor next",
         root.display(),

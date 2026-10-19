@@ -52,6 +52,10 @@ After a build, the instructions of units the student already unlocked are render
 
 `coursecrafter build --text-only [--only ID]...` rewrites the lesson, the requirements and the Think about list of built units, about one call per unit, and keeps their tests, reference and scaffold. The same contract checks apply.
 
+## What you see and what is logged
+
+The terminal shows the progress (one line per unit and pass), failures, and what to do at the end. Everything else goes to `.proctor/coursecrafter/logs/build-<date>-<time>.log`: each call with its duration and tokens (fresh, cache read, cache write, output), each cached reply, every rejected attempt in full, gate results, and a closing summary. `--debug` prints the log as it is written; its path is shown when a build does not complete.
+
 ## Resuming and tokens
 
 A build can be stopped at any time, including by a rate limit or a quota: run the same

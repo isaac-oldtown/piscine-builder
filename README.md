@@ -136,12 +136,12 @@ The curriculum validator checks prerequisites, workload against available hours,
 | `coursecrafter preview <unit>... [--course DIR]` | Print the instructions of built units as proctor renders them, without unlocking anything. `d02` or `d02-control-flow`; a project id shows all its stages. |
 | `coursecrafter env` | Show detected tools and platform capabilities. |
 | `coursecrafter setup [--course DIR]` | Configure Docker Desktop or WSL for Linux units. |
-| `coursecrafter build [--course DIR] [--tests \| --no-tests \| --text-only] [--only ID]... [--retries N] [--yes]` | Generate the course. `--text-only` rewrites only the lessons, requirements and Think about lists of built units, keeping their tests. `--only` rebuilds selected units or projects, by full or short id (`d03`, `p02`); retries default to 3. |
+| `coursecrafter build [--course DIR] [--tests \| --no-tests \| --text-only] [--only ID]... [--retries N] [--yes] [--debug]` | Generate the course. `--text-only` rewrites only the lessons, requirements and Think about lists of built units, keeping their tests. `--only` rebuilds selected units or projects, by full or short id (`d03`, `p02`); retries default to 3. |
 | `coursecrafter config` | Show the configuration file path. |
 
 LLM commands accept `--provider anthropic|meridian|openai`, `--base-url URL`, `--model NAME`, and `--api-key-env VAR`.
 
-`new`, `convert` and `revise` keep the terminal for the conversation and write the details to `.proctor/coursecrafter/logs/<command>-<date>-<time>.log`: each LLM call with its purpose, duration, HTTP retries and errors, and its tokens (input split into fresh, cache read and cache write, and output), the drafts, validator rejections and autofixes, and a summary of the time spent waiting for the model, for you and on local work. `--debug` also prints the log as it is written.
+`new`, `convert`, `revise` and `build` keep the terminal for the conversation or the unit-by-unit progress and write the details to `.proctor/coursecrafter/logs/<command>-<date>-<time>.log`: each LLM call with its purpose, duration, HTTP retries and errors, and its tokens (input split into fresh, cache read and cache write, and output), the drafts, validator rejections and autofixes, cache hits, rejected attempts and gate results, and a summary of the time spent waiting for the model, for you and on local work (with `build`, also the contracts and suites written, kept, failed and waiting). `--debug` also prints the log as it is written.
 
 Configuration comes from the `PISCINEBUILDER_*` environment variables, provider-specific API key variables, or the config file. API keys are never written to files.
 
