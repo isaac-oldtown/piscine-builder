@@ -44,7 +44,14 @@ When the gate rejects a unit, the exact failure goes back to the model, which se
 files it changes: the rest of its earlier reply is kept, so fixing one error cannot break
 what already worked. After `--retries` attempts (default 3) the unit is marked FAILED: its
 contract stays, without tests, and the build exits non-zero. The following stages of that
-project are not generated, since they build on it; they wait for the next run.
+project are not generated, since they build on it; they wait for the next run. The cached
+replies of a FAILED unit are dropped, so the next run asks the model again instead of
+replaying the replies that were rejected.
+
+A reply cut off at the output limit (16000 tokens), or a request the provider rejects on its
+own (HTTP 400, 413), fails only that unit. When the provider gives no usable answer (network,
+rate limit, quota, server error) or refuses the setup (HTTP 401 to 404: key, permission, model
+name, address), the build stops, since every remaining unit would fail the same way.
 
 After a build, the instructions of units the student already unlocked are rendered again from the new specs (workspaces are never touched), so a rebuilt unit shows up without unlocking it again.
 
@@ -61,7 +68,8 @@ The terminal shows the progress (one line per unit and pass), failures, and what
 A build can be stopped at any time, including by a rate limit or a quota: run the same
 command again. Existing contracts and notes are kept, units with a suite are skipped, and
 every reply is cached on disk by a hash of its request, so a re-run only pays for what
-changed. `--only <id>` redoes a unit (or every stage of a project) from scratch.
+changed (and for the units that failed). `--only <id>` redoes a unit (or every stage of a
+project) from scratch.
 
 The model returns data only (proctor renders the instructions), every request starts with
 the same system prompt (cacheable by the provider) holding only the notes for the course's

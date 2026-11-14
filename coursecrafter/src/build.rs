@@ -5,7 +5,7 @@
 //! pays for what changed. Nothing that fails the gate is kept.
 
 use crate::curriculum::{Entry, Kind, Plan};
-use crate::llm::{self, Llm, Msg};
+use crate::llm::{self, Failure, Llm, Msg};
 use crate::prompts;
 use crate::session::Session;
 use proctor::course::CourseDir;
@@ -34,8 +34,9 @@ pub struct Builder<'a> {
     pub opts: Options,
     /// Calls, cache hits, rejections and timings of this run.
     pub log: Session,
-    /// Set when the LLM could not be reached: the build stops instead of
-    /// failing every remaining unit the same way.
+    /// Set when the provider cannot serve this run (no usable answer, or a
+    /// refused key, model or address): the build stops instead of failing
+    /// every remaining unit the same way.
     provider_down: bool,
     /// Generation rules plus the student environment: one stable system
     /// prompt for the whole run, so providers can cache it.
@@ -55,6 +56,15 @@ fn fnv(parts: &[&str]) -> String {
         }
     }
     format!("{h:016x}")
+}
+
+/// True if `file` in the reply cache holds a reply of `label` (`tests-d03`),
+/// and not of a longer label that starts the same (`tests-d03-x`).
+fn cached_reply_of(file: &str, label: &str) -> bool {
+    file.strip_prefix(label)
+        .and_then(|r| r.strip_prefix('-'))
+        .and_then(|r| r.strip_suffix(".txt"))
+        .is_some_and(|key| key.len() == 16 && key.bytes().all(|b| b.is_ascii_hexdigit()))
 }
 
 fn write(path: &Path, body: &str) -> Result<(), String> {
@@ -127,24 +137,59 @@ impl<'a> Builder<'a> {
         let mut parts: Vec<&str> = vec![&self.llm.model];
         parts.extend(messages.iter().map(|m| m.content.as_str()));
         let key = fnv(&parts);
-        let path = hidden(&self.root)
-            .join("coursecrafter")
-            .join("cache")
-            .join(format!("{label}-{key}.txt"));
+        let path = self.reply_cache().join(format!("{label}-{key}.txt"));
         if let Ok(text) = fs::read_to_string(&path) {
             self.log.cached(label);
             return Ok(text);
         }
         let llm = self.llm;
         let purpose = label.split('-').next().unwrap_or(label).to_string();
-        let reply = self.log.chat_as(llm, label, &purpose, messages).map_err(|e| {
-            self.provider_down = true;
-            format!(
-                "{e}\nThe provider did not answer (stopped, quota or rate limit). Everything finished so far is saved: run the same command again to resume; finished replies are reused at no cost."
-            )
-        })?;
+        let reply = self
+            .log
+            .chat_as(llm, label, &purpose, messages)
+            .map_err(|e| match e.kind {
+                Failure::Request => e.msg,
+                Failure::Unavailable => {
+                    self.provider_down = true;
+                    format!(
+                        "{e}\nThe provider gave no usable answer (stopped, quota, rate limit or an error on its side). Everything finished so far is saved: run the same command again to resume; finished replies are reused at no cost."
+                    )
+                }
+                Failure::Setup => {
+                    self.provider_down = true;
+                    format!(
+                        "{e}\nThe provider refused the request: check the provider, model, base URL and API key (`coursecrafter config` shows the configuration file). Everything finished so far is saved."
+                    )
+                }
+            })?;
         write(&path, &reply)?;
         Ok(reply)
+    }
+
+    fn reply_cache(&self) -> PathBuf {
+        hidden(&self.root).join("coursecrafter").join("cache")
+    }
+
+    /// Drops every cached reply of `label` (`tests-d03`) once its unit has
+    /// failed, so the next run asks the model again instead of replaying the
+    /// replies that were rejected.
+    fn forget(&self, label: &str) {
+        let Ok(dir) = fs::read_dir(self.reply_cache()) else {
+            return;
+        };
+        let mut n = 0;
+        for e in dir.flatten() {
+            if cached_reply_of(&e.file_name().to_string_lossy(), label)
+                && fs::remove_file(e.path()).is_ok()
+            {
+                n += 1;
+            }
+        }
+        if n > 0 {
+            self.log.log(&format!(
+                "  dropped {n} cached reply(ies) of {label}: the next run asks again"
+            ));
+        }
     }
 
     fn unit_path(&self, id: &str) -> PathBuf {
@@ -294,6 +339,7 @@ impl<'a> Builder<'a> {
                 Err(e) if self.provider_down => return Err(e),
                 Err(e) => {
                     self.log.say(&format!("  FAILED {e}"));
+                    self.forget(&format!("contract-{}", u.id));
                     no_contract.push(u.id.clone());
                     continue;
                 }
@@ -343,6 +389,7 @@ impl<'a> Builder<'a> {
                         return Err(e);
                     }
                     self.log.say(&format!("  FAILED {}: {e}", u.id));
+                    self.forget(&format!("text-{}", u.id));
                     failed.push(u.id.clone());
                 }
             }
@@ -429,6 +476,7 @@ impl<'a> Builder<'a> {
                 }
                 Err(e) => {
                     self.log.say(&format!("  FAILED {}: {e}", u.id));
+                    self.forget(&format!("tests-{}", u.id));
                     failed.push(u.id.clone());
                 }
             }
@@ -600,8 +648,9 @@ impl<'a> Builder<'a> {
             Msg::system(self.system.clone()),
             Msg::user(prompts::language_request(lang_name)),
         ];
+        let label = format!("lang-{lang_name}");
         for _ in 0..=self.opts.retries {
-            let reply = self.chat(&format!("lang-{lang_name}"), &messages)?;
+            let reply = self.chat(&label, &messages)?;
             let problem = match llm::yaml_block(&reply, "language") {
                 None => "missing <language> block".to_string(),
                 Some(y) => match yaml_serde::from_str::<LangConfig>(&y) {
@@ -626,6 +675,7 @@ impl<'a> Builder<'a> {
                 "the <language> block",
             )));
         }
+        self.forget(&label);
         Err(format!("could not get usable settings for {lang_name}"))
     }
 
@@ -1700,6 +1750,24 @@ mod tests {
             revealing_phrase("the hidden tests check it"),
             Some("hidden test")
         );
+    }
+
+    #[test]
+    fn a_failed_unit_forgets_only_its_own_replies() {
+        let key = fnv(&["model", "request"]);
+        assert!(cached_reply_of(
+            &format!("tests-d03-x-{key}.txt"),
+            "tests-d03-x"
+        ));
+        assert!(!cached_reply_of(
+            &format!("tests-d03-x-2-{key}.txt"),
+            "tests-d03-x"
+        ));
+        assert!(!cached_reply_of(
+            &format!("contract-d03-x-{key}.txt"),
+            "tests-d03-x"
+        ));
+        assert!(!cached_reply_of("tests-d03-x-notes.txt", "tests-d03-x"));
     }
 
     #[test]

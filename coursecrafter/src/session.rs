@@ -4,7 +4,7 @@
 //! `.proctor/coursecrafter/logs/<command>-<date>-<time>.log`; `--debug` also
 //! prints it to the terminal as it is written.
 
-use crate::llm::{CallRecord, Llm, Msg, Usage};
+use crate::llm::{CallRecord, ChatError, Llm, Msg, Usage};
 use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
@@ -133,7 +133,12 @@ impl Session {
     }
 
     /// `llm.chat`, timed and logged under `purpose`.
-    pub fn chat(&mut self, llm: &Llm, purpose: &str, messages: &[Msg]) -> Result<String, String> {
+    pub fn chat(
+        &mut self,
+        llm: &Llm,
+        purpose: &str,
+        messages: &[Msg],
+    ) -> Result<String, ChatError> {
         self.chat_as(llm, purpose, purpose, messages)
     }
 
@@ -145,7 +150,7 @@ impl Session {
         label: &str,
         purpose: &str,
         messages: &[Msg],
-    ) -> Result<String, String> {
+    ) -> Result<String, ChatError> {
         let chars: usize = messages.iter().map(|m| m.content.len()).sum();
         self.log(&format!(
             "call {} ({label}): {} message(s), {chars} chars",

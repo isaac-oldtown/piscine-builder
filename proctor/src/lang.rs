@@ -590,7 +590,12 @@ pub fn harness_supports(lang: &str, p: &Proto) -> Result<(), String> {
 
 // ------------------------------------------------------------------- C harness
 
-const C_HARNESS_HEAD: &str = r#"#include <stdio.h>
+// `-std=c11` hides POSIX's `fdopen` unless asked for: GCC 14 rejects the
+// implicit declaration, and older ones truncate the returned pointer.
+const C_HARNESS_HEAD: &str = r#"#ifndef _WIN32
+#define _POSIX_C_SOURCE 200809L
+#endif
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stddef.h>

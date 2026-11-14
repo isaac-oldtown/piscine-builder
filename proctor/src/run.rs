@@ -1,26 +1,47 @@
-//! Subprocess helper: captured output, optional stdin, hard timeout, process-tree kill.
+//! Subprocess helper: captured output, optional stdin, hard timeout, output
+//! limit, process-tree kill.
 
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+/// Most bytes kept of one output stream; a process that writes more is
+/// stopped, so a print loop cannot fill the memory before its time limit.
+pub const MAX_OUTPUT: usize = 16 << 20;
 
 pub struct Out {
     pub success: bool,
     pub code: Option<i32>,
-    pub timed_out: bool,
+    /// Killed for its time limit or for writing more than `MAX_OUTPUT`;
+    /// `status_text` says which.
+    pub stopped: bool,
     pub stdout: String,
     pub stderr: String,
     pub status_text: String,
 }
 
-fn drain<R: Read + Send + 'static>(mut r: R) -> JoinHandle<Vec<u8>> {
+/// Reads `r` to the end, keeping its first `MAX_OUTPUT` bytes; `over` is set
+/// when there were more.
+fn drain<R: Read + Send + 'static>(mut r: R, over: Arc<AtomicBool>) -> JoinHandle<Vec<u8>> {
     thread::spawn(move || {
         let mut buf = Vec::new();
-        let _ = r.read_to_end(&mut buf);
+        let _ = r.by_ref().take(MAX_OUTPUT as u64 + 1).read_to_end(&mut buf);
+        if buf.len() > MAX_OUTPUT {
+            buf.truncate(MAX_OUTPUT);
+            over.store(true, Ordering::Relaxed);
+            // Keep the pipe moving until the process is killed.
+            let _ = std::io::copy(&mut r, &mut std::io::sink());
+        }
         buf
     })
+}
+
+fn output_limit() -> String {
+    format!("stopped: more than {} MB of output", MAX_OUTPUT >> 20)
 }
 
 pub fn kill_tree(child: &mut Child) {
@@ -95,18 +116,29 @@ pub fn run(cmd: &mut Command, stdin: Option<&[u8]>, timeout: Duration) -> Result
             let _ = sin.write_all(&data);
         });
     }
-    let out = child.stdout.take().map(drain);
-    let err = child.stderr.take().map(drain);
+    let over = Arc::new(AtomicBool::new(false));
+    let out = child.stdout.take().map(|r| drain(r, Arc::clone(&over)));
+    let err = child.stderr.take().map(|r| drain(r, Arc::clone(&over)));
     let deadline = Instant::now() + timeout;
-    let (status, timed_out) = loop {
+    // The exit status, or why the process was stopped.
+    let ended: Result<ExitStatus, String> = loop {
         match child.try_wait() {
-            Ok(Some(status)) => break (Some(status), false),
-            Ok(None) if Instant::now() >= deadline => {
-                kill_tree(&mut child);
-                let _ = child.wait();
-                break (None, true);
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) => {
+                let stop = if over.load(Ordering::Relaxed) {
+                    Some(output_limit())
+                } else if Instant::now() >= deadline {
+                    Some(format!("timed out after {} ms", timeout.as_millis()))
+                } else {
+                    None
+                };
+                if let Some(why) = stop {
+                    kill_tree(&mut child);
+                    let _ = child.wait();
+                    break Err(why);
+                }
+                thread::sleep(Duration::from_millis(5));
             }
-            Ok(None) => thread::sleep(Duration::from_millis(5)),
             Err(e) => return Err(format!("waiting for `{program}`: {e}")),
         }
     };
@@ -114,15 +146,24 @@ pub fn run(cmd: &mut Command, stdin: Option<&[u8]>, timeout: Duration) -> Result
         let bytes = h.and_then(|h| h.join().ok()).unwrap_or_default();
         String::from_utf8_lossy(&bytes).into_owned()
     };
+    let (stdout, stderr) = (join(out), join(err));
+    // Output cut at the limit is not the program's output, even if it exited by itself.
+    let ended = ended.and_then(|s| {
+        if over.load(Ordering::Relaxed) {
+            Err(output_limit())
+        } else {
+            Ok(s)
+        }
+    });
     Ok(Out {
-        success: status.as_ref().is_some_and(|s| s.success()),
-        code: status.as_ref().and_then(|s| s.code()),
-        timed_out,
-        stdout: join(out),
-        stderr: join(err),
-        status_text: match &status {
-            Some(s) => describe_status(s),
-            None => format!("timed out after {} ms", timeout.as_millis()),
+        success: ended.as_ref().is_ok_and(|s| s.success()),
+        code: ended.as_ref().ok().and_then(|s| s.code()),
+        stopped: ended.is_err(),
+        stdout,
+        stderr,
+        status_text: match &ended {
+            Ok(s) => describe_status(s),
+            Err(why) => why.clone(),
         },
     })
 }
@@ -211,5 +252,17 @@ mod tests {
             vec!["python", "-m", "my mod", "a b", "x\\y"]
         );
         assert_eq!(split_words(r#"echo """#), vec!["echo", ""]);
+    }
+
+    #[test]
+    fn output_is_kept_up_to_the_limit() {
+        let over = Arc::new(AtomicBool::new(false));
+        let small = drain(&b"hello"[..], Arc::clone(&over)).join().unwrap();
+        assert_eq!(small, b"hello");
+        assert!(!over.load(Ordering::Relaxed));
+        let flood = std::io::repeat(b'x').take(MAX_OUTPUT as u64 + 4096);
+        let kept = drain(flood, Arc::clone(&over)).join().unwrap();
+        assert_eq!(kept.len(), MAX_OUTPUT);
+        assert!(over.load(Ordering::Relaxed));
     }
 }

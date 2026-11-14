@@ -11,6 +11,90 @@ use std::time::{Duration, Instant};
 
 pub const DEFAULT_MODEL: &str = "claude-sonnet-5-5";
 
+/// Most tokens a reply may use; a reply that reaches it is cut off.
+const MAX_TOKENS: u32 = 16000;
+
+/// Why a `chat` failed, which decides what a long run does next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Failure {
+    /// No usable answer (network, rate limit, quota, server error): the same
+    /// request may work later.
+    Unavailable,
+    /// The provider refused the setup (key, permission, model, address):
+    /// every request would fail the same way.
+    Setup,
+    /// This request or its reply was unusable (too large, cut off, empty):
+    /// other requests may still work.
+    Request,
+}
+
+#[derive(Clone, Debug)]
+pub struct ChatError {
+    pub kind: Failure,
+    pub msg: String,
+}
+
+impl ChatError {
+    fn new(kind: Failure, msg: impl Into<String>) -> ChatError {
+        ChatError {
+            kind,
+            msg: msg.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for ChatError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+impl From<ChatError> for String {
+    fn from(e: ChatError) -> String {
+        e.msg
+    }
+}
+
+/// What an HTTP error status says about the run.
+fn status_failure(status: u16) -> Failure {
+    match status {
+        408 | 429 | 500.. => Failure::Unavailable,
+        401..=404 => Failure::Setup,
+        _ => Failure::Request,
+    }
+}
+
+/// The text of a completion, or why there is none.
+fn reply_text(v: &Value, raw: &str) -> Result<String, ChatError> {
+    let choice = &v["choices"][0];
+    let stop = choice["finish_reason"]
+        .as_str()
+        .or(v["stop_reason"].as_str());
+    if matches!(stop, Some("length" | "max_tokens")) {
+        return Err(ChatError::new(
+            Failure::Request,
+            format!("the reply was cut off at the {MAX_TOKENS}-token limit"),
+        ));
+    }
+    let empty = || ChatError::new(Failure::Request, "empty model response");
+    match &choice["message"]["content"] {
+        Value::String(s) if !s.trim().is_empty() => Ok(s.clone()),
+        Value::String(_) => Err(empty()),
+        Value::Array(parts) => {
+            let s: String = parts.iter().filter_map(|p| p["text"].as_str()).collect();
+            if s.trim().is_empty() {
+                Err(empty())
+            } else {
+                Ok(s)
+            }
+        }
+        _ => Err(ChatError::new(
+            Failure::Unavailable,
+            format!("unexpected response shape: {}", cut(raw, 300)),
+        )),
+    }
+}
+
 #[derive(Clone)]
 pub struct Msg {
     pub role: &'static str,
@@ -233,26 +317,26 @@ impl Llm {
     }
 
     /// One non-streaming completion; retries transient failures.
-    pub fn chat(&self, messages: &[Msg]) -> Result<String, String> {
+    pub fn chat(&self, messages: &[Msg]) -> Result<String, ChatError> {
         let start = Instant::now();
         let mut rec = CallRecord::default();
         let res = self.chat_inner(messages, &mut rec);
         rec.ms = start.elapsed().as_millis();
         rec.ok = res.is_ok();
         if let Err(e) = &res
-            && rec.errors.last() != Some(e)
+            && rec.errors.last() != Some(&e.msg)
         {
-            rec.errors.push(e.clone());
+            rec.errors.push(e.msg.clone());
         }
         self.history.borrow_mut().push(rec);
         res
     }
 
-    fn chat_inner(&self, messages: &[Msg], rec: &mut CallRecord) -> Result<String, String> {
+    fn chat_inner(&self, messages: &[Msg], rec: &mut CallRecord) -> Result<String, ChatError> {
         let body = json!({
             "model": self.model,
             "stream": false,
-            "max_tokens": 16000,
+            "max_tokens": MAX_TOKENS,
             "messages": messages.iter().map(|m| json!({"role": m.role, "content": m.content})).collect::<Vec<_>>(),
         })
         .to_string();
@@ -279,25 +363,32 @@ impl Llm {
                 }
             };
             let status = resp.status().as_u16();
-            let text = resp
-                .body_mut()
-                .read_to_string()
-                .map_err(|e| format!("reading response: {e}"))?;
-            if status == 429 || status >= 500 {
-                last = format!("HTTP {status}: {}", cut(&text, 300));
-                continue;
-            }
+            let text = resp.body_mut().read_to_string().map_err(|e| {
+                ChatError::new(Failure::Unavailable, format!("reading response: {e}"))
+            })?;
             if status >= 400 {
-                return Err(format!("HTTP {status}: {}", cut(&text, 500)));
+                let kind = status_failure(status);
+                if kind == Failure::Unavailable {
+                    last = format!("HTTP {status}: {}", cut(&text, 300));
+                    continue;
+                }
+                return Err(ChatError::new(
+                    kind,
+                    format!("HTTP {status}: {}", cut(&text, 500)),
+                ));
             }
             return self.extract(&text, rec);
         }
-        Err(last)
+        Err(ChatError::new(Failure::Unavailable, last))
     }
 
-    fn extract(&self, text: &str, rec: &mut CallRecord) -> Result<String, String> {
-        let v: Value = serde_json::from_str(text)
-            .map_err(|e| format!("response is not JSON ({e}): {}", cut(text, 200)))?;
+    fn extract(&self, text: &str, rec: &mut CallRecord) -> Result<String, ChatError> {
+        let v: Value = serde_json::from_str(text).map_err(|e| {
+            ChatError::new(
+                Failure::Unavailable,
+                format!("response is not JSON ({e}): {}", cut(text, 200)),
+            )
+        })?;
         // Counted even when the content turns out unusable: the tokens are billed.
         self.calls.set(self.calls.get() + 1);
         let u = Usage::parse(&v["usage"]);
@@ -307,18 +398,7 @@ impl Llm {
         add(&self.completion_tokens, u.output);
         add(&self.cached_tokens, u.cache_read);
         add(&self.cache_write_tokens, u.cache_write);
-        match &v["choices"][0]["message"]["content"] {
-            Value::String(s) if !s.trim().is_empty() => Ok(s.clone()),
-            Value::Array(parts) => {
-                let s: String = parts.iter().filter_map(|p| p["text"].as_str()).collect();
-                if s.trim().is_empty() {
-                    Err("empty model response".into())
-                } else {
-                    Ok(s)
-                }
-            }
-            _ => Err(format!("unexpected response shape: {}", cut(text, 300))),
-        }
+        reply_text(&v, text)
     }
 
     pub fn usage_line(&self) -> String {
@@ -537,5 +617,40 @@ mod tests {
             vec![("src/a.c".to_string(), "int a;\n".to_string())]
         );
         assert!(is_loopback("http://127.0.0.1:3456/v1"));
+    }
+
+    #[test]
+    fn only_unavailable_providers_are_worth_a_later_run() {
+        assert_eq!(status_failure(429), Failure::Unavailable);
+        assert_eq!(status_failure(529), Failure::Unavailable);
+        assert_eq!(status_failure(401), Failure::Setup);
+        assert_eq!(status_failure(404), Failure::Setup);
+        assert_eq!(status_failure(400), Failure::Request);
+        assert_eq!(status_failure(413), Failure::Request);
+    }
+
+    #[test]
+    fn a_cut_off_reply_is_not_a_reply() {
+        let reply = |finish: &str, content: Value| {
+            let v =
+                json!({"choices": [{"finish_reason": finish, "message": {"content": content}}]});
+            reply_text(&v, "")
+        };
+        assert_eq!(reply("stop", json!("<unit>")).unwrap(), "<unit>");
+        assert_eq!(
+            reply("stop", json!([{"text": "a"}, {"text": "b"}])).unwrap(),
+            "ab"
+        );
+        let cut = reply("length", json!("<unit>\ngoal: half")).unwrap_err();
+        assert_eq!(cut.kind, Failure::Request);
+        assert!(cut.msg.contains("cut off"));
+        assert_eq!(
+            reply("stop", json!(" ")).unwrap_err().kind,
+            Failure::Request
+        );
+        let v = json!({"stop_reason": "max_tokens", "choices": [{"message": {"content": "x"}}]});
+        assert_eq!(reply_text(&v, "").unwrap_err().kind, Failure::Request);
+        let shape = reply_text(&json!({"error": "overloaded"}), "{}").unwrap_err();
+        assert_eq!(shape.kind, Failure::Unavailable);
     }
 }

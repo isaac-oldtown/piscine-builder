@@ -20,9 +20,18 @@ $env:CARGO_HOME=[Environment]::GetEnvironmentVariable('CARGO_HOME','User'); $env
   Clippy is strict (`-D warnings`), and recent lints fire (for example `chunks_exact_to_as_chunks`,
   `regex_creation_in_loops`, `items_after_test_module`: keep `mod tests` last in a file).
 - Focused tests: `cargo test -q -p proctor expr`, `cargo test -q -p coursecrafter build`.
-- End-to-end grader check with no LLM: in `examples/demo-course`, run
-  `..\..\target\debug\proctor.exe validate` and `..\..\target\debug\proctor.exe selftest`, then delete
-  `examples/demo-course/.proctor/cache`. To play the demo (`next`, `check`), copy it to a temp folder first.
+- End-to-end grader check with no LLM: `cargo test -q -p proctor --test demo_course` (part of `cargo test`,
+  about 15 s). It copies the demo course to the temp folder, runs `validate` and the build gate's selftest on
+  every unit, and checks that runaway output and print loops are stopped; units whose toolchain is missing
+  are skipped. By hand: in `examples/demo-course`, run `..\..\target\debug\proctor.exe validate` and
+  `..\..\target\debug\proctor.exe selftest`, then delete `examples/demo-course/.proctor/cache`. To play the
+  demo (`next`, `check`), copy it to a temp folder first.
+- CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on Ubuntu and Windows at every push. It is
+  the only place `#[cfg(unix)]` code gets linted; to try it locally, run the same commands in a `rust` Docker
+  container with `CARGO_TARGET_DIR` outside the mounted repo. Put the commands in a script in a folder and
+  mount the folder (Docker Desktop turns a single-file mount into an empty directory), and note that the
+  agent shell's `$env:TEMP` is msys2's `tmp`, not `AppData\Local\Temp`. Its GCC 14 rejects what Ubuntu's
+  GCC 13 only warns about (implicit declarations under `-std=c11`).
 - The user runs installed binaries: tell them to `cargo install --path proctor` and
   `cargo install --path coursecrafter` after changes.
 
@@ -43,6 +52,10 @@ $env:CARGO_HOME=[Environment]::GetEnvironmentVariable('CARGO_HOME','User'); $env
   Real builds cost calls and can hit the subscription's rate limit; ask before running large ones.
 - Replies are cached by a hash of the full request, so editing any prompt text (`coursecrafter/src/prompts.rs`,
   request builders in `build.rs`, the curriculum's `environment:` line) makes every unbuilt unit pay again.
+  A unit that fails drops its cached replies (`Builder::forget`), so the next run asks again.
+- `llm::Failure` decides what a failed call does: `Unavailable` (network, 408, 429, 5xx, unusable reply) and
+  `Setup` (401 to 404) stop the build; `Request` (other 4xx, a reply cut off at `MAX_TOKENS`, an empty reply)
+  fails only that unit.
 - Contract and test-suite checks live in `coursecrafter/src/build.rs` (`check_contract`, `try_tests`);
   prefer deciding mechanical things in code over adding prompt rules.
 

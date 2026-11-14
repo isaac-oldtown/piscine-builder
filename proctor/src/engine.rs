@@ -1285,7 +1285,7 @@ fn fuzz_program(
             .and_then(|(_, v)| v.text());
         let want = reference.run(&args, input.as_deref(), &[])?;
         let got = student.run(&args, input.as_deref(), &[])?;
-        if got.timed_out {
+        if got.stopped {
             return Ok(Some(got.status));
         }
         if got.out != want.out {

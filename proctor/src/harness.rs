@@ -3,16 +3,16 @@
 //! A crash or a hang only costs the current call: the process is restarted
 //! on the next one.
 
-use crate::run::{configure, describe_status, kill_tree};
+use crate::run::{MAX_OUTPUT, configure, describe_status, kill_tree};
 use crate::value::{self, Value};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub enum CallError {
@@ -98,10 +98,12 @@ impl Harness {
             .stderr
             .take()
             .ok_or(CallError::Protocol("no stderr".into()))?;
-        let (tx, rx) = mpsc::channel();
+        // Bounded: a student's print loop waits for the reader instead of
+        // piling lines up in memory.
+        let (tx, rx) = mpsc::sync_channel(16);
         thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
+            let mut out = BufReader::new(stdout);
+            while let Ok(Some(line)) = next_line(&mut out, MAX_OUTPUT) {
                 if tx.send(line).is_err() {
                     break;
                 }
@@ -197,9 +199,13 @@ impl Harness {
         if !wrote {
             return Err(self.died());
         }
+        // The time limit covers the whole call, stray output included.
+        let deadline = Instant::now() + self.timeout;
         loop {
             let res = match self.proc.as_ref() {
-                Some(p) => p.rx.recv_timeout(self.timeout),
+                Some(p) => {
+                    p.rx.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+                }
                 None => return Err(CallError::Crashed("harness exited".into())),
             };
             match res {
@@ -290,6 +296,45 @@ impl Drop for Harness {
     }
 }
 
+/// The next line of `r` without its line ending, cut to `max` bytes (the
+/// rest of a longer line is skipped: it is stray output, never an answer).
+/// `None` at the end of the stream.
+fn next_line(r: &mut impl BufRead, max: usize) -> io::Result<Option<String>> {
+    let mut line = Vec::new();
+    if r.by_ref().take(max as u64).read_until(b'\n', &mut line)? == 0 {
+        return Ok(None);
+    }
+    if line.last() == Some(&b'\n') {
+        line.pop();
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
+    } else if line.len() == max {
+        skip_line(r)?;
+    }
+    Ok(Some(String::from_utf8_lossy(&line).into_owned()))
+}
+
+/// Discards input up to and including the next newline.
+fn skip_line(r: &mut impl BufRead) -> io::Result<()> {
+    loop {
+        let buf = r.fill_buf()?;
+        if buf.is_empty() {
+            return Ok(());
+        }
+        match buf.iter().position(|&b| b == b'\n') {
+            Some(i) => {
+                r.consume(i + 1);
+                return Ok(());
+            }
+            None => {
+                let n = buf.len();
+                r.consume(n);
+            }
+        }
+    }
+}
+
 fn last_meaningful_line(s: &str) -> String {
     s.lines()
         .rev()
@@ -297,4 +342,19 @@ fn last_meaningful_line(s: &str) -> String {
         .find(|l| !l.is_empty())
         .map(|l| crate::report::truncate(l, 160))
         .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn long_lines_are_cut_and_the_next_answer_still_arrives() {
+        let mut r = BufReader::with_capacity(4, &b"ok 1\r\nxxxxxxxxxxxx\nok 2\npartial"[..]);
+        let mut lines = Vec::new();
+        while let Some(l) = next_line(&mut r, 6).unwrap() {
+            lines.push(l);
+        }
+        assert_eq!(lines, ["ok 1", "xxxxxx", "ok 2", "partia"]);
+    }
 }

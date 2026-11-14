@@ -23,7 +23,8 @@ pub struct RunResult {
     pub err: String,
     pub exit: Option<i32>,
     pub status: String,
-    pub timed_out: bool,
+    /// Stopped by the time or output limit; `status` says which.
+    pub stopped: bool,
 }
 
 impl RunResult {
@@ -75,9 +76,9 @@ impl Program {
         Ok(RunResult {
             out: out.stdout.replace("\r\n", "\n"),
             err: out.stderr.replace("\r\n", "\n"),
-            exit: if out.timed_out { None } else { out.code },
+            exit: out.code,
             status: out.status_text,
-            timed_out: out.timed_out,
+            stopped: out.stopped,
         })
     }
 
@@ -116,11 +117,8 @@ impl Program {
         let r = self
             .run(&argv, Some(&stdin), &[])
             .map_err(EvalError::Spec)?;
-        if r.timed_out {
-            return Err(EvalError::Student(format!(
-                "program timed out after {} ms",
-                self.timeout.as_millis()
-            )));
+        if r.stopped {
+            return Err(EvalError::Student(format!("program {}", r.status)));
         }
         Ok(r.to_value())
     }
@@ -314,7 +312,7 @@ fn show(s: &str) -> String {
 
 /// `None` = pass, `Some(reason)` = fail.
 pub fn judge(c: &Case, r: &RunResult) -> Option<String> {
-    if r.timed_out {
+    if r.stopped {
         return Some(r.status.clone());
     }
     for a in &c.asserts {

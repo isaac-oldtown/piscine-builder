@@ -108,7 +108,7 @@ Rough estimates for planning and building a course with tests, with the default 
 
 Planning with `coursecrafter new` or converting with `coursecrafter convert` accounts for 5 to 10% of this (a conversion is usually one or two calls); most of it is the build. A project stage costs about twice as much as a drill, because its request carries the previous stage's reference and the earlier stages' tests. Each rejected attempt also adds a call. The large row is based on the output of a real 51-unit Rust course; the input figures are estimates.
 
-Things that lower the cost: the system prompt is the same for every request, so providers that cache prompts (Anthropic does) charge cached input at a fraction of the price. Replies are cached on disk, so rerunning a build or resuming it after an interruption costs nothing for finished work, and `--only` regenerates just the units you name. Changing the curriculum's `environment:` line or updating coursecrafter's prompts invalidates that cache.
+Things that lower the cost: the system prompt is the same for every request, so providers that cache prompts (Anthropic does) charge cached input at a fraction of the price. Replies are cached on disk, so rerunning a build or resuming it after an interruption costs nothing for finished work (the replies of a unit that failed are dropped, so the next run asks again), and `--only` regenerates just the units you name. Changing the curriculum's `environment:` line or updating coursecrafter's prompts invalidates that cache.
 
 With a Claude Code subscription through Meridian, there is no per-token cost, but a large build can reach the subscription's usage limit. When it does, the build stops cleanly: run the same command again later.
 
@@ -189,7 +189,9 @@ To have rust-analyzer check this code as Linux code, run `rustup target add x86_
 | `Docker is not running` | Start Docker Desktop and wait until it is ready, or run `coursecrafter setup`. |
 | `Docker runs Windows containers` | Switch Docker Desktop to Linux containers from its tray icon. |
 | The build stopped on a rate limit or quota | Run the same command again. Completed work is kept, and cached replies cost nothing. |
-| A unit `FAILED` during the build | Run `coursecrafter build --tests --only <id>`. Later stages of its project wait for it. |
+| A unit `FAILED` during the build | Run `coursecrafter build --tests --only <id>`: the model is asked again, its rejected replies are not reused. Later stages of its project wait for it. |
+| `the reply was cut off at the 16000-token limit` | The unit asks for too much in one reply: split it in `curriculum.md`, or retry it with `--only <id>`. |
+| `The provider refused the request` | Check `--provider`, `--model`, `--base-url` and the API key variable; `coursecrafter config` shows the configuration file. |
 | `curriculum.md changed since it was approved` | Review the plan and approve it again. |
 | A check fails randomly | Replay the same inputs with `proctor check --seed <hex>`, using the seed from the report. |
 
@@ -209,7 +211,7 @@ examples/demo-course/  A small course to try without an LLM
 docs/                  Reference documentation
 ```
 
-Run `cargo test` for both tools' tests; `cargo clippy --all-targets -- -D warnings` must stay clean. Courses are never built inside this repository, and `.gitignore` keeps them out.
+Run `cargo test` for both tools' tests, including an end-to-end check of the demo course (`proctor/tests/demo_course.rs`; languages whose tools are not installed are skipped); `cargo clippy --all-targets -- -D warnings` must stay clean. CI runs formatting, clippy and the tests on Ubuntu and Windows. Courses are never built inside this repository, and `.gitignore` keeps them out.
 
 ## Status
 

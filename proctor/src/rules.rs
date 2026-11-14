@@ -102,8 +102,9 @@ pub fn rules_md(c: &CourseDir) -> String {
     }
 
     let secs = crate::engine::DEFAULT_TIMEOUT_MS as f64 / 1000.0;
+    let mb = crate::run::MAX_OUTPUT >> 20;
     s.push_str(&format!(
-        "\n## Limits\n\n- Each call or run is stopped after {secs:.0} s unless a unit says otherwise; a hang or a crash fails the test.\n- **Allowed** lists what your code may use besides your own code and the language's built-ins. An entry covers everything inside it; **Forbidden even so** removes items from it. Your own tests in `tests/` may use anything.\n- Randomized tests use a new seed on every run. A failure prints the seed, and `proctor check --seed <seed>` replays it.\n"
+        "\n## Limits\n\n- Each call or run is stopped after {secs:.0} s unless a unit says otherwise; a hang or a crash fails the test.\n- A run that writes more than {mb} MB of output is stopped and fails the test.\n- **Allowed** lists what your code may use besides your own code and the language's built-ins. An entry covers everything inside it; **Forbidden even so** removes items from it. Your own tests in `tests/` may use anything.\n- Randomized tests use a new seed on every run. A failure prints the seed, and `proctor check --seed <seed>` replays it.\n"
     ));
     if !c.course.projects.is_empty() {
         s.push_str(
