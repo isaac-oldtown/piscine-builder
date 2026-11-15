@@ -264,7 +264,8 @@ def wsl_path(a: Access) -> bool:
         f"\nWith WSL you follow the whole course inside Linux. In `wsl -d {distro}`:\n"
         "  sudo apt update && sudo apt install -y build-essential curl git\n"
         "  curl -sSf https://sh.rustup.rs | sh -s -- -y --component clippy,rustfmt\n"
-        "  then clone PiscineBuilder there and run `cargo install --path proctor` and `cargo install --path coursecrafter`.\n"
+        "  curl -LsSf https://astral.sh/uv/install.sh | sh\n"
+        "  then clone PiscineBuilder there and, in it, run `uv tool install --editable ./proctor` and `uv tool install --editable ./coursecrafter`.\n"
         "Keep the course in the Linux home folder (~/), not under /mnt/c: builds there are much faster.\n"
         "VS Code opens it with its WSL extension (`code .` inside WSL)."
     )

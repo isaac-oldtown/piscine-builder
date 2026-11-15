@@ -85,7 +85,7 @@ def shell_init(shell: str) -> str:
 PWSH = r"""# proctor: move to the new unit's folder after `proctor next` or an unlock.
 function proctor {
     $exe = Get-Command proctor -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $exe) { Write-Error 'proctor is not installed (cargo install --path proctor)'; return }
+    if (-not $exe) { Write-Error 'proctor is not installed (uv tool install --editable ./proctor)'; return }
     $f = [System.IO.Path]::GetTempFileName()
     $env:PROCTOR_CD_FILE = $f
     try { & $exe.Source @args } finally { Remove-Item Env:PROCTOR_CD_FILE -ErrorAction SilentlyContinue }
