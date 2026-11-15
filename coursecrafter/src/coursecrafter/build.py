@@ -117,7 +117,7 @@ class Builder:
         """A unit whose correction suite already passed the gate: its spec holds
         tests and its reference exists (a failed unit is restored to neither)."""
         m = self.read_unit_map(id)
-        tested = m is not None and ("cases" in m or "random" in m)
+        tested = m is not None and ("cases" in m or "rust_tests" in m or "random" in m)
         return tested and (hidden(self.root) / "refs" / id).is_dir()
 
     def selected(self, e: curriculum.Entry) -> bool:
@@ -481,12 +481,13 @@ class Builder:
             "requirements",
             "think_about",
             "cases",
+            "rust_tests",
             "random",
             "example",
         ]:
             _remove(contract, k)
         contract_text = yamlio.dump(contract)
-        cases = _as_str(old.get("cases")) or ""
+        cases = all_cases(old)
         req = prompts.text_request(
             contract_text,
             self.entry_text(u),
@@ -670,7 +671,7 @@ class Builder:
         if old is None:
             return
         m = self.merge_contract(u, old)
-        for k in ["cases", "random", "think_about", "example"]:
+        for k in ["cases", "rust_tests", "random", "think_about", "example"]:
             if k in old:
                 m[k] = old[k]
         if not _yaml_eq(m, old):
@@ -738,6 +739,7 @@ class Builder:
             "concept_difficulty",
             "hours",
             "cases",
+            "rust_tests",
             "random",
         ]
         if u.f.target is not None:
@@ -784,8 +786,11 @@ class Builder:
                 p.append(f"function `{f.name}`: {e.msg}")
                 continue
             if unit.target == Target.FUNCTION:
+                # Rust functions the harness cannot call are tested in Rust
+                # (`rust_tests`); the gate checks that once the tests exist.
                 try:
-                    lang.harness_supports(lang_name, proto)
+                    if lang_name != "rust":
+                        lang.harness_supports(lang_name, proto)
                 except Error as e:
                     p.append(e.msg)
                 if lang_name == "python" and "." not in f.name and unit.module is None:
@@ -923,7 +928,7 @@ class Builder:
         return out
 
     def earlier_tests(self, u: curriculum.Entry) -> list[tuple[str, str]]:
-        """`cases` and `random` of each earlier stage of `u`'s project."""
+        """`cases`, `rust_tests` and `random` of each earlier stage of `u`'s project."""
         p = u.parent
         if p is None:
             return []
@@ -935,7 +940,7 @@ class Builder:
             if m is None:
                 continue
             t: Mapping = {}
-            for k in ["cases", "random"]:
+            for k in ["cases", "rust_tests", "random"]:
                 if k in m:
                     t[k] = m[k]
             if t:
@@ -989,6 +994,7 @@ class Builder:
             raise Error("contract missing; run pass 1 first")
         contract = read
         _remove(contract, "cases")
+        _remove(contract, "rust_tests")
         _remove(contract, "random")
         _remove(contract, "think_about")
         contract_text = yamlio.dump(contract)
@@ -1091,6 +1097,7 @@ class Builder:
         tests: Mapping = parsed
         test_keys = [
             "cases",
+            "rust_tests",
             "random",
             "helpers",
             "extra_flags",
@@ -1109,7 +1116,7 @@ class Builder:
         cases_text = _as_str(tests.get("cases")) or ""
         tv = tests.get("think_about")
         think = _strs(tv) if isinstance(tv, list) else []
-        think, dropped = clean_think_about(think, cases_text)
+        think, dropped = clean_think_about(think, all_cases(tests))
         for d in dropped:
             self.log.log(f"  think_about: dropped {d}")
         if not think:
@@ -1521,6 +1528,13 @@ def clean_think_about(items: list[str], cases: str) -> tuple[list[str], list[str
             f'`think_about` needs 2 to 4 bullets that name categories only ("text with no letters"), never a case or its answer; dropped: {"; ".join(dropped)}'
         )
     return kept, dropped
+
+
+def all_cases(m: Mapping) -> str:
+    """A unit's cases, then its tests in Rust: what its teaching text must
+    agree with and must not give away."""
+    parts = [_as_str(m.get(k)) or "" for k in ("cases", "rust_tests")]
+    return "\n".join(p for p in parts if p)
 
 
 def names(only: str, e: curriculum.Entry) -> bool:

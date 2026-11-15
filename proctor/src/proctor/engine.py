@@ -98,6 +98,7 @@ from proctor import (  # noqa: E402
     harness,
     lang,
     program,
+    rtests,
     run,
     scan,
     sig,
@@ -136,7 +137,8 @@ class Options:
 
 
 class Kind:
-    """Base of `KindCheck`, `KindProg`, `KindFuzz`, `KindFuzzProg` and `KindLaw`."""
+    """Base of `KindCheck`, `KindProg`, `KindRust`, `KindFuzz`, `KindFuzzProg`
+    and `KindLaw`."""
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,16 @@ class KindCheck(Kind):
 @dataclass(frozen=True)
 class KindProg(Kind):
     case: program.Case
+
+
+@dataclass(frozen=True)
+class KindRust(Kind):
+    """A `#[test]` function of a unit's `rust_tests`."""
+
+    unit: str
+    test: str
+    # Its body, comments and literals blanked.
+    code: str
 
 
 @dataclass(frozen=True)
@@ -178,7 +190,7 @@ class Test:
     target: Target
 
     def is_random(self) -> bool:
-        return not isinstance(self.kind, KindCheck | KindProg)
+        return not isinstance(self.kind, KindCheck | KindProg | KindRust)
 
 
 def helpers_for(c: course.CourseDir, units: list[Unit]) -> list[sig.Proto]:
@@ -208,6 +220,25 @@ def protos_for(c: course.CourseDir, units: list[Unit]) -> list[sig.Proto]:
             out = [x for x in out if x.name != p.name]
             out.append(p)
     return out
+
+
+def rust_suites(units: list[Unit]) -> list[tuple[str, str]]:
+    """The `rust_tests` of `units`, as (unit id, source)."""
+    return [(u.id, u.rust_tests) for u in units if u.rust_tests is not None and u.has_rust_tests()]
+
+
+def expression_calls(t: Test) -> list[str]:
+    """The functions a case, a fuzz entry or a law calls through the harness."""
+    names: list[str] = []
+    match t.kind:
+        case KindCheck(e):
+            expr.calls(e, names)
+        case KindFuzz(func=func):
+            names.append(func)
+        case KindLaw(checks=checks):
+            for _, e in checks:
+                expr.calls(e, names)
+    return names
 
 
 def arities(protos: list[sig.Proto]) -> list[expr.Arity]:
@@ -263,6 +294,21 @@ def tests_of(c: course.CourseDir, u: Unit, protos: list[sig.Proto]) -> list[Test
                 except Error as e:
                     raise Error(f"{u.id} cases line {n}: {e.msg}") from None
         out.append(Test(name=f"case {short}", kind=kind, target=u.target))
+    if u.rust_tests is not None and u.has_rust_tests():
+        if c.language(u) != "rust":
+            raise Error(f"{u.id}: `rust_tests` is for Rust units only")
+        found = rtests.parse(u.rust_tests)
+        why = rtests.problem(u.rust_tests, found)
+        if why is not None:
+            raise Error(f"{u.id} rust_tests: {why}")
+        for rt in found:
+            out.append(
+                Test(
+                    name=f"test {rt.name}",
+                    kind=KindRust(unit=u.id, test=rt.name, code=rt.code),
+                    target=u.target,
+                )
+            )
     for f in u.random.fuzz:
         if isinstance(f, str) and u.target == Target.FUNCTION:
             spec = FuzzSpec(func=f)
@@ -491,6 +537,7 @@ def shrink(
 class Built:
     harness: harness.Harness | None
     program: program.Program | None
+    rust: rtests.Suites | None = None
 
     def close(self) -> None:
         """Rust drops the harness here, which stops its process."""
@@ -555,8 +602,10 @@ class Engine:
         protos: list[sig.Proto],
         need_fn: bool,
         need_prog: bool,
+        suites: list[tuple[str, str]] | None = None,
     ) -> tuple[Built, str]:
-        """Raises `lang.BuildError`."""
+        """Raises `lang.BuildError`. `suites` are the `rust_tests` to compile,
+        as (unit id, source)."""
         # A copy: the flags below must not leak into a shared config.
         cfg = self.c.lang_config(self.unit).copy()
         extra: list[str] = [f for u in self.c.chain(self.unit) for f in u.extra_flags]
@@ -608,6 +657,12 @@ class Engine:
             h, l_ = lang.build_harness(ctx, protos, module, self.timeout)
             log += l_
             built.harness = h
+        if suites:
+            try:
+                built.rust = rtests.build(ctx, suites, self.timeout)
+            except lang.BuildError:
+                built.close()
+                raise
         return (built, log)
 
     def src_opts(self) -> scan.SrcOpts:
@@ -674,14 +729,20 @@ class Engine:
                     case scan.ProtoFindingOk():
                         items.append(Item.pass_(p.name, "found"))
                     case scan.ProtoFindingMissing():
-                        items.append(Item.fail(p.name, f"not found (expected `{p.sig_text}`)"))
+                        owner = p.owner()
+                        where = "" if owner is None else f" in an `impl {owner}` block"
+                        items.append(
+                            Item.fail(p.name, f"not found{where} (expected `{p.sig_text}`)")
+                        )
                     case scan.ProtoFindingMismatch(m):
                         items.append(Item.fail(p.name, f"expected `{p.norm}`, {m}"))
             ph = phase(
                 "prototypes",
                 items,
                 False,
-                lambda _n, _t: ", ".join(x.short_name() for x in protos),
+                lambda _n, _t: ", ".join(
+                    x.short_name() if x.owner() is None else x.name for x in protos
+                ),
             )
             blocked |= ph.status == Status.FAIL
             rep.phase_end(ph)
@@ -726,10 +787,14 @@ class Engine:
             return self.verdict(phases, warnings)
 
         # build
-        need_fn = any(t.target == Target.FUNCTION for _, ts in unit_tests for t in ts) and bool(
-            protos
-        )
+        # Tests written in Rust need no harness: they call the crate themselves.
+        need_fn = any(
+            t.target == Target.FUNCTION and not isinstance(t.kind, KindRust)
+            for _, ts in unit_tests
+            for t in ts
+        ) and bool(protos)
         need_prog = any(u.target == Target.PROGRAM for u in chain)
+        suites = rust_suites(chain) if self.lang == "rust" else []
         match self.opts.against:
             case AgainstStudent():
                 what_key = "student"
@@ -746,7 +811,7 @@ class Engine:
             build_ok = True
             if need_fn or need_prog or lang.has_harness(self.lang) or self.lang == "bash":
                 try:
-                    b, log = self.build(ws, work, base, callable, need_fn, need_prog)
+                    b, log = self.build(ws, work, base, callable, need_fn, need_prog, suites)
                 except lang.BuildError as e:
                     rep.log(e.log)
                     items.append(Item.fail("compile", e.msg))
@@ -762,6 +827,12 @@ class Engine:
                             what = "program"
                         case _:
                             what = "sources"
+                    if suites:
+                        what = (
+                            "your crate and proctor's tests"
+                            if what == "sources"
+                            else f"{what}, and proctor's tests"
+                        )
                     items.append(Item.pass_("compile", what))
                     built = b
             if build_ok and not self.opts.tests_only:
@@ -952,6 +1023,18 @@ class Engine:
                     else:
                         why = program.judge(pc, rr)
                         item = Item.pass_(t.name, "") if why is None else Item.fail(t.name, why)
+            case KindRust(unit=unit_id, test=test_name):
+                if built.rust is None:
+                    item = course_error(t.name, "proctor's tests were not built")
+                else:
+                    try:
+                        failed = built.rust.run(unit_id, test_name)
+                    except Error as err:
+                        item = course_error(t.name, err.msg)
+                    else:
+                        item = (
+                            Item.pass_(t.name, "") if failed is None else Item.fail(t.name, failed)
+                        )
             case KindLaw(vars, checks, rounds, time_ms):
                 item = self.run_law(t, vars, checks, rounds, time_ms, built, rng)
             case KindFuzz(func, params, rounds):
@@ -1254,6 +1337,9 @@ def validate(c: course.CourseDir) -> list[str]:
         for s in c.support(u):
             if not s.is_file():
                 problems.append(f"{u.id}: support file {s} is missing")
+        # With tests in Rust, only the functions that cases call must suit the harness.
+        in_rust = language == "rust" and bool(rust_suites(chain))
+        unsupported: dict[str, str] = {}
         if u.target == Target.FUNCTION and u.has_tests():
             if not lang.has_harness(language):
                 problems.append(
@@ -1263,13 +1349,20 @@ def validate(c: course.CourseDir) -> list[str]:
                 try:
                     lang.harness_supports(language, p)
                 except Error as e:
-                    problems.append(f"{u.id}: {e.msg}")
+                    if in_rust:
+                        unsupported[p.name] = e.msg
+                    else:
+                        problems.append(f"{u.id}: {e.msg}")
         if u.target == Target.PROGRAM and c.run_cmd(u) is None and language not in ("c", "rust"):
             problems.append(f"{u.id}: `target: program` needs `run:` for {language}")
         try:
-            tests_of(c, u, protos)
+            tests = tests_of(c, u, protos)
         except Error as e:
             problems.append(e.msg)
+        else:
+            for name in dict.fromkeys(n for t in tests for n in expression_calls(t)):
+                if name in unsupported:
+                    problems.append(f"{u.id}: {unsupported[name]} (test it in `rust_tests`)")
         needs_ref = bool(u.random.fuzz)
         if needs_ref and not c.ref_dir(u).is_dir():
             problems.append(f"{u.id}: fuzz needs a reference solution in .proctor/refs/{u.id}/")

@@ -176,6 +176,27 @@ def test_yaml_equality_ignores_order_but_not_kinds() -> None:
     assert not eq("a: '1'\n", "a: 1\n")
 
 
+def test_rust_contracts_may_list_methods_tested_in_rust(tmp_path: Path) -> None:
+    plan = curriculum.parse("---\ntitle: T\nlanguage: rust\n---\n\n## d01-stack: Stack\ngoal: g.\n")
+    dead = llm.Llm.resolve(
+        llm.Choice(provider="custom", base_url="http://127.0.0.1:9/v1", model="m"),
+        config.Config(),
+    )
+    opts = build.Options(retries=0, tests=False, only=[], yes=True, text_only=False, debug=False)
+    b = build.Builder.new(tmp_path, plan, dead, opts, "ENV")
+    u = plan.units()[0]
+    model = yamlio.load(
+        'target: function\ngoal: A stack.\nstubs: src/lib.rs\nfunctions:\n  - { name: "Stack::new", sig: "pub fn new() -> Self" }\n  - { name: "Stack::push", sig: "pub fn push(&mut self, x: i32)" }\nrust_tests: "#[test] fn t() {}"\n'
+    )
+    m = b.merge_contract(u, model)
+    # Tests come with the tests request, never with the contract.
+    assert "rust_tests" not in m
+    assert b.check_contract(u, m, {}) == []
+    both = {"cases": "f(1) == 2", "rust_tests": "#[test]\nfn t() {}"}
+    assert build.all_cases(both) == "f(1) == 2\n#[test]\nfn t() {}"
+    assert build.all_cases({"cases": "f(1) == 2"}) == "f(1) == 2"
+
+
 def test_replies_are_cached_by_the_full_request(tmp_path: Path) -> None:
     plan = curriculum.parse("---\ntitle: T\nlanguage: python\n---\n\n## d01-a: A\ngoal: g.\n")
     dead = llm.Llm.resolve(

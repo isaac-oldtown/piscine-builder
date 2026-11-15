@@ -274,6 +274,9 @@ class Unit:
     # `-Dmalloc=sc_malloc` to route allocations through a support shim.
     extra_flags: list[str] = field(default_factory=list)
     cases: str | None = None
+    # Rust: `#[test]` functions compiled against the student's library
+    # crate, which they reach as `student` (see `rtests`).
+    rust_tests: str | None = None
     random: Random = field(default_factory=Random)
     timeout_ms: U64 | None = None
 
@@ -289,5 +292,13 @@ class Unit:
                 out.append((i + 1, t))
         return out
 
+    def has_rust_tests(self) -> bool:
+        return self.rust_tests is not None and self.rust_tests.strip(_WS) != ""
+
     def has_tests(self) -> bool:
-        return bool(self.case_lines()) or bool(self.random.fuzz) or bool(self.random.laws)
+        return (
+            bool(self.case_lines())
+            or self.has_rust_tests()
+            or bool(self.random.fuzz)
+            or bool(self.random.laws)
+        )

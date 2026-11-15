@@ -17,6 +17,8 @@ Requirements hold the behaviour the signatures and their `returns` cannot state:
 
 The tests come with two more pieces of text. Cases preceded by a `# example` comment line are shown as **Examples** with their results, so examples always agree with the grading (a program needs one case with an exact output). `think_about` lists two to four edge-case categories: coursecrafter drops a bullet that gives a case or its answer away (a quoted input, a result, a number of three digits or more or a distinctive string from the cases) and any beyond the fourth, and logs what it dropped; the list is sent back only when fewer than two bullets remain. Every test must follow from the instructions, the examples or the rules of the course's rigor level, which the test request states.
 
+In Rust, a unit about types, methods or traits lists methods under their type (`Stack::push`) and gets its tests as `rust_tests`, `#[test]` functions compiled against the student's crate, instead of encoding the type in strings to suit cases; the contract check leaves Rust functions the harness cannot call to the gate, which rejects a suite whose cases call one. Tests marked `// example` are shown like example cases.
+
 Fields that come from the plan (hours, difficulty, stretch, platform...) are copied by
 coursecrafter, not by the model; editing them in the plan updates the existing contracts on the
 next build, with no LLM call.

@@ -9,6 +9,7 @@ import functools
 import os
 import shutil
 import sys
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -495,6 +496,8 @@ def harness_supports(lang: str, p: sig.Proto) -> None:
     (raises `Error` when it cannot)."""
     if p.is_method:
         raise Error(f"`{p.name}` is a method; only free functions can be called")
+    if p.owner() is not None:
+        raise Error(f"`{p.name}` is an associated function; only free functions can be called")
 
     def ok(t: sig.Ty, lang: str) -> bool:
         match t:
@@ -1138,8 +1141,25 @@ def build_rust_harness(
 # ----------------------------------------------------------------------- stubs
 
 
-def stub_source(lang: str, protos: list[sig.Proto]) -> str | None:
-    """Empty bodies for the mandatory functions, so a fresh workspace compiles."""
+def rust_stub(p: sig.Proto, indent: str) -> str:
+    text = trim(trim(p.sig_text).rstrip(";").rstrip("{"))
+    if text.startswith("pub "):
+        text = text[len("pub ") :]
+    names = [x.name for x in p.params]
+    match len(names):
+        case 0:
+            unused = ""
+        case 1:
+            unused = f"{indent}    let _ = {names[0]};\n"
+        case _:
+            unused = f"{indent}    let _ = ({', '.join(names)});\n"
+    return f"{indent}/// TODO\n{indent}pub {text} {{\n{unused}{indent}    todo!()\n{indent}}}\n"
+
+
+def stub_source(lang: str, protos: list[sig.Proto], defined: Collection[str] = ()) -> str | None:
+    """Empty bodies for the mandatory functions, so a fresh workspace compiles.
+    Rust methods go in an `impl` of their type, declared empty unless it is in
+    `defined` (an earlier stage's type)."""
     s = ""
     match lang:
         case "c":
@@ -1166,19 +1186,19 @@ def stub_source(lang: str, protos: list[sig.Proto]) -> str | None:
                 params = [f"{x.name}=None" if x.has_default else x.name for x in p.params]
                 s += f"def {p.short_name()}({', '.join(params)}):\n    raise NotImplementedError\n\n\n"
         case "rust":
+            methods: dict[str, list[sig.Proto]] = {}
             for p in protos:
-                text = trim(trim(p.sig_text).rstrip(";").rstrip("{"))
-                if text.startswith("pub "):
-                    text = text[len("pub ") :]
-                names = [x.name for x in p.params]
-                match len(names):
-                    case 0:
-                        unused = ""
-                    case 1:
-                        unused = f"    let _ = {names[0]};\n"
-                    case _:
-                        unused = f"    let _ = ({', '.join(names)});\n"
-                s += f"/// TODO\npub {text} {{\n{unused}    todo!()\n}}\n\n"
+                owner = p.owner()
+                if owner is None:
+                    s += rust_stub(p, "") + "\n"
+                else:
+                    methods.setdefault(owner, []).append(p)
+            for owner, ps in methods.items():
+                if owner not in defined:
+                    s += f"/// TODO\npub struct {owner} {{}}\n\n"
+                s += f"impl {owner} {{\n"
+                s += "\n".join(rust_stub(p, "    ") for p in ps)
+                s += "}\n\n"
         case _:
             return None
     return trim_end(s) + "\n"

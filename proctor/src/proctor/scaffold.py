@@ -107,14 +107,16 @@ def reveal(c: course.CourseDir, u: Unit) -> Revealed:
     copy_scaffold(c.hidden() / "scaffold" / u.id, ws, "", r, f"{ws_name}/")
     language = c.language(u)
     own = engine.protos_for(c, [u])
+    # Types with methods in earlier stages exist already.
+    earlier = {o for p in engine.protos_for(c, c.chain(u)[:-1]) if (o := p.owner()) is not None}
     stubs = u.stubs
     if stubs is not None and own:
         path = ws / stubs
         if os.path.exists(path):
-            body = lang.stub_source(language, own) or ""
+            body = lang.stub_source(language, own, earlier) or ""
             r.kept.append((f"{ws_name}/{stubs}", body))
         else:
-            stub = lang.stub_source(language, own)
+            stub = lang.stub_source(language, own, earlier)
             if stub is not None:
                 match language:
                     case "c":

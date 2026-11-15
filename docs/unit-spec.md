@@ -69,6 +69,9 @@ cases: |
   str_len("abc") == 3                       # function target: one boolean expression per line
   raises(parse(""))
   # program target: [args] [@file="..."] [<<< "stdin"] => out == "..." err ~ "re" exit 0
+rust_tests: |                  # Rust only: #[test] functions, see "Tests in Rust" below
+  #[test]
+  fn push_then_pop() { let mut s = Stack::new(); s.push(1); assert_eq!(s.pop(), Some(1)); }
 random:
   rounds: 200
   fuzz:                        # compared with the hidden reference on generated inputs
@@ -129,3 +132,27 @@ unknown variable is reported with the closest valid name.
 In-place functions: in C and Rust, a call to a function that returns nothing and takes a
 writable buffer (`char *` without `const`, or `&mut`) evaluates to that buffer after the
 call, so `reverse("abc") == "cba"` tests `void reverse(char *s)`.
+
+## Tests in Rust
+
+Cases can only call free functions with plain types. What they cannot reach (the student's
+own structs, enums, methods, traits, generics) is tested by `rust_tests`: top-level
+`#[test]` functions that proctor compiles against the student's library crate, which they
+see through `use student::*;` (added at the top of the file). Each one is a test item of the
+unit, run in its own process with the unit's time limit, so a panic, a crash or a hang fails
+that test only; a failure shows libtest's message on one line, with its location when it is
+in the student's code. A test preceded by a `// example` line is shown under "Examples".
+
+Methods and associated functions are listed under their type, and the prototype check looks
+for them in an `impl` block of that type (`Self` and the type's name are the same):
+
+```yaml
+functions:
+  - { name: "Stack::new", sig: "pub fn new() -> Self", returns: an empty stack }
+  - { name: "Stack::push", sig: "pub fn push(&mut self, x: i32)" }
+```
+
+At unlock the stubs declare an empty `pub struct Stack {}` with these methods in an `impl`
+(a later stage only adds an `impl` block). For the stub check, `proctor selftest` replaces
+the listed functions' bodies in the reference with `todo!()`, so the reference's types stay
+for the tests to compile against. A function that cases call must still suit the harness.

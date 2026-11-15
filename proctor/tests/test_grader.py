@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import sys
 
+import pytest
 from common import Scratch, demo_copy, missing_tool
 from proctor.compat import read_text, write_text
 from proctor.errors import Ok
 
-from proctor import course, engine, render, selftest
+from proctor import course, engine, render, scaffold, selftest
 
 
 def test_a_stage_inherits_the_allowed_list_of_earlier_stages() -> None:
@@ -95,6 +96,161 @@ cases: |
         'def byte_len(b: bytes) -> int:\n    assert isinstance(b, bytes)\n    return len(b)\n\n\ndef utf8_of(s: str) -> bytes:\n    return s.encode("utf-8")\n',
     ),
 ]
+
+
+STACK_UNIT = """id: d01-stack
+title: A stack
+language: rust
+target: function
+stubs: src/lib.rs
+timeout_ms: 3000
+goal: Write a stack of integers.
+functions:
+  - { name: "Stack::new", sig: "pub fn new() -> Self", returns: an empty stack }
+  - { name: "Stack::push", sig: "pub fn push(&mut self, x: i32)" }
+  - { name: "Stack::pop", sig: "pub fn pop(&mut self) -> Option<i32>", returns: the last value pushed }
+  - { name: "Stack::len", sig: "pub fn len(&self) -> usize" }
+  - { name: total, sig: "pub fn total(v: &[i32]) -> i32" }
+cases: |
+  total([1, 2, 3]) == 6
+rust_tests: |
+  // example
+  #[test]
+  fn push_then_pop() {
+      let mut s = Stack::new();
+      s.push(1);
+      s.push(2);
+      assert_eq!(s.pop(), Some(2));
+  }
+
+  #[test]
+  fn counts() {
+      let mut s = Stack::new();
+      s.push(5);
+      assert_eq!(s.len(), 1);
+      assert_eq!(Stack::new().pop(), None);
+  }
+"""
+
+STACK_LIB = """#[derive(Default)]
+pub struct Stack {
+    items: Vec<i32>,
+}
+
+impl Stack {
+    pub fn new() -> Self {
+        Stack { items: Vec::new() }
+    }
+
+    pub fn push(&mut self, x: i32) {
+        self.items.push(x);
+    }
+
+    pub fn pop(&mut self) -> Option<i32> {
+        self.items.pop()
+    }
+
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+}
+
+pub fn total(v: &[i32]) -> i32 {
+    v.iter().sum()
+}
+"""
+
+STACK_TOML = '[package]\nname = "mini-stack"\nversion = "0.1.0"\nedition = "2024"\n\n[workspace]\n'
+
+
+def test_types_and_methods_are_graded_by_tests_in_rust() -> None:
+    with Scratch("rust-tests") as s:
+        s.write(".proctor/course.yaml", "title: Stack\nunits: [d01-stack]\n")
+        s.write(".proctor/units/d01-stack.yaml", STACK_UNIT)
+        s.write(".proctor/refs/d01-stack/Cargo.toml", STACK_TOML)
+        s.write(".proctor/refs/d01-stack/src/lib.rs", STACK_LIB)
+        s.write(".proctor/scaffold/d01-stack/Cargo.toml", STACK_TOML)
+        c = course.CourseDir.load(s.path)
+        assert engine.validate(c) == []
+        u = c.unit("d01-stack")
+        assert u is not None
+        page = render.unit_md(c, u)
+        assert "Some of the tests proctor runs against your crate" in page, page
+        assert "fn push_then_pop()" in page and "fn counts()" not in page, page
+        assert "**Tests in Rust:**" in page, page
+        why = missing_tool(c, u)
+        if why is not None:
+            pytest.skip(why)
+        r = selftest.unit(c, u, 1)
+        assert isinstance(r.reference, Ok), r.reference
+        assert r.reference.value[0] == r.reference.value[1]
+        assert not r.vacuous and r.vacuity_checked == 5, (r.vacuous, r.notes)
+        assert not r.notes, r.notes
+
+        def check(tests_only: bool = False) -> dict[str, str]:
+            opts = engine.Options(seed=1, against=engine.AgainstStudent(), tests_only=tests_only)
+            v = engine.Engine.new(c, u, opts).check(selftest.Silent())
+            return {i.name: "" if i.ok else i.detail for p in v.phases for i in p.items}
+
+        # The stubs written at unlock compile, and every test fails on them.
+        scaffold.reveal(c, u)
+        lib = c.workspace(u) / "src" / "lib.rs"
+        got = check(tests_only=True)
+        assert got["compile"] == "", got
+        assert got["test counts"].startswith("not yet implemented (at src/lib.rs:"), got
+        assert got["case total([1, 2, 3]) == 6"] != ""
+
+        write_text(lib, STACK_LIB.replace("self.items.pop()", "self.items.first().copied()"))
+        got = check()
+        assert got["case total([1, 2, 3]) == 6"] == ""
+        assert got["test push_then_pop"] == (
+            "assertion `left == right` failed; left: Some(1); right: Some(2)"
+        ), got
+        assert got["test counts"] == ""
+
+        spin = "loop {\n            std::thread::yield_now();\n        }"
+        write_text(lib, STACK_LIB.replace("self.items.len()", spin))
+        got = check()
+        assert got["test counts"] == "timed out after 3000 ms", got
+        assert got["test push_then_pop"] == ""
+
+        write_text(lib, STACK_LIB.replace("pub fn len", "pub fn size"))
+        got = check()
+        assert got["Stack::len"].startswith("not found in an `impl Stack` block"), got
+
+        # Private: the prototype matches, but proctor's tests cannot call it.
+        write_text(lib, STACK_LIB.replace("pub fn len", "fn len"))
+        got = check()
+        assert got["compile"].startswith(
+            "proctor's tests do not compile against your crate: error[E0624]"
+        ), got
+        assert "tests/t_" not in got["compile"]
+
+
+def test_with_tests_in_rust_only_what_cases_call_must_suit_the_harness() -> None:
+    peek = '  - { name: peek_of, sig: "pub fn peek_of(s: &Stack) -> Option<i32>" }\ncases: |\n'
+    with Scratch("rust-tests-harness") as s:
+        s.write(".proctor/course.yaml", "title: Stack\nunits: [d01-stack]\n")
+        s.write(".proctor/refs/d01-stack/Cargo.toml", STACK_TOML)
+        s.write(".proctor/units/d01-stack.yaml", STACK_UNIT.replace("cases: |\n", peek))
+        assert engine.validate(course.CourseDir.load(s.path)) == []
+        called = STACK_UNIT.replace("cases: |\n", peek + "  peek_of(1) == 1\n")
+        s.write(".proctor/units/d01-stack.yaml", called)
+        assert engine.validate(course.CourseDir.load(s.path)) == [
+            "d01-stack: parameter `s` of `peek_of` has type `&Stack`, which the rust harness cannot build (test it in `rust_tests`)"
+        ]
+        # Without tests in Rust, every function must suit the harness, as before.
+        plain = STACK_UNIT.split("rust_tests:")[0]
+        s.write(".proctor/units/d01-stack.yaml", plain)
+        problems = engine.validate(course.CourseDir.load(s.path))
+        assert (
+            "d01-stack: `Stack::new` is an associated function; only free functions can be called"
+            in problems
+        )
 
 
 def test_text_given_for_bytes_is_its_utf8_encoding() -> None:

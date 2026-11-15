@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from proctor import course, engine, expr, lang, sig
+from proctor import course, engine, lang, rtests, sig
 from proctor.compat import U64_MASK, io_error, write_text
 from proctor.errors import Err, Error, Ok, Result
 from proctor.unit import Target, Unit
@@ -214,7 +214,13 @@ def unit(c: course.CourseDir, u: Unit, seed: int) -> UnitReport:
         return r
     d = c.hidden() / "cache" / f"stubs-{u.id}" / "tree"
     try:
-        stub_workspace(language, protos, u.module, d, ref_dir)
+        if language == "rust" and engine.rust_suites(chain):
+            # Tests in Rust use the reference's types: keep them, stub its functions.
+            missing = rtests.stub_reference(ref_dir, d, protos)
+            if missing:
+                raise Error(f"cannot find `{missing[0]}` in the reference to stub it")
+        else:
+            stub_workspace(language, protos, u.module, d, ref_dir)
     except Error as e:
         r.notes.append(f"stubs: {e.msg}")
         return r
@@ -232,18 +238,9 @@ def unit(c: course.CourseDir, u: Unit, seed: int) -> UnitReport:
     known = [p.name for p in protos]
 
     def called(t: engine.Test) -> list[str]:
-        names: list[str] = []
-        match t.kind:
-            case engine.KindCheck(e):
-                expr.calls(e, names)
-            case engine.KindFuzz(func=func):
-                names.append(func)
-            case engine.KindLaw(checks=checks):
-                for _, e in checks:
-                    expr.calls(e, names)
-            case engine.KindProg() | engine.KindFuzzProg():
-                pass
-        return [n for n in names if n in known]
+        if isinstance(t.kind, engine.KindRust):
+            return rtests.calls(t.kind.code, known)
+        return [n for n in engine.expression_calls(t) if n in known]
 
     opts = engine.Options(seed=seed, against=engine.AgainstDir(d), tests_only=True)
     silent = Silent(log="")

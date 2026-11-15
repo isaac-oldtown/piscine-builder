@@ -90,20 +90,37 @@ class Proto:
     sig_text: str
 
     def short_name(self) -> str:
-        return self.name.rsplit(".", 1)[-1]
+        return self.name.rsplit(".", 1)[-1].rsplit("::", 1)[-1]
+
+    def owner(self) -> str | None:
+        """The type of a Rust method or associated function (`Stack` for
+        `Stack::push`); None for a free function."""
+        return owner_of(self.name)
+
+
+def owner_of(name: str) -> str | None:
+    if "::" not in name:
+        return None
+    return name.rsplit("::", 1)[0].rsplit("::", 1)[-1]
 
 
 def parse(lang: str, sig: str, name: str) -> Proto:
+    short = name.rsplit(".", 1)[-1]
+    text = sig
+    owner = owner_of(short) if lang == "rust" else None
+    if owner is not None:
+        # `Self` and the type's name mean the same inside its `impl`.
+        short = short.rsplit("::", 1)[-1]
+        text = re.sub(r"\bSelf\b", owner, sig)
     match lang:
         case "c":
-            p = parse_c(sig)
+            p = parse_c(text)
         case "python":
-            p = parse_py(sig)
+            p = parse_py(text)
         case "rust":
-            p = parse_rust(sig)
+            p = parse_rust(text)
         case _:
-            p = parse_generic(sig)
-    short = name.rsplit(".", 1)[-1]
+            p = parse_generic(text)
     if p.name != short:
         raise Error(f"signature `{sig}` does not declare `{short}`")
     return dataclasses.replace(p, name=name, sig_text=trim(sig))

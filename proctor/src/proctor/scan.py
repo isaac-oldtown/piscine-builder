@@ -1166,9 +1166,14 @@ def find_prototype(lang: str, srcs: list[Source], expected: sig.Proto) -> ProtoF
             return judge(found, expected.norm)
         case "rust":
             pat = re.compile(rf"\bfn\s+{re.escape(name)}\b")
+            # A method counts only inside an `impl` block of its type.
+            owner = expected.owner()
             found = []
             for s in srcs:
+                blocks = impl_blocks(s.code, owner) if owner is not None else None
                 for m in pat.finditer(s.code):
+                    if blocks is not None and not any(a < m.start() < b for a, b in blocks):
+                        continue
                     tail = s.code[m.start() :]
                     depth = 0
                     end = len(tail)
@@ -1183,6 +1188,8 @@ def find_prototype(lang: str, srcs: list[Source], expected: sig.Proto) -> ProtoF
                     # `->` contains '>' which unbalances depth; recompute ignoring arrows.
                     text = tail[:end]
                     text = cut_body(tail) if "->" in text else text
+                    if owner is not None:
+                        text = re.sub(r"\bSelf\b", owner, text)
                     try:
                         p = sig.parse("rust", text, name)
                     except Error:
@@ -1208,6 +1215,58 @@ def cut_body(tail: str) -> str:
         elif c in ("{", ";") and depth <= 0:
             return tail[:i]
     return tail
+
+
+def body_open(code: str, i: int) -> int | None:
+    """Index of the `{` opening the body of the Rust item whose header starts
+    at `i` (comments and literals blanked); None for an item ending in `;`."""
+    depth = 0
+    while i < len(code):
+        c = code[i]
+        if c in "([":
+            depth += 1
+        elif c in ")]":
+            depth -= 1
+        elif c == "{" and depth <= 0:
+            return i
+        elif c == ";" and depth <= 0:
+            return None
+        i += 1
+    return None
+
+
+def matching(code: str, open_: int) -> int | None:
+    """Index of the `}` closing the `{` at `open_`."""
+    depth = 0
+    for i in range(open_, len(code)):
+        if code[i] == "{":
+            depth += 1
+        elif code[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+    return None
+
+
+def impl_blocks(code: str, owner: str | None) -> list[tuple[int, int]]:
+    """Spans (`{` to `}`) of the Rust `impl` blocks for type `owner`, trait
+    impls included; every `impl` block when `owner` is None."""
+    out: list[tuple[int, int]] = []
+    for m in re.finditer(r"\bimpl\b", code):
+        before = code[: m.start()].rstrip()
+        # An item, not `-> impl Trait` in a signature.
+        if before and before[-1] not in "{};]" and not re.search(r"\bunsafe$", before):
+            continue
+        open_ = body_open(code, m.end())
+        if open_ is None:
+            continue
+        ty = re.split(r"\bfor\b", code[m.end() : open_])[-1]
+        if owner is not None and not re.search(rf"\b{re.escape(owner)}\b", ty):
+            continue
+        close = matching(code, open_)
+        if close is not None:
+            out.append((open_, close))
+    return out
 
 
 def balanced(s: str) -> str | None:

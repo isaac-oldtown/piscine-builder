@@ -4,7 +4,7 @@
 |---|---|---|---|---|
 | C | yes (scalar, `char *`, `char **`) | yes | headers + calls | `cc -std=c11 -Wall -Wextra -Werror` |
 | Python | yes (any value; dataclasses and namedtuples become maps) | yes | imports | `compileall` |
-| Rust | yes (scalars, `&str`/`String`, `Vec`/slices, `Option`, `Result`) | yes | `use`, paths, Cargo deps | `cargo build`, `fmt --check`, `clippy -D warnings` |
+| Rust | yes (scalars, `&str`/`String`, `Vec`/slices, `Option`, `Result`; structs, methods and traits through `rust_tests`) | yes | `use`, paths, Cargo deps | `cargo build`, `fmt --check`, `clippy -D warnings` |
 | Bash | no | yes | external commands | `bash -n` |
 | JS/TS, Go, Java, Ruby | no | yes | imports (regex) | `build:` command |
 | anything else | no | yes | `imports:` regexes in the spec | `build:` command |
@@ -14,6 +14,10 @@ On Windows, `bash` resolves to msys2 or Git Bash, never WSL's `System32\bash.exe
 A string given for bytes (a Rust `&[u8]` or `Vec<u8>`, a Python parameter annotated `bytes` or
 `bytearray`) is its UTF-8 encoding, so `byte_len("é") == 2`; a list of integers works too. Bytes
 returned by a function compare as a list of integers (`utf8_of("é") == [195, 169]`).
+
+A Rust unit can also carry `#[test]` functions in `rust_tests`, compiled against the student's
+library crate: they grade the student's own types and methods, which the harness cannot call
+(see [Tests in Rust](unit-spec.md#tests-in-rust)).
 
 ## Language settings are data
 

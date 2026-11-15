@@ -4,7 +4,7 @@ proctor grades against, at the moment the unit is revealed."""
 
 from __future__ import annotations
 
-from proctor import compat, course, engine, program, rules
+from proctor import compat, course, engine, program, rtests, rules
 from proctor.compat import float_display, is_whitespace, trim, trim_end
 from proctor.errors import Error
 from proctor.unit import Rule, Target, Unit, requirements_is_empty, requirements_markdown
@@ -151,6 +151,9 @@ def unit_md(c: course.CourseDir, u: Unit) -> str:
         s += requirements_markdown(u.requirements)
 
     examples = examples_md(c, u)
+    shown = rust_examples_md(u)
+    if shown:
+        examples = f"{examples}\n{shown}" if examples else shown
     if examples:
         s += f"\n## Examples\n\n{examples}"
     if u.think_about:
@@ -217,6 +220,10 @@ def checking(c: course.CourseDir, u: Unit, lang: str) -> str:
             if r is not None and "{" not in r:
                 line += f" It is run as `{r}`."
             lines.append(line)
+    if lang == "rust" and engine.rust_suites(chain):
+        lines.append(
+            "**Tests in Rust:** proctor also compiles its own `#[test]` functions against your library crate (`src/lib.rs`), so the types and functions they use must be `pub` and reachable from the crate root."
+        )
     if len(chain) > 1 and any(x.has_tests() for x in chain[:-1]):
         lines.append(
             f"**Regression:** the tests of {label(chain[0])} to {label(chain[len(chain) - 2])} run again, so earlier behaviour must keep working."
@@ -330,6 +337,17 @@ def _insert(seen: set[str], x: str) -> bool:
         return False
     seen.add(x)
     return True
+
+
+def rust_examples_md(u: Unit) -> str:
+    """The tests in Rust marked `// example`, at most three."""
+    if u.rust_tests is None:
+        return ""
+    shown = [t.text for t in rtests.parse(u.rust_tests) if t.example][:3]
+    if not shown:
+        return ""
+    code = "\n\n".join(trim_end(t) for t in shown)
+    return f"Some of the tests proctor runs against your crate:\n\n```rust\n{code}\n```\n"
 
 
 def examples_md(c: course.CourseDir, u: Unit) -> str:
