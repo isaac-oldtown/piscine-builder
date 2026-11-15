@@ -17,6 +17,7 @@ __pycache__/
 /p[0-9]*/
 
 # Caches and generated state, wherever they are.
+Cargo.lock
 **/.proctor/cache/
 **/.proctor/coursecrafter/
 **/.proctor/journal.jsonl
