@@ -263,7 +263,8 @@ def strip_c_like_ex(src: str, rust: bool, backtick: bool, keep_strings: bool) ->
                 # Char literal only if it closes within a few bytes; else lifetime.
                 close: int | None
                 if i + 1 < n and b[i + 1] == "\\":
-                    close = next((j for j in range(i + 2, min(i + 12, n)) if b[j] == "'"), None)
+                    # The escaped character may itself be a quote: `'\''`.
+                    close = next((j for j in range(i + 3, min(i + 12, n)) if b[j] == "'"), None)
                 else:
                     close = next((j for j in range(i + 2, min(i + 6, n)) if b[j] == "'"), None)
                     if close is not None and not _one_char(b, i + 1, close):

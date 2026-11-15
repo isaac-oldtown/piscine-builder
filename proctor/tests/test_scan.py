@@ -163,3 +163,24 @@ def test_prototypes_found_and_compared() -> None:
     )
     want = sig.parse("rust", "fn longest(text: &str) -> Option<&str>", "longest")
     assert isinstance(find_prototype("rust", [r], want), ProtoFindingOk)
+
+
+def test_rust_where_clauses_and_two_lifetimes() -> None:
+    code = (
+        "pub fn largest<T>(v: &[T]) -> T\nwhere\n    T: PartialOrd + Copy,\n{\n    v[0]\n}\n\n"
+        "pub fn longest<'a>(a: &'a str, b: &'a str) -> &'a str {\n    a\n}\n"
+    )
+    r = Source(rel="lib.rs", raw=code, code=strip("rust", code))
+    largest = sig.parse("rust", "pub fn largest<T>(v: &[T]) -> T where T: Copy", "largest")
+    assert isinstance(find_prototype("rust", [r], largest), ProtoFindingOk)
+    longest = sig.parse("rust", "fn longest<'a>(x: &'a str, y: &'a str) -> &'a str", "longest")
+    assert isinstance(find_prototype("rust", [r], longest), ProtoFindingOk)
+    one = sig.parse("rust", "fn longest<'a>(x: &'a str) -> &'a str", "longest")
+    found = find_prototype("rust", [r], one)
+    assert isinstance(found, ProtoFindingMismatch)
+    assert "fn longest(&str, &str) -> &str" in found.msg, found.msg
+
+
+def test_rust_escaped_quote_char_literal() -> None:
+    code = "let q = '\\'';\nlet s = \"x\";\n"
+    assert strip("rust", code) == "let q = '  ';\nlet s = \" \";\n"

@@ -117,9 +117,9 @@ def python() -> str | None:
             o = Command(p).arg("--version").output()
         except OSError:
             continue
-        if (o.status.success() and "Python 3" in from_utf8_lossy(o.stdout)) or (
-            "Python 3" in from_utf8_lossy(o.stderr)
-        ):
+        # Python 3.3 and older print the version on standard error.
+        version = from_utf8_lossy(o.stdout) + from_utf8_lossy(o.stderr)
+        if o.status.success() and "Python 3" in version:
             return p
     return None
 
@@ -180,6 +180,8 @@ class Ctx:
         return cmd
 
     def command(self, words: list[str], cwd: Path) -> Command:
+        if not words:
+            raise BuildError.new("the `build:` command is empty")
         c = Command(resolve(words[0]))
         c.args(words[1:]).current_dir(cwd).envs(self.env)
         if self.lang == "rust":
@@ -433,6 +435,8 @@ def build_program(ctx: Ctx, run_cmd: str | None, build_cmd: str | None) -> tuple
                 log += o.stderr
     if run_cmd is not None:
         cmd = resolve_words(substitute(python_words(run_cmd), vars))
+        if not cmd:
+            raise BuildError.new("the `run:` command is empty")
     elif ctx.lang == "c":
         cmd = [str(ctx.work / exe("prog"))]
     else:

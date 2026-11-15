@@ -384,6 +384,25 @@ def is_terminal(stream: object) -> bool:
     return name.startswith(("msys-", "cygwin-")) and "-pty" in name
 
 
+def leave_own_venv() -> None:
+    """Drops the tools' own virtual environment from `PATH` (`uv run`, an
+    activated venv), so that the programs found, the student's `python`
+    first, and the environment coursecrafter detects are the machine's."""
+    if sys.prefix == sys.base_prefix:
+        return
+    scripts = Path(sys.prefix) / ("Scripts" if sys.platform == "win32" else "bin")
+
+    def same(a: str) -> bool:
+        return os.path.normcase(os.path.normpath(a)) == os.path.normcase(str(scripts))
+
+    path = os.environ.get("PATH")
+    if path is not None:
+        os.environ["PATH"] = os.pathsep.join(p for p in path.split(os.pathsep) if not same(p))
+    venv = os.environ.get("VIRTUAL_ENV")
+    if venv is not None and same(str(Path(venv) / scripts.name)):
+        del os.environ["VIRTUAL_ENV"]
+
+
 def setup_stdio() -> None:
     """UTF-8 and `\\n` on standard output and error, as Rust writes them,
     whatever the console code page or a pipe would choose."""

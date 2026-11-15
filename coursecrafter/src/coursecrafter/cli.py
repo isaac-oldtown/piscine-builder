@@ -193,6 +193,7 @@ LLM_OPTS = ["provider", "base-url", "model", "api-key-env"]
 
 def main() -> int:
     compat.setup_stdio()
+    compat.leave_own_venv()
     # Rust's stdout is line-buffered wherever it goes: each line is out before
     # a program coursecrafter starts (an installer, an editor) writes its own.
     reconfigure = getattr(sys.stdout, "reconfigure", None)

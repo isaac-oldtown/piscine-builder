@@ -38,3 +38,25 @@ def test_python_and_rust() -> None:
     assert r.ret == TyOpt(TyStr())
     with pytest.raises(Error):
         sig.parse("rust", "fn a(x: u8)", "b")
+
+
+def test_rust_lifetimes_arrows_and_where_clauses() -> None:
+    r = sig.parse("rust", "fn longest<'a>(a: &'a str, b: &'a str) -> &'a str", "longest")
+    assert r.norm == "fn longest(&str, &str) -> &str"
+    assert [p.name for p in r.params] == ["a", "b"]
+    assert r.params[1].ty == TyStr()
+    w = sig.parse(
+        "rust", "pub fn largest<T>(v: &[T]) -> T\nwhere\n    T: PartialOrd + Copy", "largest"
+    )
+    assert w.norm == "fn largest(&[T]) -> T"
+    assert sig.parse("rust", "fn show<T>(x: T)\nwhere T: Debug", "show").norm == "fn show(T)"
+    f = sig.parse("rust", "fn apply(f: impl Fn(i32) -> i32, x: i32) -> i32", "apply")
+    assert [p.name for p in f.params] == ["f", "x"]
+
+
+def test_names_need_not_be_ascii() -> None:
+    assert (
+        sig.parse("rust", "fn größe(s: &str) -> usize", "größe").norm == "fn größe(&str) -> usize"
+    )
+    assert sig.parse("python", "def größe(s: str) -> int", "größe").params[0].name == "s"
+    assert sig.parse("c", "int größe(char *s)", "größe").norm == "int größe(char *)"

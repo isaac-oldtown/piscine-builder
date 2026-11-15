@@ -168,3 +168,13 @@ def test_a_stopped_program_is_the_student_s_fault(tmp_path: Path) -> None:
     with pytest.raises(expr.EvalErrorStudent) as e:
         p.call([])
     assert e.value.msg == "program timed out after 300 ms"
+
+
+def test_input_files_are_removed_when_a_run_fails_early(tmp_path: Path) -> None:
+    (tmp_path / "taken.txt").write_text("mine")
+    p = Program(cmd=[sys.executable, "-c", "pass"], cwd=tmp_path, env={}, timeout=5.0)
+    with pytest.raises(Error) as e:
+        p.run([], None, [("sub/a.txt", "a"), ("taken.txt", "b")])
+    assert e.value.msg == "input file `taken.txt` would overwrite a file of the workspace"
+    assert not (tmp_path / "sub" / "a.txt").exists()
+    assert (tmp_path / "taken.txt").read_text() == "mine"

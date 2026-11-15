@@ -80,9 +80,9 @@ def field(s: str, st: report.Style, label: str, value: str, indent: str, w: int)
 
 
 def _sum(hs: list[float]) -> float:
-    """Rust's `Iterator::sum` of f64s: plain left-to-right addition (Python's
-    `sum` compensates rounding errors), from -0.0 so an empty sum is -0."""
-    total = -0.0
+    """Plain left-to-right addition (Python's `sum` compensates rounding
+    errors), from 0.0 so that no hours print `0 h`, not `-0 h`."""
+    total = 0.0
     for h in hs:
         total += h
     return total

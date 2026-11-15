@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 
 from proctor import gens
-from proctor.compat import byte_len, is_whitespace, trim, trim_start
+from proctor.compat import is_whitespace, trim, trim_start
 from proctor.errors import Error
 
 
@@ -448,7 +448,9 @@ def py_ty(ann: str) -> Ty:
             return TyOther(other)
 
 
-def split_depth(s: str) -> list[str]:
+def split_depth(s: str, quotes: str = "\"'") -> list[str]:
+    """Splits `s` at its top-level commas. Rust passes `quotes='"'`: there a
+    `'` starts a lifetime, and parameters never hold a character literal."""
     out: list[str] = []
     cur = ""
     depth = 0
@@ -458,11 +460,13 @@ def split_depth(s: str) -> list[str]:
             if c == quote:
                 quote = None
             cur += c
-        elif c in ('"', "'"):
+        elif c in quotes:
             quote = c
             cur += c
         elif c in ("(", "[", "{", "<"):
             depth += 1
+            cur += c
+        elif c == ">" and cur.endswith("-"):
             cur += c
         elif c in (")", "]", "}", ">"):
             depth -= 1
@@ -485,9 +489,7 @@ def name_params_ret(s: str) -> tuple[str, str, str]:
     name = trim(s[:open])
     depth = 0
     close = None
-    # The Rust tools skip as many characters as `(` is bytes into `s`: a
-    # non-ASCII name makes them skip past the `(` (kept as is).
-    for i in range(byte_len(s[:open]), len(s)):
+    for i in range(open, len(s)):
         c = s[i]
         if c == "(":
             depth += 1
@@ -625,7 +627,7 @@ def rust_from_parts(name: str, params: str, ret: str) -> Proto:
     ps: list[Param] = []
     types: list[str] = []
     is_method = False
-    for raw in split_depth(params):
+    for raw in split_depth(params, quotes='"'):
         if ":" not in raw:
             is_method = True
             types.append(squash(raw))
@@ -637,7 +639,7 @@ def rust_from_parts(name: str, params: str, ret: str) -> Proto:
         ps.append(Param(name=pname, ty=rust_ty(ty), raw=ty, has_default=False))
     ret = trim(ret)
     ret = ret.removeprefix("->")
-    ret = trim(ret.split(" where ", 1)[0])
+    ret = trim(re.split(r"\bwhere\b", ret, maxsplit=1)[0])
     ret_n = squash(ret)
     arrow = "" if ret_n == "" or ret_n == "()" else f" -> {ret_n}"
     return Proto(

@@ -305,9 +305,9 @@ def norm(concept: str) -> str:
 
 
 def _sum(hs: list[float]) -> float:
-    """Rust's `Iterator::sum` of f64s: plain left-to-right addition from
-    -0.0 (Python's `sum` compensates rounding errors and starts at 0)."""
-    total = -0.0
+    """Plain left-to-right addition (Python's `sum` compensates rounding
+    errors), from 0.0 so that no hours print `0 h`, not `-0 h`."""
+    total = 0.0
     for h in hs:
         total += h
     return total

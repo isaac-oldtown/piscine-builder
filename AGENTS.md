@@ -28,9 +28,9 @@ PiscineBuilder: a uv workspace (Python 3.12, typed, checked by mypy) with two pa
   are skipped. By hand: in `examples/demo-course`, run `uv run proctor validate` and `uv run proctor selftest`,
   then delete `examples/demo-course/.proctor/cache`. To play the demo (`next`, `check`), copy it to a temp
   folder first.
-- `uv run` puts `.venv\Scripts` on PATH, so coursecrafter's environment detection (and the prompt's
-  environment block, hence the reply cache key) differs from the installed tool. For anything that builds
-  a prompt, run the installed `coursecrafter` or `.venv\Scripts\coursecrafter.exe` directly.
+- `uv run` puts `.venv\Scripts` on PATH; both CLIs drop it at start (`compat.leave_own_venv`), so the
+  programs they find (the student's `python`) and coursecrafter's environment block, hence the reply cache
+  key, match the installed tools. Code that probes tools outside `main()` (tests) still sees the venv.
 - CI (`.github/workflows/ci.yml`) runs ruff, mypy and pytest on Ubuntu and Windows at every push. It is the
   only place the code under `sys.platform != "win32"` runs; to try it locally, run the same commands in a
   Docker container with uv. Put the commands in a script in a folder and mount the folder (Docker Desktop

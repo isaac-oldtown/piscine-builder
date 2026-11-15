@@ -1355,6 +1355,9 @@ def validate(c: course.CourseDir) -> list[str]:
                         problems.append(f"{u.id}: {e.msg}")
         if u.target == Target.PROGRAM and c.run_cmd(u) is None and language not in ("c", "rust"):
             problems.append(f"{u.id}: `target: program` needs `run:` for {language}")
+        for key, cmd in (("run", c.run_cmd(u)), ("build", c.build_cmd(u))):
+            if cmd is not None and not run.split_words(cmd):
+                problems.append(f"{u.id}: `{key}:` is empty; remove it or give a command")
         try:
             tests = tests_of(c, u, protos)
         except Error as e:

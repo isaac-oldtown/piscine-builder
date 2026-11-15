@@ -29,26 +29,26 @@ class Program:
     timeout: float
 
     def run(self, args: list[str], stdin: str | None, files: list[tuple[str, str]]) -> RunResult:
-        created: list[Path] = []
-        for name, body in files:
-            p = self.cwd / name
-            if os.path.exists(p):
-                raise Error(f"input file `{name}` would overwrite a file of the workspace")
-            try:
-                p.parent.mkdir(parents=True, exist_ok=True)
-            except OSError:
-                pass
-            try:
-                write_text(p, body)
-            except OSError as e:
-                raise Error(f"{name}: {io_error(e)}") from None
-            created.append(p)
         if not self.cmd:
             raise Error("empty run command")
-        prog, base = self.cmd[0], self.cmd[1:]
-        c = Command(prog)
-        c.args(base).args(args).current_dir(self.cwd).envs(self.env)
+        created: list[Path] = []
         try:
+            for name, body in files:
+                p = self.cwd / name
+                if os.path.exists(p):
+                    raise Error(f"input file `{name}` would overwrite a file of the workspace")
+                try:
+                    p.parent.mkdir(parents=True, exist_ok=True)
+                except OSError:
+                    pass
+                try:
+                    write_text(p, body)
+                except OSError as e:
+                    raise Error(f"{name}: {io_error(e)}") from None
+                created.append(p)
+            prog, base = self.cmd[0], self.cmd[1:]
+            c = Command(prog)
+            c.args(base).args(args).current_dir(self.cwd).envs(self.env)
             out = run.run(c, (stdin if stdin is not None else "").encode("utf-8"), self.timeout)
         finally:
             for p in created:

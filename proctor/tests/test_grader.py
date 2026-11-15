@@ -253,6 +253,74 @@ def test_with_tests_in_rust_only_what_cases_call_must_suit_the_harness() -> None
         )
 
 
+LIFETIMES_UNIT = """id: d01-life
+title: Lifetimes
+language: rust
+target: function
+stubs: src/lib.rs
+goal: Pick the longer text and the largest value.
+functions:
+  - { name: longest, sig: "pub fn longest<'a>(a: &'a str, b: &'a str) -> &'a str" }
+  - { name: largest, sig: "pub fn largest<T>(v: &[T]) -> T where T: PartialOrd + Copy" }
+cases: |
+  longest("ab", "c") == "ab"
+  longest("a", "bcd") == "bcd"
+rust_tests: |
+  #[test]
+  fn largest_int() {
+      assert_eq!(largest(&[3, 9, 2]), 9);
+  }
+"""
+
+LIFETIMES_LIB = """pub fn longest<'a>(a: &'a str, b: &'a str) -> &'a str {
+    if b.len() > a.len() { b } else { a }
+}
+
+pub fn largest<T>(v: &[T]) -> T
+where
+    T: PartialOrd + Copy,
+{
+    let mut m = v[0];
+    for &x in v {
+        if x > m {
+            m = x;
+        }
+    }
+    m
+}
+"""
+
+
+def test_lifetimes_and_where_clauses_in_prototypes() -> None:
+    with Scratch("lifetimes") as s:
+        s.write(".proctor/course.yaml", "title: Lifetimes\nunits: [d01-life]\n")
+        s.write(".proctor/units/d01-life.yaml", LIFETIMES_UNIT)
+        s.write(".proctor/refs/d01-life/Cargo.toml", STACK_TOML)
+        s.write(".proctor/refs/d01-life/src/lib.rs", LIFETIMES_LIB)
+        c = course.CourseDir.load(s.path)
+        assert engine.validate(c) == []
+        u = c.unit("d01-life")
+        assert u is not None
+        why = missing_tool(c, u)
+        if why is not None:
+            pytest.skip(why)
+        r = selftest.unit(c, u, 1)
+        assert isinstance(r.reference, Ok), r.reference
+        assert r.reference.value[0] == r.reference.value[1]
+        assert not r.vacuous and not r.notes, (r.vacuous, r.notes)
+
+
+def test_an_empty_command_is_a_course_error() -> None:
+    unit = 'id: d01-p\ntitle: P\nlanguage: python\ntarget: program\nrun: ""\nbuild: "  "\ngoal: G.\ncases: |\n  => exit 0\n'
+    with Scratch("empty-command") as s:
+        s.write(".proctor/course.yaml", "title: T\nunits: [d01-p]\n")
+        s.write(".proctor/units/d01-p.yaml", unit)
+        assert engine.validate(course.CourseDir.load(s.path)) == [
+            "d01-p: `run:` is empty; remove it or give a command",
+            "d01-p: `build:` is empty; remove it or give a command",
+        ]
+
+
 def test_text_given_for_bytes_is_its_utf8_encoding() -> None:
     with Scratch("bytes") as s:
         for rel, body in BYTES_COURSE:

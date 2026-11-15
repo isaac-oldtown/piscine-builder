@@ -48,6 +48,7 @@ Exit codes: 0 OK, 1 KO, 2 usage or course error. NO_COLOR and PROCTOR_ASCII are 
 
 def main() -> int:
     compat.setup_stdio()
+    compat.leave_own_venv()
     # Rust's stdout is line-buffered wherever it goes: each line is out before
     # a program proctor starts (the Linux container, a build) writes its own.
     reconfigure = getattr(sys.stdout, "reconfigure", None)

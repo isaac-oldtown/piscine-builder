@@ -4,6 +4,8 @@ proctor grades against, at the moment the unit is revealed."""
 
 from __future__ import annotations
 
+import re
+
 from proctor import compat, course, engine, program, rtests, rules
 from proctor.compat import float_display, is_whitespace, trim, trim_end
 from proctor.errors import Error
@@ -48,6 +50,15 @@ def language_name(lang: str) -> str:
 
 def cell(s: str) -> str:
     return trim(s).replace("|", "\\|").replace("\n", " ")
+
+
+def code_span(s: str) -> str:
+    """`s` as inline code that no backtick inside it can close early (put it
+    through `cell` too in a table: GitHub reads `\\|` there as `|`)."""
+    s = s.replace("\n", " ")
+    fence = "`" * (max((len(m) for m in re.findall("`+", s)), default=0) + 1)
+    pad = " " if s.startswith("`") or s.endswith("`") else ""
+    return f"{fence}{pad}{s}{pad}{fence}"
 
 
 def label(u: Unit) -> str:

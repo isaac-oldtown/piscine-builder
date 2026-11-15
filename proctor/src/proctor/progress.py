@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from proctor import course, journal, report
 from proctor.compat import float_display, io_error, write_text
 from proctor.errors import Error
+from proctor.render import cell, code_span
 
 # Gaps longer than this between two checks are breaks, not work.
 SESSION_GAP = 45 * 60
@@ -95,9 +96,9 @@ def streak(active_days: set[int], today: int) -> int:
 
 
 def _fsum(xs: list[float]) -> float:
-    """Rust's `Iterator::sum` of f64s: added in order, starting from -0.0
-    (so an empty sum is -0.0 and prints `-0`)."""
-    total = -0.0
+    """Added in order (Python's `sum` compensates rounding errors), from 0.0
+    so that nothing done yet prints `0 h`, not `-0 h`."""
+    total = 0.0
     for x in xs:
         total += x
     return total
@@ -180,7 +181,7 @@ def render(c: course.CourseDir, events: list[journal.Event]) -> str:
                     best = (k, cnt)
         most = "none"
         if best is not None:
-            most = f"{best[0].replace('|', '\\|')} ({best[1]}x)"
+            most = f"{cell(code_span(best[0]))} ({best[1]}x)"
         attempts_to_pass = us.attempts_to_pass if us is not None else None
         if attempts_to_pass is None:
             u_first_try = ""
@@ -212,7 +213,7 @@ def render(c: course.CourseDir, events: list[journal.Event]) -> str:
             s += f"| {k} | {cnt} | {pct(cnt, fails)} |\n"
         items = sorted(sorted(by_item.items()), key=lambda kv: -kv[1])
         s += "\nMost failed checks: {}.\n".format(
-            ", ".join(f"`{k}` ({cnt}x)" for k, cnt in items[:5])
+            ", ".join(f"{code_span(k)} ({cnt}x)" for k, cnt in items[:5])
         )
 
     by_diff: dict[int, list[int]] = {}
@@ -278,9 +279,9 @@ def render(c: course.CourseDir, events: list[journal.Event]) -> str:
             else:
                 what = e_.item if e_.item is not None else ""
                 cat = e_.cat if e_.cat is not None else ""
-                result = f"KO {cat}: {what}".replace("|", "\\|")
+                result = f"KO {cat}: {code_span(report.truncate(what, 60))}"
             seed = e_.seed if e_.seed is not None else ""
-            s += f"| {journal.datetime(e_.t)} | `{e_.unit}` | {report.truncate(result, 70)} | `{seed}` |\n"
+            s += f"| {journal.datetime(e_.t)} | `{e_.unit}` | {cell(result)} | `{seed}` |\n"
     return s
 
 
