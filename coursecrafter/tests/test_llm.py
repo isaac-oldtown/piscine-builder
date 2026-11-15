@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 import pytest
 from coursecrafter.llm import (
+    Api,
     ChatError,
+    Choice,
     Failure,
+    Llm,
+    Msg,
     Usage,
     block,
     files,
@@ -17,7 +24,7 @@ from coursecrafter.llm import (
 )
 from proctor.errors import Error
 
-from coursecrafter import llm
+from coursecrafter import config, llm
 from proctor import yamlio
 
 
@@ -107,6 +114,104 @@ def test_a_cut_off_reply_is_not_a_reply() -> None:
     assert _unwrap_err(lambda: reply_text(v, "")).kind == Failure.REQUEST
     shape = _unwrap_err(lambda: reply_text({"error": "overloaded"}, "{}"))
     assert shape.kind == Failure.UNAVAILABLE
+
+
+def test_anthropic_requests_mark_the_prompt_for_caching() -> None:
+    messages = [Msg.system("rules"), Msg.user("unit"), Msg.assistant("draft"), Msg.user("fix")]
+    url, body = Llm(base_url="https://x/v1", model="m", key="k").request(messages)
+    assert url == "https://x/v1/chat/completions"
+    assert body["messages"][0] == {"role": "system", "content": "rules"}
+    native = Llm(base_url="https://x/v1", model="m", key="k", api=Api.MESSAGES, bearer=False)
+    url, body = native.request(messages)
+    assert url == "https://x/v1/messages"
+    mark = {"type": "ephemeral"}
+    assert body["system"] == [{"type": "text", "text": "rules", "cache_control": mark}]
+    assert [m["role"] for m in body["messages"]] == ["user", "assistant", "user"]
+    assert body["messages"][0]["content"] == [{"type": "text", "text": "unit"}]
+    assert body["messages"][2]["content"] == [
+        {"type": "text", "text": "fix", "cache_control": mark}
+    ]
+    assert native.headers()["x-api-key"] == "k"
+    assert "authorization" not in native.headers()
+    assert native.headers()["anthropic-version"] == llm.ANTHROPIC_VERSION
+
+
+def test_anthropic_provider_speaks_the_native_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    for k in ["PISCINEBUILDER_API_KEY", "PISCINEBUILDER_BASE_URL", "PISCINEBUILDER_PROVIDER"]:
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "t")
+    a = Llm.resolve(Choice(provider="anthropic"), config.Config())
+    assert (a.api, a.bearer, a.key) == (Api.MESSAGES, True, "t")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    a = Llm.resolve(Choice(provider="anthropic"), config.Config())
+    assert (a.api, a.bearer, a.key) == (Api.MESSAGES, False, "k")
+    m = Llm.resolve(Choice(provider="meridian"), config.Config())
+    assert (m.api, m.bearer) == (Api.CHAT, True)
+
+
+def test_native_replies_are_read() -> None:
+    v = {
+        "content": [{"type": "thinking", "thinking": "hm"}, {"type": "text", "text": "<unit>"}],
+        "stop_reason": "end_turn",
+    }
+    assert reply_text(v, "") == "<unit>"
+    v["stop_reason"] = "max_tokens"
+    assert _unwrap_err(lambda: reply_text(v, "")).kind == Failure.REQUEST
+
+
+def test_a_native_call_round_trip() -> None:
+    seen: list[tuple[str, dict[str, str], Any]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+            headers = {k.lower(): v for k, v in self.headers.items()}
+            seen.append((self.path, headers, body))
+            reply = {
+                "content": [{"type": "text", "text": "hello"}],
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 3,
+                    "output_tokens": 2,
+                    "cache_read_input_tokens": 100,
+                    "cache_creation_input_tokens": 20,
+                },
+            }
+            data = json.dumps(reply).encode()
+            self.send_response(200)
+            self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        port = server.server_address[1]
+        c = Llm(
+            base_url=f"http://127.0.0.1:{port}/v1",
+            model="m",
+            key="k",
+            api=Api.MESSAGES,
+            bearer=False,
+        )
+        assert c.chat([Msg.system("s"), Msg.user("u")]) == "hello"
+    finally:
+        server.shutdown()
+        server.server_close()
+    path, headers, body = seen[0]
+    assert path == "/v1/messages"
+    assert headers["x-api-key"] == "k"
+    assert body["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert (c.prompt_tokens, c.cached_tokens, c.cache_write_tokens) == (123, 100, 20)
+    assert (
+        c.usage_line()
+        == "1 call(s), 123 input tokens (100 cached, 20 written to cache), 2 output tokens (m)"
+    )
 
 
 def test_chat_error_is_an_error() -> None:

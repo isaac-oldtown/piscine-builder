@@ -76,3 +76,7 @@ project) from scratch.
 The model returns data only (proctor renders the instructions), every request starts with
 the same system prompt (cacheable by the provider) holding only the notes for the course's
 languages, and earlier units are summarized in one line each. The run ends with a token count.
+With `--provider anthropic` the requests use Anthropic's Messages API and mark the system
+prompt and the end of the conversation for its prompt cache, so later calls read the system
+prompt back at a tenth of the price and a retry reads back the request it repeats. Meridian
+ignores such marks and caches on its own.

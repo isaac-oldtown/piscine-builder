@@ -1,6 +1,7 @@
-"""OpenAI-compatible chat-completions client. Works with Anthropic's
-compatibility endpoint, OpenAI, Meridian (which fronts Claude Code's own
-login) and any server that speaks `/chat/completions`."""
+"""Chat client. Speaks Anthropic's native `/messages` API to Anthropic, marking
+the prompt for its cache, and the OpenAI-compatible `/chat/completions` to
+OpenAI, Meridian (which fronts Claude Code's own login and caches on its own)
+and any other server."""
 
 from __future__ import annotations
 
@@ -37,6 +38,20 @@ MAX_TOKENS = 16000
 
 # The whole request, retries excluded (ureq's `timeout_global`).
 TIMEOUT = 900
+
+ANTHROPIC_VERSION = "2023-06-01"
+
+# Marks the end of a prompt prefix the provider keeps for five minutes.
+EPHEMERAL = {"type": "ephemeral"}
+
+
+class Api(enum.Enum):
+    """The request format a provider speaks."""
+
+    # OpenAI's `/chat/completions`.
+    CHAT = "chat"
+    # Anthropic's `/messages`, where the request says what to cache.
+    MESSAGES = "messages"
 
 
 class Failure(enum.Enum):
@@ -107,7 +122,11 @@ def reply_text(v: Any, raw: str) -> str:
     def empty() -> ChatError:
         return ChatError(Failure.REQUEST, "empty model response")
 
-    content = _get(_get(choice, "message"), "content")
+    if choice is None:
+        # Anthropic's native reply: a list of content blocks.
+        content = _get(v, "content")
+    else:
+        content = _get(_get(choice, "message"), "content")
     if isinstance(content, str):
         if trim(content):
             return content
@@ -202,6 +221,7 @@ class Preset:
     key_envs: list[str]
     default_model: str | None
     keyless_ok: bool
+    api: Api = Api.CHAT
 
 
 def preset(name: str) -> Preset:
@@ -212,8 +232,11 @@ def preset(name: str) -> Preset:
                 key_envs=["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"],
                 default_model=DEFAULT_MODEL,
                 keyless_ok=False,
+                api=Api.MESSAGES,
             )
         case "meridian":
+            # Meridian drops cache marks and lets Claude Code cache, so the
+            # simpler format serves as well.
             return Preset(
                 base_url="http://127.0.0.1:3456/v1",
                 key_envs=["MERIDIAN_API_KEY"],
@@ -269,6 +292,10 @@ class Llm:
     base_url: str
     model: str
     key: str | None
+    api: Api = Api.CHAT
+    # The key goes in `Authorization: Bearer`; Anthropic API keys go in
+    # `x-api-key` instead (its auth tokens still use Bearer).
+    bearer: bool = True
     calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -301,14 +328,22 @@ class Llm:
             if key is None:
                 raise Error(f"API key variable `{key_env}` is not set")
         else:
-            key = env_get("PISCINEBUILDER_API_KEY")
-            if key is None:
-                key = next((v for k in p.key_envs if (v := env_get(k)) is not None), None)
+            key_env = next(
+                (k for k in ["PISCINEBUILDER_API_KEY", *p.key_envs] if env_get(k) is not None),
+                None,
+            )
+            key = None if key_env is None else env_get(key_env)
         if key is None and not (p.keyless_ok or is_loopback(base_url)):
             raise Error(
                 f"no API key for {base_url}: set PISCINEBUILDER_API_KEY (or {' / '.join(p.key_envs)}), or name a variable with --api-key-env"
             )
-        return Llm(base_url=base_url, model=model, key=key)
+        return Llm(
+            base_url=base_url,
+            model=model,
+            key=key,
+            api=p.api,
+            bearer=p.api == Api.CHAT or key_env == "ANTHROPIC_AUTH_TOKEN",
+        )
 
     def chat(self, messages: list[Msg]) -> str:
         """One non-streaming completion; retries transient failures."""
@@ -329,29 +364,55 @@ class Llm:
             raise err
         return res
 
-    def chat_inner(self, messages: list[Msg], rec: CallRecord) -> str:
-        # serde_json's `json!` objects keep their keys sorted, compact.
-        body = json.dumps(
-            {
+    def request(self, messages: list[Msg]) -> tuple[str, dict[str, Any]]:
+        """The endpoint and JSON body of a call."""
+        if self.api == Api.CHAT:
+            return f"{self.base_url}/chat/completions", {
                 "model": self.model,
                 "stream": False,
                 "max_tokens": MAX_TOKENS,
                 "messages": [{"role": m.role, "content": m.content} for m in messages],
-            },
-            separators=(",", ":"),
-            ensure_ascii=False,
-            sort_keys=True,
-        ).encode("utf-8")
-        url = f"{self.base_url}/chat/completions"
+            }
+        # Two cache marks: the system prompt, shared by every call of a run,
+        # and the end of the conversation, which a retry repeats before adding
+        # the reply and the feedback.
+        body: dict[str, Any] = {"model": self.model, "max_tokens": MAX_TOKENS}
+        system = "\n\n".join(m.content for m in messages if m.role == "system")
+        if system:
+            body["system"] = [{"type": "text", "text": system, "cache_control": EPHEMERAL}]
+        turns = [m for m in messages if m.role != "system"]
+        body["messages"] = []
+        for i, m in enumerate(turns):
+            part: dict[str, Any] = {"type": "text", "text": m.content}
+            if i == len(turns) - 1:
+                part["cache_control"] = EPHEMERAL
+            body["messages"].append({"role": m.role, "content": [part]})
+        return f"{self.base_url}/messages", body
+
+    def headers(self) -> dict[str, str]:
+        headers = {"content-type": "application/json"}
+        if self.api == Api.MESSAGES:
+            headers["anthropic-version"] = ANTHROPIC_VERSION
+        if self.key is not None:
+            if self.bearer:
+                headers["authorization"] = f"Bearer {self.key}"
+            else:
+                headers["x-api-key"] = self.key
+        return headers
+
+    def chat_inner(self, messages: list[Msg], rec: CallRecord) -> str:
+        url, v = self.request(messages)
+        # serde_json's `json!` objects keep their keys sorted, compact.
+        body = json.dumps(v, separators=(",", ":"), ensure_ascii=False, sort_keys=True).encode(
+            "utf-8"
+        )
+        headers = self.headers()
         last = ""
         for attempt in range(4):
             if attempt > 0:
                 rec.errors.append(last)
                 time.sleep(2 << attempt)
             rec.attempts += 1
-            headers = {"content-type": "application/json"}
-            if self.key is not None:
-                headers["authorization"] = f"Bearer {self.key}"
             req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             resp: Any
             try:

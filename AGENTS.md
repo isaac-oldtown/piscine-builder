@@ -58,6 +58,8 @@ PiscineBuilder: a uv workspace (Python 3.12, typed, checked by mypy) with two pa
 
 - Local provider: Meridian at `http://127.0.0.1:3456` (`--provider meridian`, health check `/health`).
   Real builds cost calls and can hit the subscription's rate limit; ask before running large ones.
+  Meridian serves both `/chat/completions` and Anthropic's `/messages` but strips `cache_control` (Claude
+  Code caches on its own), so prompt-cache marks only matter for `--provider anthropic` (`llm.Api.MESSAGES`).
 - Replies are cached by a hash of the full request, so editing any prompt text
   (`coursecrafter/src/coursecrafter/prompts.py`, request builders in `build.py`, the curriculum's
   `environment:` line) makes every unbuilt unit pay again. A unit that fails drops its cached replies
