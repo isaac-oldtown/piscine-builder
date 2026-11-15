@@ -1,3 +1,5 @@
+> **DEPRECATED.** This Rust version is archived and no longer maintained. PiscineBuilder now lives in Python on the `main` branch. Do not build or install from here.
+
 # PiscineBuilder
 
 A personal, 42-inspired programming Piscine: structured curricula, hands-on projects, automated grading, and progressive skill development.
