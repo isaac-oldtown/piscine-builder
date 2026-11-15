@@ -153,6 +153,7 @@ functions:
 ```
 
 At unlock the stubs declare an empty `pub struct Stack {}` with these methods in an `impl`
-(a later stage only adds an `impl` block). For the stub check, `proctor selftest` replaces
+(a later stage only adds an `impl` block); the student gives it its fields, or turns it into
+the enum the requirements describe. For the stub check, `proctor selftest` replaces
 the listed functions' bodies in the reference with `todo!()`, so the reference's types stay
 for the tests to compile against. A function that cases call must still suit the harness.

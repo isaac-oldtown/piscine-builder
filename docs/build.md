@@ -40,7 +40,7 @@ Each request carries what the model cannot guess:
   run again against the new program), and the later stages (so it never tests behaviour a
   later stage changes).
 
-What is mechanical is done by coursecrafter: a Rust unit with a workspace scaffold always gets a `Cargo.toml`, derived from the reference (same package and targets, no dependency entries) when the model sends none; Rust references are run through `cargo fmt`, and a member crate's own `[workspace]` table is dropped when the root `Cargo.toml` has one (Cargo rejects two workspace roots); C and
+What is mechanical is done by coursecrafter: a Rust unit with a workspace scaffold always gets a `Cargo.toml`, derived from the reference (same package and targets, no dependency entries) when the model sends none; a Rust reference sent without a `Cargo.toml` gets a default one-crate manifest; Rust references are run through `cargo fmt`, and a member crate's own `[workspace]` table is dropped when the root `Cargo.toml` has one (Cargo rejects two workspace roots); C and
 Rust programs run as built (a project's other languages keep their first stage's `run`
 command), and a `run` pointing into a build folder is rejected.
 

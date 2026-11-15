@@ -19,6 +19,11 @@ A Rust unit can also carry `#[test]` functions in `rust_tests`, compiled against
 library crate: they grade the student's own types and methods, which the harness cannot call
 (see [Tests in Rust](unit-spec.md#tests-in-rust)).
 
+The Rust Allowed scanner reads every `Cargo.toml` of the workspace: the workspace's own crates
+(members and `path` dependencies) are the student's code, any other dependency must be allowed.
+Prototypes compare type paths by their last segment, so `io::Result<()>` matches
+`std::io::Result<()>`.
+
 ## Language settings are data
 
 The presets for C, C++, Python, Rust, Bash, JavaScript, TypeScript, Go, Java and Ruby are a
