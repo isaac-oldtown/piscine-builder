@@ -1,0 +1,16 @@
+[project]
+name = "coursecrafter"
+version = "0.1.0"
+description = "PiscineBuilder's course creator: turns a curriculum into specs, tests and references with an LLM"
+requires-python = ">=3.12"
+dependencies = ["proctor", "PyYAML>=6"]
+
+[project.scripts]
+coursecrafter = "coursecrafter.cli:main"
+
+[tool.uv.sources]
+proctor = { workspace = true }
+
+[build-system]
+requires = ["uv_build>=0.8,<0.12"]
+build-backend = "uv_build"

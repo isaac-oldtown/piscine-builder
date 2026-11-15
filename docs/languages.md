@@ -14,7 +14,7 @@ On Windows, `bash` resolves to msys2 or Git Bash, never WSL's `System32\bash.exe
 ## Language settings are data
 
 The presets for C, C++, Python, Rust, Bash, JavaScript, TypeScript, Go, Java and Ruby are a
-YAML block embedded in proctor (`proctor/src/defaults.rs`). Only the function harnesses
+YAML block embedded in proctor (`proctor/src/proctor/defaults.py`). Only the function harnesses
 and the dedicated Allowed scanners are code. A course overrides any preset field in its
 `languages:` block, and a list set there replaces the preset's list (`static: []` removes
 Rust's fmt and clippy).

@@ -1,0 +1,13 @@
+[project]
+name = "proctor"
+version = "0.1.0"
+description = "PiscineBuilder's offline grader: runs compact test specs against student work"
+requires-python = ">=3.12"
+dependencies = ["PyYAML>=6"]
+
+[project.scripts]
+proctor = "proctor.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.8,<0.12"]
+build-backend = "uv_build"

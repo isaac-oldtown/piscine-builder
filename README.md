@@ -13,12 +13,14 @@ This is a personal project, shared as is. It works for my courses and my machine
 
 ## Install
 
-Install stable Rust from [rustup.rs](https://rustup.rs). From the repository root:
+Install [uv](https://docs.astral.sh/uv/) (it fetches Python 3.12 if needed). From the repository root:
 
 ```
-cargo install --path proctor
-cargo install --path coursecrafter
+uv tool install --editable ./proctor
+uv tool install --editable ./coursecrafter
 ```
+
+Both tools run from this source tree, so a `git pull` takes effect without reinstalling.
 
 Depending on your course, you'll also need the relevant compilers or interpreters, such as `cc` or `python3`.
 
@@ -211,7 +213,7 @@ examples/demo-course/  A small course to try without an LLM
 docs/                  Reference documentation
 ```
 
-Run `cargo test` for both tools' tests, including an end-to-end check of the demo course (`proctor/tests/demo_course.rs`; languages whose tools are not installed are skipped); `cargo clippy --all-targets -- -D warnings` must stay clean. CI runs formatting, clippy and the tests on Ubuntu and Windows. Courses are never built inside this repository, and `.gitignore` keeps them out.
+Run `uv run pytest` for both tools' tests, including an end-to-end check of the demo course (`proctor/tests/test_demo_course.py`; languages whose tools are not installed are skipped); `uv run ruff format --check`, `uv run ruff check` and `uv run mypy` must stay clean. CI runs them on Ubuntu and Windows. Courses are never built inside this repository, and `.gitignore` keeps them out.
 
 ## Status
 
