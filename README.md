@@ -207,11 +207,13 @@ To have rust-analyzer check this code as Linux code, run `rustup target add x86_
 ## Repository layout
 
 ```
-proctor/            The grader (library and CLI)
-coursecrafter/            The course builder (CLI)
+proctor/               The grader (library and CLI)
+coursecrafter/         The course builder (CLI)
 examples/demo-course/  A small course to try without an LLM
 docs/                  Reference documentation
 ```
+
+The tools were first written in Rust. That version is archived on the `rust` branch (tag `rust-final`) and no longer maintained; courses, journals and reply caches it wrote keep working with this one.
 
 Run `uv run pytest` for both tools' tests, including an end-to-end check of the demo course (`proctor/tests/test_demo_course.py`; languages whose tools are not installed are skipped); `uv run ruff format --check`, `uv run ruff check` and `uv run mypy` must stay clean. CI runs them on Ubuntu and Windows. Courses are never built inside this repository, and `.gitignore` keeps them out.
 

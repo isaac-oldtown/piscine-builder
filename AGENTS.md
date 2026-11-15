@@ -7,7 +7,8 @@ PiscineBuilder: a uv workspace (Python 3.12, typed, checked by mypy) with two pa
   library and reuses its parsing, rendering and self-test (`proctor.selftest`, `proctor.render`).
 - `docs/` is the reference (curriculum format, build, unit spec, languages); keep it and `README.md`
   in sync with behaviour changes.
-- The code is a port of the Rust version (branch `main`); `PORTING.md` lists its conventions (Rust names
+- The code is a port of the Rust version, archived on branch `rust` (tag `rust-final`) and no longer
+  developed; `PORTING.md` lists the port's conventions (Rust names
   kept, keywords get a trailing `_`, `errors.Error` for `Result` errors, sibling modules imported as modules)
   and the Rust behaviours it reproduces on purpose (YAML as `yaml_serde` reads and writes it, Rust float
   and debug formatting in `proctor.compat`).
@@ -81,5 +82,5 @@ check (a few minutes). Inside the container `PROCTOR_IN_CONTAINER` prevents re-d
 - Text in docs, prompts and generated instructions uses no long dashes (contracts containing them are rejected).
 - Line endings are LF (`.gitattributes`); PowerShell `-replace` and quoted here-strings break easily on
   source with quotes or apostrophes, so prefer the edit tool for code changes.
-- Commit with the repo-local identity already configured, one descriptive subject line. On this branch
-  (`python`), push to `origin python`; `main` stays the Rust version until the user decides otherwise.
+- Commit with the repo-local identity already configured, one descriptive subject line. Pushing to
+  `origin main` is allowed; never commit to the archived `rust` branch.

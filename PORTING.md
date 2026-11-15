@@ -1,7 +1,7 @@
 # The Python port of PiscineBuilder
 
-The tools were first written in Rust (branch `main`) and translated module by module to
-Python on the `python` branch. The rules below made the translated modules fit together
+The tools were first written in Rust (archived on branch `rust`, tag `rust-final`) and
+translated module by module to Python, which replaced them on `main`. The rules below made the translated modules fit together
 and still describe how the code is organised: follow them when changing it.
 
 - Each Rust `proctor/src/X.rs` and `coursecrafter/src/X.rs` became
