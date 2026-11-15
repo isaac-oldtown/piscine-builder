@@ -24,6 +24,7 @@ from proctor.compat import (
     read_text,
     regex,
     trim,
+    trim_end,
     trim_start,
     trim_start_matches,
     write_text,
@@ -512,12 +513,19 @@ class Builder:
                     v = None
                 if isinstance(v, list):
                     think = _strs(v)
-            if not think:
-                _remove(m, "think_about")
+            problems: list[str] = []
+            try:
+                kept, dropped = clean_think_about(think, cases)
+            except Error as e:
+                problems.append(e.msg)
             else:
-                m["think_about"] = seq(think)
-            problems = self.check_contract(u, m, languages)
-            problems.extend(think_about_problems(think, cases))
+                for d in dropped:
+                    self.log.log(f"  think_about: dropped {d}")
+                if not kept:
+                    _remove(m, "think_about")
+                else:
+                    m["think_about"] = seq(kept)
+            problems.extend(self.check_contract(u, m, languages))
             if not problems:
                 text = yamlio.dump(m)
                 write(self.unit_path(u.id), text)
@@ -802,6 +810,10 @@ class Builder:
             and lang_name not in ("c", "rust")
         ):
             p.append(f"a program target in {lang_name} needs `run:`")
+        if unit.forbidden and self.allowed_so_far(u, m) is None:
+            p.append(
+                "`forbidden` only narrows what `allowed` permits, and neither this unit nor an earlier stage of its project has `allowed`: add one (for example `allowed: [std]`), or drop `forbidden`"
+            )
         req_text = requirements_markdown(unit.requirements)
         if sum(1 for line in lines(req_text) if trim(line)) > 30:
             p.append(
@@ -931,8 +943,8 @@ class Builder:
         return out
 
     def allowed_so_far(self, u: curriculum.Entry, contract: Mapping) -> list[str] | None:
-        """Allowed entries of `u` and the earlier stages of its project (as the
-        grader merges them), or `None` when nothing is restricted."""
+        """Allowed entries of the earlier stages of `u`'s project and of `u`
+        itself (as the grader merges them), or `None` when none restricts."""
 
         def listed(m: Mapping) -> list[str] | None:
             if "allowed" not in m:
@@ -940,19 +952,35 @@ class Builder:
             v = m["allowed"]
             return _strs(v) if isinstance(v, list) else None
 
-        all = listed(contract)
-        if all is None:
-            return None
+        lists: list[list[str] | None] = []
         if u.parent is not None:
             for st in self.plan.stages(u.parent):
                 if st.id == u.id:
                     break
                 sm = self.read_unit_map(st.id)
-                more = listed(sm) if sm is not None else None
-                for a in more or []:
-                    if a not in all:
-                        all.append(a)
-        return all
+                lists.append(listed(sm) if sm is not None else None)
+        lists.append(listed(contract))
+        if all(x is None for x in lists):
+            return None
+        out: list[str] = []
+        for x in lists:
+            for a in x or []:
+                if a not in out:
+                    out.append(a)
+        return out
+
+    def spec_problems(
+        self, u: curriculum.Entry, upto: list[curriculum.Entry], languages: Mapping
+    ) -> list[str]:
+        """What proctor's validation finds wrong with `u`, with the course
+        written up to it."""
+        self.write_course(upto, languages)
+        c = course.CourseDir.load(self.root)
+        return [
+            p
+            for p in engine.validate(c)
+            if p.startswith(u.id) and p[len(u.id) : len(u.id) + 1] in (":", " ")
+        ]
 
     def tests(self, u: curriculum.Entry, upto: list[curriculum.Entry], languages: Mapping) -> None:
         h = hidden(self.root)
@@ -964,6 +992,16 @@ class Builder:
         _remove(contract, "random")
         _remove(contract, "think_about")
         contract_text = yamlio.dump(contract)
+        # The tests reply cannot change the contract, so a problem in it would
+        # fail every attempt: stop before the first call, and drop the cached
+        # contract so that `--only` asks for a new one.
+        write(self.unit_path(u.id), contract_text)
+        own = self.spec_problems(u, upto, languages)
+        if own:
+            self.forget(f"contract-{u.id}")
+            raise Error(
+                f"its contract has a problem no test suite can fix: {'; '.join(own)}. `coursecrafter build --tests --only {u.id.split('-')[0]}` writes a new contract"
+            )
         prev = self.previous_stage(u)
         previous = self.ref_text(prev.id) if prev is not None else ""
         lib_path = h / "lib.yaml"
@@ -1071,9 +1109,13 @@ class Builder:
         cases_text = _as_str(tests.get("cases")) or ""
         tv = tests.get("think_about")
         think = _strs(tv) if isinstance(tv, list) else []
-        think_problems = think_about_problems(think, cases_text)
-        if think_problems:
-            raise Error("\n".join(think_problems))
+        think, dropped = clean_think_about(think, cases_text)
+        for d in dropped:
+            self.log.log(f"  think_about: dropped {d}")
+        if not think:
+            _remove(unit, "think_about")
+        else:
+            unit["think_about"] = seq(think)
 
         def has_example(line: str) -> bool:
             line = trim(line)
@@ -1108,7 +1150,14 @@ class Builder:
                 write(support_dir / path, body)
                 support.append(f"support/{u.id}/{path}")
             unit["support"] = seq(support)
-        refs = draft.files
+        if self.plan.language(u) == "rust":
+            refs, changed = one_workspace_root(draft.files)
+            for path in changed:
+                self.log.log(
+                    f"  {path}: dropped its [workspace] table (the root Cargo.toml has the only one)"
+                )
+        else:
+            refs = dict(draft.files)
         if not refs:
             raise Error('missing the reference solution (<file path="..."> blocks)')
         for path in sorted(refs):
@@ -1152,11 +1201,10 @@ class Builder:
             write(scaffold_dir / path, body)
         self.ensure_rust_scaffold(u)
         # Gate: the course up to this unit must load, parse and self-test.
-        self.write_course(upto, languages)
-        c = course.CourseDir.load(self.root)
-        problems = [p for p in engine.validate(c) if p.startswith(f"{u.id}:") or u.id in p]
+        problems = self.spec_problems(u, upto, languages)
         if problems:
             raise Error("\n".join(problems))
+        c = course.CourseDir.load(self.root)
         loaded = c.unit(u.id)
         if loaded is None:
             raise Error("unit missing after write")
@@ -1254,14 +1302,15 @@ def lesson_request(lang: str, guided: bool, introduces: list[str], assumes: list
             "the <unit> block (plain markdown, NOT inside the YAML; headings ###, no ## headings, about 30 to 70 lines) "
             "that teaches them before the exercise.\n"
         )
+    forms, extends, experiment = lesson_examples(lang)
     s += (
         "Lesson rules:\n"
         "- One ### subsection per introduced concept, its heading naming the concept. Never fold two concepts into one "
-        "subsection (`let` and `mut` are two subsections).\n"
+        "subsection.\n"
         "- Per concept: one or two sentences on what it is and why it matters; the syntax, as a small table when there "
-        "are several forms (`{:>5}` / `{:<5}` / `{:^5}`, or `&` / `&mut` / `*`), else a code block; ONE small runnable "
-        "example that is NOT part of the solution and never uses anything the contract forbids, with its output; at "
-        "most two pitfalls as bullets, the key term in **bold**.\n"
+        f"are several forms ({forms}), else a code block; ONE small runnable example that is NOT part of the solution "
+        "and never uses anything the contract forbids, with its output; at most two pitfalls as bullets, the key term "
+        "in **bold**.\n"
         '- Concise: no filler, no labels such as "What it is." before paragraphs. Explain every piece of syntax the '
         "exercise relies on (a format spec, a type, a macro, an operator rule such as integer division) unless an "
         "earlier unit introduced it.\n"
@@ -1269,14 +1318,50 @@ def lesson_request(lang: str, guided: bool, introduces: list[str], assumes: list
     if assumes:
         s += (
             f"- When a concept extends one the student already knows ({', '.join(assumes)}), say in one line how they differ (for "
-            "example: `&mut x` lends a value for changing, `let mut x` lets the variable itself change).\n"
+            f"example: {extends}).\n"
         )
     s += (
         "- End with a one-line **Docs:** pointer per concept (a chapter of the language's book or its standard "
         "library docs), then a `### Try it` subsection of one to three lines: an ungraded experiment that makes the "
-        "concept stick (such as using a value after moving it and reading the compiler's message).\n"
+        f"concept stick (such as {experiment}).\n"
     )
     return s
+
+
+def lesson_examples(lang: str) -> tuple[str, str, str]:
+    """The lesson rules' examples, in the unit's language: forms worth a
+    syntax table, a concept that extends a known one, an ungraded experiment."""
+    match lang:
+        case "rust":
+            return (
+                "`{:>5}` / `{:<5}` / `{:^5}`, or `&` / `&mut` / `*`",
+                "`&mut x` lends a value for changing, `let mut x` lets the variable itself change",
+                "using a value after moving it and reading the compiler's message",
+            )
+        case "c":
+            return (
+                "`%d` / `%5d` / `%-5d`, or `&x` / `*p` / `p->field`",
+                "`*p` reads the value a pointer points to, `&x` takes the address of a variable",
+                "printing `sizeof` of an array, then of the same array inside a function it was passed to",
+            )
+        case "python":
+            return (
+                '`s[a:b]` / `s[a:]` / `s[::-1]`, or `f"{x:>5}"` / `f"{x:<5}"`',
+                "`list.sort()` changes the list in place, `sorted()` returns a new one",
+                "removing items from a list while looping over it and looking at what is left",
+            )
+        case "bash" | "sh" | "shell":
+            return (
+                '`$var` / `"$var"` / `${var:-default}`',
+                '`"$@"` keeps each argument whole, `$*` joins them into one string',
+                "storing a file name with a space in a variable and using it unquoted",
+            )
+        case _:
+            return (
+                "the forms of a format specifier, or of a loop",
+                "how the new form differs from the one the student already uses",
+                "breaking the example on purpose and reading the error",
+            )
 
 
 STOPWORDS = [
@@ -1378,31 +1463,64 @@ _NUMBERS = re.compile(r"\b\d{3,}\b")
 
 
 def case_literals(cases: str) -> list[str]:
-    """String and number literals of the test cases, to keep them out of the
-    Think about list."""
-    out = [c[1] for c in _STRINGS.finditer(cases) if len(trim(c[1])) >= 3]
+    """Literals of the test cases that would give a case away if a Think about
+    bullet repeated them: numbers of three digits or more, and strings with
+    something besides lowercase letters and spaces. Plain words ("the", "no
+    newline") are ordinary vocabulary, not a leak."""
+    out = [
+        c[1]
+        for c in _STRINGS.finditer(cases)
+        if len(trim(c[1])) >= 3 and any(not ("a" <= ch <= "z" or ch == " ") for ch in c[1])
+    ]
     out.extend(m[0] for m in _NUMBERS.finditer(cases))
     return out
 
 
-def think_about_problems(items: list[str], cases: str) -> list[str]:
-    """Problems with a Think about list: it names categories, never answers."""
-    p: list[str] = []
-    if len(items) > 4:
-        p.append("`think_about` has at most 4 bullets")
+def contains_whole(hay: str, needle: str) -> bool:
+    """`needle` occurs in `hay` as a whole: not inside a longer word or number."""
+
+    def word(c: str) -> bool:
+        return c != "" and c.isalnum()
+
+    i = hay.find(needle)
+    while i != -1:
+        end = i + len(needle)
+        before, after = hay[i - 1 : i], hay[end : end + 1]
+        if not (word(needle[:1]) and word(before)) and not (word(needle[-1:]) and word(after)):
+            return True
+        i = hay.find(needle, end)
+    return False
+
+
+def think_about_leak(item: str, literals: list[str]) -> str | None:
+    """Why a Think about bullet gives a case or its answer away, if it does."""
+    if '"' in item or "==" in item or "->" in item or "=>" in item:
+        return "gives a concrete case or result"
+    lit = next((lit for lit in literals if contains_whole(item, lit)), None)
+    return None if lit is None else f"quotes `{lit}` from the tests"
+
+
+def clean_think_about(items: list[str], cases: str) -> tuple[list[str], list[str]]:
+    """A Think about list cleaned in code: bullets that give a case away are
+    dropped and the list is cut to four, so a stray bullet costs no retry.
+    Returns the kept bullets and what was dropped; raises when fewer than two
+    of a non-empty list remain (the model writes it again)."""
     literals = case_literals(cases)
+    kept: list[str] = []
+    dropped: list[str] = []
     for it in items:
-        if '"' in it or "==" in it or "->" in it or "=>" in it:
-            p.append(
-                f'`think_about` bullet `{it}` gives a concrete case or result: name the category only ("text with no letters"), never the input or the expected answer'
-            )
+        why = think_about_leak(it, literals)
+        if why is not None:
+            dropped.append(f"`{it}` {why}")
+        elif len(kept) < 4:
+            kept.append(it)
         else:
-            lit = next((lit for lit in literals if lit in it), None)
-            if lit is not None:
-                p.append(
-                    f"`think_about` bullet `{it}` quotes `{lit}` from the tests: name the category only, without the case"
-                )
-    return p
+            dropped.append(f"`{it}` is beyond the fourth bullet")
+    if items and len(kept) < 2:
+        raise Error(
+            f'`think_about` needs 2 to 4 bullets that name categories only ("text with no letters"), never a case or its answer; dropped: {"; ".join(dropped)}'
+        )
+    return kept, dropped
 
 
 def names(only: str, e: curriculum.Entry) -> bool:
@@ -1440,6 +1558,40 @@ def scaffold_cargo_toml(reference: str) -> str:
         out += line
         out += "\n"
     return out
+
+
+def one_workspace_root(files: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+    """A Rust reference with one workspace root: Cargo rejects a member crate
+    with its own `[workspace]` table ("multiple workspace roots"), which a
+    model adds by habit to every crate when the root already has one. Returns
+    the files and the paths it changed."""
+
+    def is_ws(t: str) -> bool:
+        return t == "[workspace]" or t.startswith("[workspace.")
+
+    root = files.get("Cargo.toml")
+    root_ws = root is not None and any(is_ws(trim(line)) for line in lines(root))
+    changed: list[str] = []
+    out: dict[str, str] = {}
+    for path, body in sorted(files.items()):
+        if (
+            not root_ws
+            or not path.endswith("/Cargo.toml")
+            or not any(is_ws(trim(line)) for line in lines(body))
+        ):
+            out[path] = body
+            continue
+        kept = ""
+        skip = False
+        for line in lines(body):
+            t = trim(line)
+            if t.startswith("["):
+                skip = is_ws(t)
+            if not skip:
+                kept += line + "\n"
+        changed.append(path)
+        out[path] = f"{trim_end(kept)}\n"
+    return out, changed
 
 
 def drop_fixed_keys(yaml: str) -> str:

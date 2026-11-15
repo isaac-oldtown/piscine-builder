@@ -13,9 +13,9 @@ rules, nothing that reveals the hidden tests) and sent back with the problems wh
 
 Contracts teach as well as specify. A unit that introduces concepts gets a lesson, shown as "Before you start" (30 to 70 lines): one `###` subsection per introduced concept, with the syntax (a table when there are several forms), one small example that is not the solution and its output, at most two pitfalls, a one-line link to the official docs, and how it differs from a concept it extends (`&mut` after `mut`). It ends with an ungraded **Try it**. A `guided` unit gets a step-by-step walkthrough instead. A lesson whose headings miss an introduced concept is sent back.
 
-Requirements are optional: the page already shows the signatures and their `returns`, Allowed and Forbidden, examples and `RULES.md`. They appear only for what none of these can say (program arguments, exit codes, error formats, protocols), as short markdown; a requirement that restates the linters or the Allowed list is sent back.
+Requirements hold the behaviour the signatures and their `returns` cannot state: the tests are written later from the contract alone, so every decision of the plan's brief that the tests check (program arguments, exit codes, error formats, limits, protocols) must be in the contract. They never repeat what the page already shows (Allowed and Forbidden, examples) or `RULES.md`; a requirement that restates the linters or the Allowed list is sent back. A `forbidden` list with no `allowed` in the unit or an earlier stage is sent back too.
 
-The tests come with two more pieces of text. Cases preceded by a `# example` comment line are shown as **Examples** with their results, so examples always agree with the grading (a program needs one case with an exact output). `think_about` lists two to four edge-case categories; a bullet that quotes a case or a result is sent back. Every test must follow from the instructions, the examples or the rules of the course's rigor level, which the test request states.
+The tests come with two more pieces of text. Cases preceded by a `# example` comment line are shown as **Examples** with their results, so examples always agree with the grading (a program needs one case with an exact output). `think_about` lists two to four edge-case categories: coursecrafter drops a bullet that gives a case or its answer away (a quoted input, a result, a number of three digits or more or a distinctive string from the cases) and any beyond the fourth, and logs what it dropped; the list is sent back only when fewer than two bullets remain. Every test must follow from the instructions, the examples or the rules of the course's rigor level, which the test request states.
 
 Fields that come from the plan (hours, difficulty, stretch, platform...) are copied by
 coursecrafter, not by the model; editing them in the plan updates the existing contracts on the
@@ -24,7 +24,9 @@ next build, with no LLM call.
 ## Pass 2: the correction suite
 
 With `--tests` (or when you answer yes), each unit gets its tests, generators, hidden
-reference solution and scaffold files. A unit is kept only if `proctor selftest` passes:
+reference solution and scaffold files. Before the first call, the contract goes through
+`proctor validate`: a problem no test suite can fix stops the unit there and drops its cached
+contract, so that `--tests --only <id>` asks for a new one. A unit is kept only if `proctor selftest` passes:
 the reference passes every check, including Allowed and the linters, and every function has
 a test that fails on an empty stub. Linux units are self-tested in the Linux container.
 
@@ -36,7 +38,7 @@ Each request carries what the model cannot guess:
   run again against the new program), and the later stages (so it never tests behaviour a
   later stage changes).
 
-What is mechanical is done by coursecrafter: a Rust unit with a workspace scaffold always gets a `Cargo.toml`, derived from the reference (same package and targets, no dependency entries) when the model sends none; Rust references are run through `cargo fmt`, C and
+What is mechanical is done by coursecrafter: a Rust unit with a workspace scaffold always gets a `Cargo.toml`, derived from the reference (same package and targets, no dependency entries) when the model sends none; Rust references are run through `cargo fmt`, and a member crate's own `[workspace]` table is dropped when the root `Cargo.toml` has one (Cargo rejects two workspace roots); C and
 Rust programs run as built (a project's other languages keep their first stage's `run`
 command), and a `run` pointing into a build folder is rejected.
 

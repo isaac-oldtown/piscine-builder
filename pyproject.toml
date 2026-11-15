@@ -28,4 +28,6 @@ strict_equality = true
 
 [tool.pytest.ini_options]
 testpaths = ["proctor/tests", "coursecrafter/tests"]
+# Shared test helpers (`proctor/tests/common.py`).
+pythonpath = ["proctor/tests"]
 addopts = "-q --import-mode=importlib"

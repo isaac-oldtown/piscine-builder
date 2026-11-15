@@ -6,13 +6,14 @@ import pytest
 from coursecrafter.build import (
     Draft,
     cached_reply_of,
+    clean_think_about,
     drop_fixed_keys,
     fnv,
     names,
+    one_workspace_root,
     redundant_requirement,
     revealing_phrase,
     scaffold_cargo_toml,
-    think_about_problems,
     uncovered_concepts,
 )
 from proctor.compat import read_text
@@ -26,12 +27,38 @@ def test_lessons_cover_each_concept_and_think_about_spoils_nothing() -> None:
     lesson = "### Variables with `let`\ntext\n### Ownership and moves\ntext\n### Try it\n"
     intro = ["let", "mut", "ownership and moves"]
     assert uncovered_concepts(lesson, intro) == ["mut"]
-    cases = 'ft_capitalize("123abc") == "123abc"\nft_repeat("ab", 1000) == 2000\n'
-    assert not think_about_problems(["a string that starts with a digit"], cases)
-    assert think_about_problems(['what "123abc" gives'], cases)
-    assert think_about_problems(["counts like 1000"], cases)
+    cases = 'ft_capitalize("123abc") == "123abc"\nft_repeat("ab", 1000) == 2000\ncount("the", "the cat") == 1\nlines("no newline") == 1\n'
+
+    def clean(items: list[str]) -> tuple[list[str], list[str]]:
+        return clean_think_about(items, cases)
+
+    # Plain words that also appear in a case are not a leak (from a real build).
+    kept, dropped = clean(
+        [
+            "text or lists with nothing in them",
+            "a last line with no newline",
+            "the empty string",
+            "10000 repetitions",
+        ]
+    )
+    assert (len(kept), len(dropped)) == (4, 0), dropped
+    # A bullet that gives a case away is dropped; the rest is kept.
+    kept, dropped = clean(
+        [
+            'what "123abc" gives',
+            "counts like 1000",
+            "a word such as 123abc",
+            "a string that starts with a digit",
+            "repeating a string many times",
+        ]
+    )
+    assert len(kept) == 2
+    assert len(dropped) == 3, dropped
     five = [f"case kind {i}" for i in range(5)]
-    assert think_about_problems(five, cases)
+    assert len(clean_think_about(five, cases)[0]) == 4
+    with pytest.raises(Error):
+        clean(["counts like 1000", "a string that starts with a digit"])
+    assert clean([]) == ([], [])
     assert redundant_requirement("Must pass `cargo fmt`.") == "the linters"
     assert redundant_requirement("Print `LEVEL count` lines.") is None
 
@@ -67,6 +94,25 @@ def test_scaffold_cargo_toml_keeps_the_package_and_drops_dependencies() -> None:
     assert 'name = "minishell"' in s and "[dependencies]\n" in s
     assert '[[bin]]\nname = "ft"' in s and "[workspace]" in s
     assert "nix" not in s and "libc" not in s, s
+
+
+def test_member_crates_lose_their_own_workspace_table() -> None:
+    # The layout of a real reply rejected with "multiple workspace roots".
+    files = {
+        "Cargo.toml": '[workspace]\nresolver = "2"\nmembers = ["kit", "app"]\n',
+        "kit/Cargo.toml": '[package]\nname = "kit"\n\n[dependencies]\n\n[workspace]\n',
+        "app/Cargo.toml": '[package]\nname = "app"\n\n[workspace]\nresolver = "2"\n\n[dependencies]\nkit = { path = "../kit" }\n',
+        "app/src/main.rs": "fn main() {}\n",
+    }
+    out, changed = one_workspace_root(files)
+    assert changed == ["app/Cargo.toml", "kit/Cargo.toml"]
+    assert out["kit/Cargo.toml"] == '[package]\nname = "kit"\n\n[dependencies]\n'
+    assert 'kit = { path = "../kit" }' in out["app/Cargo.toml"]
+    assert "workspace" not in out["app/Cargo.toml"] and "resolver" not in out["app/Cargo.toml"]
+    assert out["Cargo.toml"] == files["Cargo.toml"]
+    # A single crate keeps its table.
+    one = {"Cargo.toml": '[package]\nname = "a"\n\n[workspace]\n'}
+    assert one_workspace_root(one) == (one, [])
 
 
 def test_repeated_fixed_keys_cannot_break_the_contract() -> None:

@@ -209,6 +209,20 @@ class CourseDir:
                 break
         return out
 
+    def allowed(self, u: Unit) -> list[str] | None:
+        """What `u`'s code may use: the `allowed` entries of `u` and of the
+        earlier stages of its project, in order; `None` when none of them
+        restricts anything. A stage lists only what it adds."""
+        chain = self.chain(u)
+        if all(x.allowed is None for x in chain):
+            return None
+        out: list[str] = []
+        for x in chain:
+            for a in x.allowed or []:
+                if a not in out:
+                    out.append(a)
+        return out
+
     def stage_number(self, u: Unit) -> int:
         return len(self.chain(u))
 

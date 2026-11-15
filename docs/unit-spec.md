@@ -53,7 +53,9 @@ requirements: |                # optional markdown (or a list): only what nothin
 think_about: [blanks around words, no input at all]   # edge-case categories, never answers
 allowed: [stdlib.h, malloc, free]   # strict whitelist; absent = unrestricted; [] = built-ins only
                                     # an entry covers what is inside it (`std` = all of Rust's std)
-forbidden: [std::mem::swap]         # banned even though `allowed` covers it (needs `allowed`)
+                                    # a stage adds to its earlier stages' lists (absent = adds nothing)
+forbidden: [std::mem::swap]         # banned even though `allowed` covers it (needs `allowed` here
+                                    # or in an earlier stage)
                                     # neither applies to the student's own tests in tests/
 example: |                     # program target, fallback when no case has an exact `out ==`
   $ python -m logstat < app.log

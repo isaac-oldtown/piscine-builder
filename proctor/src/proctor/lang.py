@@ -323,6 +323,10 @@ def cargo_package(ws: Path) -> str:
             r = trim_start(t[len("name") :])
             if r.startswith("="):
                 return trim(r[1:]).strip('"')
+    if any(trim(line) == "[workspace]" for line in lines(text)):
+        raise BuildError.new(
+            "the root Cargo.toml is a workspace without a [package]: the graded crate is the root package, so give the root Cargo.toml a [package] (it can still list member crates under [workspace])"
+        )
     raise BuildError.new("Cargo.toml has no [package] name")
 
 
@@ -793,7 +797,7 @@ def build_c_harness(
 
 # -------------------------------------------------------------- Python harness
 
-PY_HARNESS = r"""import sys, os, importlib, dataclasses, enum
+PY_HARNESS = r"""import sys, os, importlib, dataclasses, enum, inspect
 sys.path.insert(0, sys.argv[1])
 os.chdir(sys.argv[1])
 DEFAULT = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -849,7 +853,9 @@ def enc(v, out, depth=0):
         out.append("m%d" % len(v))
         for k, x in v.items():
             enc(k, out, depth + 1); enc(x, out, depth + 1)
-    elif isinstance(v, (bytes, bytearray)): out.append("o" + hx(repr(v)))
+    elif isinstance(v, (bytes, bytearray)):
+        out.append("l%d" % len(v))
+        for b in v: out.append("i%d" % b)
     elif hasattr(v, "__next__"):
         items = []
         for x in v:
@@ -867,6 +873,22 @@ def resolve(name):
         mods[mod] = importlib.import_module(mod)
     return getattr(mods[mod], attr)
 
+# Parameters annotated `bytes` get text as its UTF-8 encoding, or a list of ints.
+byte_params = {}
+def bytes_args(name, f, args):
+    if name not in byte_params:
+        try:
+            ps = inspect.signature(f).parameters.values()
+            byte_params[name] = [p.annotation in (bytes, bytearray, "bytes", "bytearray") for p in ps]
+        except (TypeError, ValueError):
+            byte_params[name] = []
+    flags = byte_params[name]
+    def conv(v):
+        if isinstance(v, str): return v.encode("utf-8")
+        if isinstance(v, list): return bytes(v)
+        return v
+    return [conv(a) if i < len(flags) and flags[i] else a for i, a in enumerate(args)]
+
 while True:
     line = sys.stdin.readline()
     if not line: break
@@ -875,7 +897,8 @@ while True:
     try:
         toks = iter(parts[3:])
         args = [dec(toks) for _ in range(int(parts[2]))]
-        r = resolve(parts[1])(*args)
+        f = resolve(parts[1])
+        r = f(*bytes_args(parts[1], f, args))
         out = ["ok"]
         enc(r, out)
         resp = " ".join(out)
@@ -931,18 +954,29 @@ fn emit(w: &W, o: &mut String) {
 }
 fn bad(what: &str) -> Exc { Exc("TypeError".into(), format!("cannot convert argument to {what}")) }
 
-trait FromW: Sized { fn from_w(w: W) -> Result<Self, Exc>; }
+trait FromW: Sized {
+    fn from_w(w: W) -> Result<Self, Exc>;
+    // Text given where a list is expected: one element per char.
+    fn list_from_str(s: String) -> Result<Vec<Self>, Exc> { s.chars().map(|c| Self::from_w(W::C(c))).collect() }
+}
+fn int_from_w<T: TryFrom<i128>>(w: W, name: &str) -> Result<T, Exc> { match w { W::I(i) => T::try_from(i).map_err(|_| bad(name)), W::C(c) => T::try_from(c as u32 as i128).map_err(|_| bad(name)), _ => Err(bad(name)) } }
 macro_rules! ints { ($($t:ty),*) => { $(
-    impl FromW for $t { fn from_w(w: W) -> Result<Self, Exc> { match w { W::I(i) => <$t>::try_from(i).map_err(|_| bad(stringify!($t))), W::C(c) => <$t>::try_from(c as u32 as i128).map_err(|_| bad(stringify!($t))), _ => Err(bad(stringify!($t))) } } }
+    impl FromW for $t { fn from_w(w: W) -> Result<Self, Exc> { int_from_w(w, stringify!($t)) } }
     impl ToW for $t { fn to_w(&self) -> W { W::I(*self as i128) } }
 )* } }
-ints!(i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize);
+ints!(i8, i16, i32, i64, i128, isize, u16, u32, u64, u128, usize);
+// Text given for bytes is its UTF-8 encoding, as `"é".as_bytes()` would be.
+impl FromW for u8 {
+    fn from_w(w: W) -> Result<Self, Exc> { int_from_w(w, "u8") }
+    fn list_from_str(s: String) -> Result<Vec<Self>, Exc> { Ok(s.into_bytes()) }
+}
+impl ToW for u8 { fn to_w(&self) -> W { W::I(*self as i128) } }
 impl FromW for f64 { fn from_w(w: W) -> Result<Self, Exc> { match w { W::F(f) => Ok(f), W::I(i) => Ok(i as f64), _ => Err(bad("f64")) } } }
 impl FromW for f32 { fn from_w(w: W) -> Result<Self, Exc> { f64::from_w(w).map(|f| f as f32) } }
 impl FromW for bool { fn from_w(w: W) -> Result<Self, Exc> { match w { W::B(b) => Ok(b), _ => Err(bad("bool")) } } }
 impl FromW for char { fn from_w(w: W) -> Result<Self, Exc> { match w { W::C(c) => Ok(c), W::S(s) if s.chars().count() == 1 => Ok(s.chars().next().unwrap_or('?')), _ => Err(bad("char")) } } }
 impl FromW for String { fn from_w(w: W) -> Result<Self, Exc> { match w { W::S(s) | W::O(s) => Ok(s), W::C(c) => Ok(c.to_string()), _ => Err(bad("String")) } } }
-impl<T: FromW> FromW for Vec<T> { fn from_w(w: W) -> Result<Self, Exc> { match w { W::L(l) => l.into_iter().map(T::from_w).collect(), W::S(s) => s.chars().map(|c| T::from_w(W::C(c))).collect(), _ => Err(bad("Vec")) } } }
+impl<T: FromW> FromW for Vec<T> { fn from_w(w: W) -> Result<Self, Exc> { match w { W::L(l) => l.into_iter().map(T::from_w).collect(), W::S(s) => T::list_from_str(s), _ => Err(bad("Vec")) } } }
 impl<T: FromW> FromW for Option<T> { fn from_w(w: W) -> Result<Self, Exc> { match w { W::N => Ok(None), w => T::from_w(w).map(Some) } } }
 
 trait ToW { fn to_w(&self) -> W; }

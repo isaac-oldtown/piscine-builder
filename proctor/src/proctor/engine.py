@@ -688,12 +688,7 @@ class Engine:
             phases.append(ph)
 
         # allowed
-        allowed: list[str] | None = None
-        if self.unit.allowed is not None and not self.opts.tests_only:
-            all_: set[str] = set()
-            for u in chain:
-                all_.update(u.allowed if u.allowed is not None else [])
-            allowed = sorted(all_)
+        allowed = None if self.opts.tests_only else self.c.allowed(self.unit)
         if allowed is not None:
             extra = self.c.import_patterns(self.unit)
             opts = self.src_opts()
@@ -1233,9 +1228,9 @@ def validate(c: course.CourseDir) -> list[str]:
     for u in c.units:
         chain = c.chain(u)
         language = c.language(u)
-        if u.forbidden and u.allowed is None:
+        if u.forbidden and c.allowed(u) is None:
             problems.append(
-                f"{u.id}: `forbidden` needs an `allowed` list (for example `allowed: [std]` to allow all of std but the forbidden items)"
+                f"{u.id}: `forbidden` needs an `allowed` list in this unit or an earlier stage of its project (for example `allowed: [std]` to allow all of std but the forbidden items)"
             )
         if u.platform is not None and u.platform != "linux":
             problems.append(f"{u.id}: unknown platform `{u.platform}` (only `linux`)")

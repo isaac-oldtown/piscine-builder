@@ -19,7 +19,9 @@ PiscineBuilder: a uv workspace (Python 3.12, typed, checked by mypy) with two pa
   work at once and report a missing module attribute that is not missing: rerun with
   `--cache-dir` pointing to a fresh folder, or `--no-incremental`.
 - Focused tests: `uv run pytest proctor/tests/test_expr.py`, `uv run pytest coursecrafter/tests/test_build.py`.
-  The root `conftest.py` imports both packages first; keep `--import-mode=importlib`.
+  The root `conftest.py` imports both packages first; keep `--import-mode=importlib`. Integration tests
+  share scratch-course helpers through `proctor/tests/common.py` (on pytest's `pythonpath`);
+  `test_grader.py` holds grader behaviour on edited copies of the demo course.
 - End-to-end grader check with no LLM: `uv run pytest proctor/tests/test_demo_course.py` (part of the suite,
   about 15 s). It copies the demo course to the temp folder, runs `validate` and the build gate's selftest on
   every unit, and checks that runaway output and print loops are stopped; units whose toolchain is missing

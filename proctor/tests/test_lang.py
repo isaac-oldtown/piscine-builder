@@ -32,10 +32,14 @@ def test_cargo_names(tmp_path: Path) -> None:
     write_text(tmp_path / "Cargo.toml", '[package]\nname = "pkg"\n\n[[bin]]\nname = "tool"\n')
     assert lang.cargo_package(tmp_path) == "pkg"
     assert lang.cargo_binary(tmp_path) == "tool"
-    write_text(tmp_path / "Cargo.toml", "[workspace]\n")
+    write_text(tmp_path / "Cargo.toml", "[lib]\n")
     with pytest.raises(lang.BuildError) as e:
         lang.cargo_package(tmp_path)
     assert e.value.msg == "Cargo.toml has no [package] name"
+    write_text(tmp_path / "Cargo.toml", '[workspace]\nmembers = ["kit"]\n')
+    with pytest.raises(lang.BuildError) as e:
+        lang.cargo_package(tmp_path)
+    assert e.value.msg.startswith("the root Cargo.toml is a workspace without a [package]")
 
 
 def test_build_logs() -> None:

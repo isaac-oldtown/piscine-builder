@@ -139,6 +139,14 @@ def test_autofix_quotes_colons_and_list_items() -> None:
 def test_the_prompt_example_is_a_valid_curriculum() -> None:
     problems = problems_of(prompts.PLAN_EXAMPLE)
     assert all(p.warning for p in problems), report(problems)
+    # It also follows the rules the validator cannot check, since models
+    # copy the example more than they read the rules.
+    plan = parse(prompts.PLAN_EXAMPLE)
+    for u in plan.units():
+        for c in u.f.introduces:
+            assert " and " not in c, f"{u.id}: `{c}` is two concepts"
+        if not u.f.guided and u.parent is None:
+            assert len(u.f.introduces) <= 3, f"{u.id}: more than three concepts"
 
 
 def test_hours_round_to_the_nearest_five() -> None:

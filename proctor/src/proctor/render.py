@@ -159,12 +159,13 @@ def unit_md(c: course.CourseDir, u: Unit) -> str:
             s += f"- {trim(t)}\n"
 
     s += "\n## Allowed\n\n"
-    if u.allowed is None:
+    allowed = c.allowed(u)
+    if allowed is None:
         s += "No restriction: use whatever you need.\n"
-    elif not u.allowed:
+    elif not allowed:
         s += "Only your own code and the language's built-ins.\n"
     else:
-        s += code_list(u.allowed)
+        s += code_list(allowed)
         s += "\n"
     if u.forbidden:
         s += "\n**Forbidden even so:** "

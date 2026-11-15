@@ -36,7 +36,7 @@ or contains `: `), then an optional free-text
 brief (scope, design decisions, pitfalls to target) for the exercise writer.
 
 Ids:
-- `dNN-slug`   drill: small, one concept, one sitting.
+- `dNN-slug`   drill: small, one skill, one sitting.
 - `pNN-slug`   project: app-sized, built in stages. Its stages follow it.
 - `pNN.k-slug` stage k of project pNN, heading `###`, k = 1, 2, 3... The last required stage is the finale.
 - `note-slug`  note: half a page explaining an easy notion, revealed together with a unit.
@@ -48,8 +48,9 @@ Keys of a drill or stage:
 - difficulty: 1 to 5, how hard it is to implement and debug correctly (required)
 - hours: estimated hours of implementation, testing and debugging (required; for planning only, never shown to the student)
 - done_when: one line, the exit criterion: the observable behaviour showing the essential skills are there
-  (the tests are written from it). Optional details are not part of it, so the student can move on once it holds.
-- introduces: [concepts and tools this unit teaches; ONE concept per item, each worth its own explanation: write `let`, `mut`, `shadowing` as three items, not "let and mut"]
+  (the exercise writer turns it into the checked requirements). Optional details are not part of it, so the
+  student can move on once it holds.
+- introduces: [concepts and tools this unit teaches; ONE concept per item, each worth its own explanation: three ideas are three items, never "X and Y" in one]
 - assumes: [concepts and tools it needs]
 - target: function | program
 - scaffold: none | minimal | full
@@ -115,13 +116,17 @@ Workload
   ownership models, data-structure and AST design, parsing, unsafe code and FFI,
   processes, pipes and signals, concurrency. For those, take your first guess and add
   half to all of it.
+- Estimate for work that passes the course's `rigor`, not for a version that only handles
+  the usual inputs. At strict rigor (the default) the hidden tests probe every edge case,
+  type limits, non-ASCII text and malformed input: count the time to get all of that right.
 - Required hours (stretch goals excluded) leave at least 10 to 15% of
   hours_per_week x weeks free, for debugging and revisiting concepts. If the scope does
   not fit, reduce the required scope or suggest more weeks; never squeeze estimates.
 - Students progress unevenly. Do not plan a schedule where every hour must go to plan.
 - A finale is ONE milestone. If it covers two hard topics, split it into a required
   stage and a stretch stage.
-- Size: a drill or a stage fits in one to two sittings (at most about 12 hours).
+- Size: a drill fits in one sitting (usually 1 to 4 hours); a stage in one to three sittings
+  (at most about 12 hours).
 
 Minimum viable project and stretch goals
 - Every project states its `minimum`: what it must do to count as a success. The
@@ -191,7 +196,7 @@ difficulty: 1
 hours: 1.5
 guided: true
 done_when: the program prints its greeting and exits with status 0
-introduces: [compiling with cc, main, printf, if and loops]
+introduces: [compiling with cc, main, printf, if statements, loops]
 target: program
 scaffold: full
 
@@ -201,10 +206,10 @@ concept_difficulty: 3
 difficulty: 2
 hours: 5
 done_when: the helpers match the standard functions on empty, short and long strings
-introduces: [pointers, NUL termination, malloc, assert-based tests]
-assumes: [compiling with cc, if and loops]
+introduces: [pointers, NUL termination, assert-based tests]
+assumes: [compiling with cc, if statements, loops]
 target: function
-allows: [malloc, free]
+allows: [assert.h]
 
 Focus on off-by-one errors and empty strings. Write assert-based tests for each helper.
 
@@ -215,7 +220,7 @@ difficulty: 2
 hours: 2
 done_when: the program echoes its input exactly, including a missing trailing newline
 introduces: [reading stdin, EOF]
-assumes: [main, if and loops]
+assumes: [main, loops]
 target: program
 
 A small check before the project: the first stage builds on this read loop.
@@ -293,7 +298,8 @@ REVIEW_CHECKLIST = r"""Review the curriculum as a demanding teacher would, then 
 3. Testing: is the test tool introduced in the first three units, do project briefs ask
    for tests and regression tests, and do the `hours` include testing and debugging?
 4. Purpose: does every drill feed a later unit? Cut, merge or mark stretch the ones that don't.
-5. Workload: are the `hours` honest for this student? Are the routinely underestimated
+5. Workload: are the `hours` honest for this student, at the course's rigor (strict means
+   every edge case must be right, not just the usual inputs)? Are the routinely underestimated
    topics (memory and ownership, AST and data-structure design, parsing, unsafe and FFI,
    processes, pipes, signals, concurrency) given enough time? Do required hours leave
    10 to 15% of the budget free? If not, cut required scope or suggest more weeks.
@@ -438,6 +444,10 @@ def gen_system(langs: list[str]) -> str:
 
 GEN_INTRO = r"""You write exercises for PiscineBuilder, a hands-on course system. A grader, proctor, checks the student's work offline from one YAML spec per unit and renders the instructions from it, so you produce data only. The student sees the rendered contract, never your tests or your reference solution.
 
+# A good exercise
+
+It practises the unit's skill on a task with a recognizable purpose (a small tool, a data structure, a file format), and its interface lets the student write the concept itself: a unit about types has the student define and use types, never encode them in strings or command lists. The difficulty lies in the concept, not in guessing a format. It builds on the units before it and prepares the ones after.
+
 # Contract (the <unit> block)
 
 YAML with these keys (coursecrafter adds id, title, language, difficulty, concepts, notes, platform: do not write those):
@@ -445,9 +455,9 @@ YAML with these keys (coursecrafter adds id, title, language, difficulty, concep
 - goal: one sentence.
 - functions: [{name, sig, returns}], the minimal set the student writes, as exact signatures (see the language notes). `returns` carries the exact meaning in one short phrase ("the number of bytes in s", "s with ASCII letters in uppercase"): with the signature, it is the specification. A program target lists the helper functions the unit asks for, otherwise none. A stage lists only the functions it adds.
 - files: the expected tree, [{path, rule, note}] with rule = required (default) | one_or_more | free | forbidden; `*` inside a folder, `**` across folders. Listing any rule makes unlisted files unexpected, so a project adds {path: "**", rule: free} unless the layout must be exact. List only what is graded or required: never personal files (notes, scratch tests).
-- requirements: OPTIONAL, and absent for most function drills. The page already shows the signatures and their `returns`, the Allowed and Forbidden lists, examples taken from your tests, and the course's RULES.md (edge cases, exact output, linters, time limits, fair play). Write requirements only for what none of these can say: a program's arguments, an exit-code scheme, an error-message format, a protocol, an output format the examples leave ambiguous, an ungraded constraint of the brief. Never paraphrase a signature, ownership, the Allowed list, the linters or generic edge cases: reading those is the student's job. When present, send them in a <requirements>...</requirements> block after the <unit> block (markdown, NOT inside the YAML): short paragraphs or numbered steps with a sentence of context, names in **bold**, formats in `code`, a small table when there are several cases. At most about 20 lines; not exhaustive. Only rely on what this unit's lesson or an earlier unit teaches. Send an empty <requirements></requirements> block when there are none.
+- requirements: the behaviour the signatures and `returns` cannot state. The tests are written later from this contract alone: the brief and the done_when are not passed on, so every decision of theirs that the tests should check (an error format, a limit, how an edge case behaves, an exit-code scheme, a protocol, an output format) must be in `returns` or here. Never paraphrase what the page already shows (signatures, the Allowed and Forbidden lists, examples from the tests) or what the course's RULES.md says (generic edge cases, exact output, linters, time limits). Send them in a <requirements>...</requirements> block after the <unit> block (markdown, NOT inside the YAML): short paragraphs or numbered steps with a sentence of context, names in **bold**, formats in `code`, a small table when there are several cases. At most about 20 lines. Only rely on what this unit's lesson or an earlier unit teaches. Send an empty <requirements></requirements> block when `returns` says it all.
 - allowed: what the exercise's code may use besides its own code and the language built-ins. An entry covers everything inside it (`std::io` allows std::io::stdin and the rest of std::io). Restrict only what the brief restricts; when the brief allows the standard library, list it whole. Omit `allowed` when nothing is restricted. Earlier stages' entries carry over: a stage lists only what it adds. The student's own tests in `tests/` are never checked.
-- forbidden: items banned even though `allowed` covers them, when the brief bans a few things (allowed: [std], forbidden: [std::mem::swap]).
+- forbidden: items banned even though `allowed` (here or in an earlier stage) covers them, when the brief bans a few things (allowed: [std], forbidden: [std::mem::swap]). Things `allowed` does not cover are banned already: never list them.
 - stubs: function target only, where the empty functions are written at unlock; it must fit the files rules.
 - environment: one line, only if the student must install or set something unusual.
 Style: plain, short sentences, no long dashes. Never reveal the tests, the reference solution or how the checks work inside. Naming the student's commands (`proctor check`, `proctor shell`) is fine when the brief does.
@@ -507,7 +517,7 @@ GEN_C = r"""C: signatures like "size_t str_len(const char *s)"; harness types: i
 GEN_PYTHON = r"""Python: signatures like "def parse_line(line: str) -> dict | None", named with their module (logstat.parse_line) or with a `module:` key. stubs: the module file, e.g. logstat/__init__.py. `allowed` lists every imported module (built-in functions are implicit). A program target needs `run:`, e.g. "python -m logstat": one command for a whole project.
 """
 
-GEN_RUST = r"""Rust: signatures like "pub fn word_count(text: &str) -> usize", free functions in src/lib.rs (stubs: src/lib.rs). Types: integers, f64, bool, char, &str/String, Vec and slices of those, Option, Result<_, E: Debug>, tuples, maps. No custom structs, generic parameters, trait bounds or closures in signatures, since the grader calls concrete types: to practise generics, have the student write them and expose concrete wrappers (fn largest_i32(v: &[i32]) -> Option<i32>). The prelude is implicit in `allowed`; list std modules (or `std` whole) and crates. A program target runs the built binary: never set `run` or `build`. Reference: a Cargo.toml whose package name matches and that has an empty `[workspace]` table, clean under cargo clippy -D warnings (formatting is applied for you). Crates: nix 0.29 (features such as process, signal, fs, poll, term, user; there is no `unistd` feature, nix::unistd is always there) and libc 0.2.
+GEN_RUST = r"""Rust: signatures like "pub fn word_count(text: &str) -> usize", free functions in src/lib.rs (stubs: src/lib.rs). Types: integers, f64, bool, char, &str/String, Vec and slices of those, Option, Result<_, E: Debug>, tuples, maps. No custom structs, generic parameters, trait bounds or closures in signatures, since the grader calls concrete types: to practise generics, have the student write them and expose concrete wrappers (fn largest_i32(v: &[i32]) -> Option<i32>). The prelude is implicit in `allowed`; list std modules (or `std` whole) and crates. A program target runs the built binary: never set `run` or `build`. Reference: the root Cargo.toml is the graded package, with a `[workspace]` table: empty for a single crate; for a project split into several crates, the root package lists the member folders in it (members = ["kit"]) and the member crates have no `[workspace]` of their own. Clean under cargo clippy -D warnings (formatting is applied for you). Crates: nix 0.29 (features such as process, signal, fs, poll, term, user; there is no `unistd` feature, nix::unistd is always there) and libc 0.2.
 """
 
 GEN_BASH = r"""Bash: program target only; `run:` e.g. "bash wc.sh" (one command for a whole project); `allowed` lists the external commands.
@@ -553,8 +563,8 @@ def text_request(contract: str, entry: str, language: str, cases: str) -> str:
         f"# Its test cases\n```\n{cases}\n```\n\n"
         "Rewrite only the teaching text of this unit, following the contract rules: "
         "a <lesson>...</lesson> block (as the unit asks; empty if it introduces nothing), "
-        "a <requirements>...</requirements> block (markdown, often empty: only what the functions table, Allowed, "
-        "the examples and RULES.md cannot say), and a <think_about>...</think_about> block holding a YAML list of 2 "
+        "a <requirements>...</requirements> block (markdown: what the test cases check that the functions table, "
+        "Allowed, the examples and RULES.md cannot say; empty when there is nothing), and a <think_about>...</think_about> block holding a YAML list of 2 "
         "to 4 edge-case categories from the cases above, without quoting any case or result. Everything must agree "
         "with the test cases. Reply with only these three blocks."
     )
@@ -586,7 +596,7 @@ def tests_request(unit_yaml: str, cx: TestsContext) -> str:
             else f" Forbidden even so: {', '.join(f'`{a}`' for a in cx.forbidden)}."
         )
         s += f"\n# What the reference may use\nIn its code (not in `tests/`): its own code, the language built-ins and anything inside {inside}. Nothing else.{forbidden}\n"
-    s += f"\n# Rigor\n{rigor_rules(cx.rigor)}\n"
+    s += f"\n# Rigor\n{rigor_rules(cx.rigor)}\nThe contract wins over these defaults: when its requirements or lesson relax one (a slow algorithm is expected, an input is guaranteed valid), follow the contract.\n"
     if cx.earlier_tests:
         s += "\n# Tests of the earlier stages\nThey run again, unchanged, against this stage's program, which must still pass them all:\n"
         for id, yaml in cx.earlier_tests:

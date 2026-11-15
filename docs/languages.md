@@ -11,6 +11,10 @@
 
 On Windows, `bash` resolves to msys2 or Git Bash, never WSL's `System32\bash.exe`.
 
+A string given for bytes (a Rust `&[u8]` or `Vec<u8>`, a Python parameter annotated `bytes` or
+`bytearray`) is its UTF-8 encoding, so `byte_len("é") == 2`; a list of integers works too. Bytes
+returned by a function compare as a list of integers (`utf8_of("é") == [195, 169]`).
+
 ## Language settings are data
 
 The presets for C, C++, Python, Rust, Bash, JavaScript, TypeScript, Go, Java and Ruby are a
