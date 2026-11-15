@@ -620,7 +620,33 @@ def strip_lifetimes(t: str) -> str:
 
 
 def squash(s: str) -> str:
-    return "".join(c for c in strip_lifetimes(s) if not is_whitespace(c))
+    """Whitespace dropped, but one space kept between two words (`&mut W`,
+    `impl Read`), lifetimes removed."""
+    out = ""
+    gap = False
+    for c in strip_lifetimes(s):
+        if is_whitespace(c):
+            gap = True
+            continue
+        if gap and out and _word(out[-1]) and _word(c):
+            out += " "
+        gap = False
+        out += c
+    return out
+
+
+def _word(c: str) -> bool:
+    return c.isalnum() or c == "_"
+
+
+_QUALIFIER = re.compile(r"\b(?:[A-Za-z_]\w*::)+(?=[A-Za-z_])")
+
+
+def unqualified(norm: str) -> str:
+    """A normalized signature with every type path cut to its last segment,
+    so `std::io::Result<()>`, `io::Result<()>` and an imported `Result<()>`
+    compare equal."""
+    return _QUALIFIER.sub("", norm)
 
 
 def rust_from_parts(name: str, params: str, ret: str) -> Proto:

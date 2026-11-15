@@ -182,7 +182,7 @@ def test_stubs_put_methods_in_an_impl_of_their_type() -> None:
     ]
     assert lang.stub_source("rust", protos) == (
         "/// TODO\npub fn total(v: &[i32]) -> i32 {\n    let _ = v;\n    todo!()\n}\n\n"
-        "/// TODO\npub struct Stack {}\n\n"
+        "/// TODO: the type the subject describes (its fields, or an enum)\npub struct Stack {}\n\n"
         "impl Stack {\n"
         "    /// TODO\n    pub fn new() -> Self {\n        todo!()\n    }\n\n"
         "    /// TODO\n    pub fn push(&mut self, x: i32) {\n        let _ = x;\n        todo!()\n    }\n"

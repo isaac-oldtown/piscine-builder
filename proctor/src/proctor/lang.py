@@ -1199,7 +1199,7 @@ def stub_source(lang: str, protos: list[sig.Proto], defined: Collection[str] = (
                     methods.setdefault(owner, []).append(p)
             for owner, ps in methods.items():
                 if owner not in defined:
-                    s += f"/// TODO\npub struct {owner} {{}}\n\n"
+                    s += f"/// TODO: the type the subject describes (its fields, or an enum)\npub struct {owner} {{}}\n\n"
                 s += f"impl {owner} {{\n"
                 s += "\n".join(rust_stub(p, "    ") for p in ps)
                 s += "}\n\n"

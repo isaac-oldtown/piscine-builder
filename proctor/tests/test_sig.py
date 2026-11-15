@@ -52,6 +52,22 @@ def test_rust_lifetimes_arrows_and_where_clauses() -> None:
     assert sig.parse("rust", "fn show<T>(x: T)\nwhere T: Debug", "show").norm == "fn show(T)"
     f = sig.parse("rust", "fn apply(f: impl Fn(i32) -> i32, x: i32) -> i32", "apply")
     assert [p.name for p in f.params] == ["f", "x"]
+    assert f.norm == "fn apply(impl Fn(i32)->i32, i32) -> i32"
+
+
+def test_rust_type_paths_compare_by_their_last_segment() -> None:
+    sig_text = "pub fn write_to<W: Write>(&self, out: &mut W) -> std::io::Result<()>"
+    a = sig.parse("rust", sig_text, "Response::write_to")
+    assert a.norm == "fn write_to(&self, &mut W) -> std::io::Result<()>"
+    b = sig.parse("rust", "fn write_to<W: Write>(&self, w: &mut W) -> io::Result<()>", "write_to")
+    assert a.norm != b.norm
+    assert (
+        sig.unqualified(a.norm)
+        == sig.unqualified(b.norm)
+        == "fn write_to(&self, &mut W) -> Result<()>"
+    )
+    c = sig.parse("rust", "fn write_to(&self, w: &mut W) -> fmt::Result", "write_to")
+    assert sig.unqualified(a.norm) != sig.unqualified(c.norm)
 
 
 def test_names_need_not_be_ascii() -> None:

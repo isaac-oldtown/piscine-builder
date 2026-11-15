@@ -1163,6 +1163,9 @@ class Builder:
                 self.log.log(
                     f"  {path}: dropped its [workspace] table (the root Cargo.toml has the only one)"
                 )
+            if "Cargo.toml" not in refs and any(p.startswith("src/") for p in refs):
+                refs = {**refs, "Cargo.toml": default_cargo_toml(u.id)}
+                self.log.log("  Cargo.toml: missing from the reference, the default one was added")
         else:
             refs = dict(draft.files)
         if not refs:
@@ -1549,6 +1552,11 @@ def names(only: str, e: curriculum.Entry) -> bool:
         or only == short(e.id)
         or (e.parent is not None and (only == e.parent or only == short(e.parent)))
     )
+
+
+def default_cargo_toml(unit_id: str) -> str:
+    """The Cargo.toml of a one-crate reference that came without one."""
+    return f'[package]\nname = "{unit_id}"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n\n[workspace]\n'
 
 
 def scaffold_cargo_toml(reference: str) -> str:

@@ -760,9 +760,15 @@ def expand_use(prefix: str, tree: str, out: list[str]) -> None:
         out.append(join(prefix, item))
 
 
-def cargo_package_name(ws: Path) -> str | None:
+def cargo_manifests(ws: Path) -> list[str]:
+    """Every `Cargo.toml` of the workspace, the root's first."""
+    found = [f for f in walk(ws) if f == "Cargo.toml" or f.endswith("/Cargo.toml")]
+    return sorted(found, key=lambda f: (f != "Cargo.toml", f))
+
+
+def cargo_package_name(ws: Path, manifest: str = "Cargo.toml") -> str | None:
     try:
-        text = read_text(Path(ws) / "Cargo.toml")
+        text = read_text(Path(ws) / manifest)
     except OSError:
         return None
     in_pkg = False
@@ -777,42 +783,72 @@ def cargo_package_name(ws: Path) -> str | None:
     return None
 
 
-def cargo_dependencies(ws: Path) -> list[tuple[str, int]]:
+@dataclass(kw_only=True)
+class CargoDep:
+    name: str
+    line: int
+    # A `path` dependency: a crate of the student's own workspace.
+    local: bool
+
+
+def cargo_dependencies(ws: Path, manifest: str = "Cargo.toml") -> list[CargoDep]:
     try:
-        text = read_text(Path(ws) / "Cargo.toml")
+        text = read_text(Path(ws) / manifest)
     except OSError:
         return []
-    out: list[tuple[str, int]] = []
+    out: list[CargoDep] = []
     in_deps = False
+    table: CargoDep | None = None
+    path_key = re.compile(r"(?:^|[{,\s])path\s*=")
     for i, line in enumerate(lines(text)):
         t = trim(line)
         if t.startswith("["):
             h = trim(t.strip("[]"))
+            table = None
             if "dependencies." in h:
                 name = h.split("dependencies.", 1)[1]
-                out.append((name, i + 1))
+                table = CargoDep(name=name, line=i + 1, local=False)
+                out.append(table)
                 in_deps = False
             else:
                 in_deps = h.endswith("dependencies")
+        elif table is not None and path_key.match(t):
+            table.local = True
         elif in_deps and t and not t.startswith("#") and "=" in t:
-            k = t.split("=", 1)[0]
-            out.append((trim(k).strip('"'), i + 1))
+            k, v = t.split("=", 1)
+            k = trim(k)
+            local = bool(path_key.search(v))
+            # Dotted keys: `name.path = "../x"`, `name.workspace = true`.
+            if not k.startswith('"') and "." in k:
+                k, sub = k.split(".", 1)
+                local = local or trim(sub) == "path"
+            out.append(CargoDep(name=trim(k).strip('"'), line=i + 1, local=local))
     return out
 
 
 def allowed_rust(ws: Path, srcs: list[Source], allowed: Rules, r: AllowedReport) -> None:
-    own: set[str] = {"crate", "self", "super", "Self"}
-    p = cargo_package_name(ws)
-    if p is not None:
-        own.add(p.replace("-", "_"))
+    # The workspace's own crates (members, path dependencies) are the student's code.
+    crates: set[str] = set()
+    deps: list[tuple[str, CargoDep]] = []
+    for manifest in cargo_manifests(ws):
+        p = cargo_package_name(ws, manifest)
+        if p is not None:
+            crates.add(p.replace("-", "_"))
+        deps.extend((manifest, d) for d in cargo_dependencies(ws, manifest))
+    # `name.workspace = true` points at a `[workspace.dependencies]` entry.
+    local = {d.name for _, d in deps if d.local}
+    crates.update(n.replace("-", "_") for n in local)
+    own: set[str] = {"crate", "self", "super", "Self", *crates}
     mod_re = re.compile(r"\bmod\s+([A-Za-z_]\w*)")
     for s in srcs:
         for c in mod_re.finditer(s.code):
             own.add(c[1])
-    for dep, line in cargo_dependencies(ws):
+    for manifest, d in deps:
         r.checked += 1
-        if not allowed.ok(dep, []) and not allowed.ok(dep.replace("-", "_"), []):
-            r.violations.append(Violation(what=f"crate `{dep}`", at=f"Cargo.toml:{line}"))
+        if d.name in local:
+            continue
+        if not allowed.ok(d.name, []) and not allowed.ok(d.name.replace("-", "_"), []):
+            r.violations.append(Violation(what=f"crate `{d.name}`", at=f"{manifest}:{d.line}"))
     use_re = re.compile(r"\buse\s+([^;]+);")
     path_re = re.compile(r"\b(?:std|core|alloc)(?:::[A-Za-z_]\w*)+")
     extern_re = re.compile(r"\bextern\s+crate\s+([A-Za-z_]\w*)")
@@ -1285,7 +1321,7 @@ def balanced(s: str) -> str | None:
 def judge(found: list[tuple[str, str]], expected: str) -> ProtoFinding:
     if not found:
         return ProtoFindingMissing()
-    if any(n == expected for n, _ in found):
+    if any(n == expected or sig.unqualified(n) == sig.unqualified(expected) for n, _ in found):
         return ProtoFindingOk()
     n, at = found[0]
     return ProtoFindingMismatch(f"found `{n}` at {at}")

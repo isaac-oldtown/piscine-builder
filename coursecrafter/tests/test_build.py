@@ -7,6 +7,7 @@ from coursecrafter.build import (
     Draft,
     cached_reply_of,
     clean_think_about,
+    default_cargo_toml,
     drop_fixed_keys,
     fnv,
     names,
@@ -94,6 +95,14 @@ def test_scaffold_cargo_toml_keeps_the_package_and_drops_dependencies() -> None:
     assert 'name = "minishell"' in s and "[dependencies]\n" in s
     assert '[[bin]]\nname = "ft"' in s and "[workspace]" in s
     assert "nix" not in s and "libc" not in s, s
+
+
+def test_a_reference_without_cargo_toml_gets_the_default_one(tmp_path: Path) -> None:
+    from proctor import lang
+
+    (tmp_path / "Cargo.toml").write_text(default_cargo_toml("d08-structs-enums"))
+    assert lang.cargo_package(tmp_path) == "d08-structs-enums"
+    assert scaffold_cargo_toml(default_cargo_toml("d08")) == default_cargo_toml("d08")
 
 
 def test_member_crates_lose_their_own_workspace_table() -> None:

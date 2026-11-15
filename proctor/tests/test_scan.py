@@ -93,6 +93,35 @@ def test_rust_whitelist(tmp_path: Path) -> None:
     shutil.rmtree(d, ignore_errors=True)
 
 
+def test_rust_workspace_crates_are_the_student_s_own(tmp_path: Path) -> None:
+    root = (
+        '[package]\nname = "p03-serve"\n\n[dependencies]\nrustkit = { path = "rustkit" }\n'
+        'rand = "1"\nhelper.path = "helper"\n\n[dependencies.mserve]\npath = "mserve"\n\n'
+        '[workspace]\nmembers = ["rustkit", "mserve", "helper"]\n'
+    )
+    d = tmp(
+        tmp_path,
+        "rsws",
+        [
+            ("Cargo.toml", root),
+            ("src/lib.rs", "use rustkit::Vec2;\nuse mserve::serve;\nuse p03_serve::x;\n"),
+            ("rustkit/Cargo.toml", '[package]\nname = "rustkit"\n'),
+            ("rustkit/src/lib.rs", "pub struct Vec2;\n"),
+            (
+                "mserve/Cargo.toml",
+                '[package]\nname = "mserve"\n\n[dependencies]\nrustkit = { path = "../rustkit" }\nserde = "1"\n',
+            ),
+            ("mserve/src/lib.rs", "use rustkit::Vec2;\npub fn serve() {}\n"),
+        ],
+    )
+    r = check_allowed("rust", d, allowed(["std"]), [], SrcOpts())
+    assert [(v.what, v.at) for v in r.violations] == [
+        ("crate `rand`", "Cargo.toml:6"),
+        ("crate `serde`", "mserve/Cargo.toml:6"),
+    ]
+    shutil.rmtree(d, ignore_errors=True)
+
+
 def test_rust_module_allows_all_inside_but_forbidden_and_tests_apart(tmp_path: Path) -> None:
     d = tmp(
         tmp_path,
