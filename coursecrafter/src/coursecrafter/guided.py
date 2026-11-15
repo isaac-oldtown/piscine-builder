@@ -17,11 +17,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from proctor.compat import io_error, is_terminal, read_text, trim, trim_end, write_text
+from proctor.compat import (
+    float_display,
+    io_error,
+    is_terminal,
+    read_text,
+    trim,
+    trim_end,
+    write_text,
+)
 from proctor.errors import Err, Error, Ok, Result
 
 from coursecrafter import curriculum, llm, prompts, session
-from proctor import ask
+from proctor import ask, journal, progress
 
 MAX_AUTOFIX = 3
 # Questions in a whole conversation, asked one per planner reply.
@@ -543,12 +551,40 @@ def cmd_revise(raw: list[str]) -> bool:
     return run(
         course,
         llm_,
-        prompts.revise_request(text, changes),
+        prompts.revise_request(text, changes, measured(course, plan)),
         interactive,
         plan,
         Mode.REVISE,
         a.has("debug"),
     )
+
+
+def measured(course: Path, plan: curriculum.Plan) -> str:
+    """The planned and measured hours of every unit started so far, as a
+    table ("" before the first unlock)."""
+    stats = progress.compute(journal.read(course)).units
+    rows = []
+    planned_done = measured_done = 0.0
+    for e in plan.units():
+        s = stats.get(e.id)
+        if s is None or (s.unlocked is None and s.attempts == 0):
+            continue
+        h = s.active / 3600
+        planned = "?" if e.f.hours is None else float_display(e.f.hours)
+        state = "passed" if s.passed is not None else "in progress"
+        rows.append(f"| {e.id} | {planned} | {h:.1f} | {s.attempts} | {state} |")
+        if s.passed is not None and e.f.hours is not None:
+            planned_done += e.f.hours
+            measured_done += h
+    if not rows:
+        return ""
+    table = "\n".join(
+        ["| Unit | Planned h | Measured h | Checks | State |", "|---|---|---|---|---|", *rows]
+    )
+    if planned_done > 0:
+        planned = float_display(round(planned_done, 1))
+        table += f"\n\nPassed units: {planned} h planned, {measured_done:.1f} h measured."
+    return f"{table}\n"
 
 
 def cmd_convert(raw: list[str]) -> bool:

@@ -7,8 +7,8 @@ from coursecrafter.guided import MAX_QUESTIONS, answers_message, ask_all, parse_
 from proctor.compat import read_text
 from proctor.errors import Error
 
-from coursecrafter import cli, env, guided, linux, llm, prompts
-from proctor import ask, docker
+from coursecrafter import cli, curriculum, env, guided, linux, llm, prompts
+from proctor import ask, docker, journal
 
 
 def test_parses_question_arrays() -> None:
@@ -88,6 +88,34 @@ def test_a_question_may_be_an_array_of_its_fields() -> None:
     # The wrapped form is only read from an object.
     with pytest.raises(Error):
         parse_questions('[[{"question": "Q"}]]')
+
+
+def test_revise_sees_the_measured_hours(tmp_path: Path) -> None:
+    plan = curriculum.parse(prompts.PLAN_EXAMPLE)
+    assert guided.measured(tmp_path, plan) == ""
+    (tmp_path / ".proctor").mkdir()
+    for t, ev, unit, ok in [
+        (0, "unlock", "d01-hello", None),
+        (600, "check", "d01-hello", False),
+        (1800, "check", "d01-hello", True),
+        (1800, "pass", "d01-hello", None),
+        (1900, "unlock", "d02-strings", None),
+        # Two hours later: a break, not work.
+        (9100, "check", "d02-strings", False),
+        (10300, "check", "d02-strings", False),
+    ]:
+        journal.append(tmp_path, journal.Event(t=t, ev=ev, unit=unit, ok=ok))
+    table = guided.measured(tmp_path, plan)
+    assert table == (
+        "| Unit | Planned h | Measured h | Checks | State |\n|---|---|---|---|---|\n"
+        "| d01-hello | 1.5 | 0.5 | 2 | passed |\n"
+        "| d02-strings | 5 | 0.3 | 2 | in progress |\n\n"
+        "Passed units: 1.5 h planned, 0.5 h measured.\n"
+    )
+    request = prompts.revise_request("c", "fewer hours", table)
+    assert "## Measured so far" in request
+    assert request.index(table) < request.index("Revise it: fewer hours")
+    assert "Measured" not in prompts.revise_request("c", "fewer hours")
 
 
 def test_mode_names() -> None:

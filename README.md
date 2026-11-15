@@ -133,7 +133,7 @@ The curriculum validator checks prerequisites, workload against available hours,
 | `coursecrafter new "<goal>" [--from FILE] [--course DIR] [--yes] [--debug]` | Plan a curriculum with an LLM. `--from` adds a syllabus or notes. |
 | `coursecrafter prompt [--lang L] [--level beginner] [--hours 10]` | Print a prompt for a chat assistant. |
 | `coursecrafter import <file> [--course DIR] [--yes] [--paste]` | Validate and import a curriculum already in the curriculum format (no LLM). |
-| `coursecrafter revise "<changes>" [--course DIR] [--yes] [--debug]` | Revise the curriculum with an LLM. The previous version is retained. |
+| `coursecrafter revise "<changes>" [--course DIR] [--yes] [--debug]` | Revise the curriculum with an LLM. The previous version is retained. Once you have started the course, the planner also sees the hours planned and measured on each unit started (from proctor's journal), so `revise "adjust the hours to my pace"` works from real numbers. |
 | `coursecrafter show [file] [--course DIR] [--full]` | Show units, hours, difficulty, prerequisites, and approval status. |
 | `coursecrafter preview <unit>... [--course DIR]` | Print the instructions of built units as proctor renders them, without unlocking anything. `d02` or `d02-control-flow`; a project id shows all its stages. |
 | `coursecrafter env` | Show detected tools and platform capabilities. |

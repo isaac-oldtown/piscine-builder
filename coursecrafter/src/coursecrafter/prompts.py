@@ -343,10 +343,22 @@ def browser_prompt(lang: str | None, level: str | None, hours: str | None, env: 
     )
 
 
-def revise_request(current: str, changes: str) -> str:
-    """`coursecrafter revise`: the current file plus the student's requested changes."""
+def revise_request(current: str, changes: str, measured: str = "") -> str:
+    """`coursecrafter revise`: the current file plus the student's requested changes,
+    and the time the course journal measured on the units started so far."""
+    if measured:
+        measured = (
+            "## Measured so far\n\n"
+            "Time the student spent on each unit started so far, from the course journal. It adds up the "
+            "gaps of at most 45 minutes between two of the student's actions (unlock, checks), so it misses "
+            "reading and thinking before them: read it as a lower bound. When my request touches hours, "
+            "workload or pacing, rely on it: where the student ran well past the plan, give the similar "
+            "units still ahead more hours or less scope.\n\n"
+            f"{measured}\n"
+        )
     return (
         f"Here is my current curriculum:\n<curriculum>\n{current}\n</curriculum>\n\n"
+        f"{measured}"
         f"Revise it: {changes}\n\n"
         "Keep everything I did not ask to change. Ask a question only if my request is ambiguous. "
         "Check the result against the review list below, then reply with <changes>a short bullet "
