@@ -317,7 +317,6 @@ def cmd_prompt(raw: list[str]) -> bool:
             a.get("lang"),
             a.get("level"),
             a.get("hours"),
-            f"{env.detect(None).summary()}\n{linux.detect().planning_block()}",
         )
     )
     return True

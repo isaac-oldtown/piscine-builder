@@ -1,9 +1,8 @@
 """Prompt text. Stable parts are constants placed first in every request, so
 providers with prompt caching only bill them once per run.
 
-Every request is hashed into the key of the on-disk LLM reply cache: keep
-these texts byte-identical to the Rust tool's, or every cached reply of an
-existing course is asked again."""
+Every request is hashed into the key of the on-disk LLM reply cache: editing
+a text makes the unbuilt units of an existing course ask again."""
 
 from __future__ import annotations
 
@@ -15,170 +14,65 @@ PLAN_FORMAT = r"""# PiscineBuilder curriculum format
 
 A curriculum is ONE markdown file. Output only that file.
 
-## 1. Front matter (required)
+Front matter (required):
 
 ---
 title: <course title>
-language: <default language: c, python, rust, bash, go, javascript, any name>
+language: <default language: c, python, rust, bash, go, any name>
 level: <beginner | intermediate | advanced>
 hours_per_week: <number>
 weeks: <number>
-environment: <optional: where students will work if not on the build machine, e.g. "Ubuntu 24.04, gcc, valgrind, make">
-rigor: <relaxed | standard | strict: how thoroughly hidden tests probe edge cases; strict unless the student asks otherwise>
-conventions: <optional, one paragraph: course-wide habits units rely on, e.g. "errors go to stderr as `name: message`">
+rigor: <optional: relaxed | standard | strict (default), how thoroughly hidden tests probe edge cases>
+conventions: <optional, one paragraph of course-wide habits units rely on>
 ---
 
-## 2. Entries, in teaching order
+Then the entries, in teaching order. Each is a heading `## <id>: <Title>` (`### ` for project stages), then
+`key: value` lines with NO blank line inside (quote a value that starts with a backtick or contains `: `),
+then an optional free-text brief (scope, design decisions, pitfalls) for the exercise writer.
 
-Each entry is a heading `## <id>: <Title>` (`### ` for project stages), then
-`key: value` lines in YAML with NO blank line inside (quote a value that starts with a backtick
-or contains `: `), then an optional free-text
-brief (scope, design decisions, pitfalls to target) for the exercise writer.
-
-Ids:
-- `dNN-slug`   drill: small, one skill, one sitting.
-- `pNN-slug`   project: app-sized, built in stages. Its stages follow it.
-- `pNN.k-slug` stage k of project pNN, heading `###`, k = 1, 2, 3... The last required stage is the finale.
-- `note-slug`  note: half a page explaining an easy notion, revealed together with a unit.
-Numbers grow in teaching order; slugs are lowercase words joined by hyphens.
+Ids (numbers grow in teaching order, slugs are lowercase words joined by hyphens):
+- `dNN-slug`   drill: one skill, one sitting (1 to 4 hours).
+- `pNN-slug`   project: app-sized, built in stages that follow it.
+- `pNN.k-slug` stage k of project pNN, heading `###`. One to three sittings, at most about 12 hours.
+- `note-slug`  note: half a page explaining an easy notion, revealed with a unit.
 
 Keys of a drill or stage:
-- goal: one sentence, what the student practises (required)
-- concept_difficulty: 1 to 5, how hard the ideas are to understand (required)
-- difficulty: 1 to 5, how hard it is to implement and debug correctly (required)
-- hours: estimated hours of implementation, testing and debugging (required; for planning only, never shown to the student)
-- done_when: one line, the exit criterion: the observable behaviour showing the essential skills are there
-  (the exercise writer turns it into the checked requirements). Optional details are not part of it, so the
-  student can move on once it holds.
-- introduces: [concepts and tools this unit teaches; ONE concept per item, each worth its own explanation: three ideas are three items, never "X and Y" in one]
-- assumes: [concepts and tools it needs]
-- target: function | program
-- scaffold: none | minimal | full
-- allows: [libraries, modules or functions the student may use besides their own code]
-- stretch: true   (optional unit: the student may skip it)
-- guided: true   (drills only: the instructions walk the student through it step by step)
-- platform: linux   (only when the unit needs Linux APIs: fork, exec, pipes, signals, process groups,
-  /proc, Unix permissions; such units are built and tested in a Linux container on other systems)
-- gradable: false   (only if no program can check the result)
-- language: <only if different from the default>
-Keys of a project: goal, difficulty, assumes, language, platform, and minimum (required): one line, what the
-project must do to count as a success. Its brief states the scope: what is in, what is out.
-Keys of a note: teaches: [...], with: <id of the drill or stage it is revealed with>.
+- goal: one sentence (required)
+- concept_difficulty, difficulty: 1 to 5 (required): how hard to understand, how hard to implement and debug
+- hours: honest estimate including testing and debugging (required)
+- done_when: one line, the observable behaviour showing the essential skills are there
+- introduces: [ONE concept per item: three ideas are three items]
+- assumes: [everything it needs, basics included]
+- target: function | program (function: the grader calls given functions; c, python and rust only)
+- scaffold: none | minimal | full (minimal by default; full only for the first drills)
+- allows: [libraries, modules or functions the student may use]
+- stretch: true (optional unit), guided: true (drills: step-by-step walkthrough),
+  platform: linux (only for Linux APIs: fork, pipes, signals, /proc), gradable: false (nothing checkable),
+  language: <only if different from the default>
+Keys of a project: goal, difficulty, assumes, language, platform, and `minimum` (required): one line, what
+the project must do to count as a success. Its brief states what is in and out of scope.
+Keys of a note: teaches: [...], with: <id of the unit it is revealed with>.
 
-## 3. Rules
-
-Prerequisites
-- Teach before use. Every item of `assumes` must appear in the `introduces` of an
-  EARLIER unit, or in the `teaches` of a note revealed with this unit or earlier.
-  This covers tools too: a Makefile, a debugger, a build system, a test framework.
-- `assumes` lists EVERYTHING a unit needs, including basics that are easy to forget:
-  control flow, the core collection types, printing and debug output, formatting
-  traits or helpers, common annotations. The first drills introduce these
-  explicitly, so later units can name them.
-- Covered, not just introduced: before a project stage relies on a concept, the student
-  has practised it in a graded drill or an earlier stage. A note can explain an easy
-  notion, but a hard stage never relies on something only read about.
-- A note is only for notions a short page can explain (what a Makefile is). Anything
-  that needs practice gets its own drill or stage. Principles that recur (resource
-  cleanup, error propagation) are repeated in the briefs where they apply, not taught once.
-
-First steps
-- `level` is how well the student programs, not how well they know this language.
-  Unless the student already writes the course's language, the course starts with a
-  guided drill (`guided: true`, usually d00 or d01, about 1 to 2 hours, difficulty 1):
-  checking the toolchain is installed, creating, compiling and running a project, the
-  basic syntax, and a first program built step by step. Its brief lists what the
-  walkthrough covers. The same holds for each later language a course adds.
-- The first ordinary drills then introduce at most three concepts each.
-
-Progression
-- Never jump from first meeting a concept to building a major feature with it. Before
-  each project stage that needs a hard concept, a small drill checks the student
-  understands it. A stage introduces at most two new concepts.
-
-Testing and debugging
-- Introduce the language's unit-test tool within the first three units. From then on,
-  every project stage's brief asks the student to ship tests with the code, and to add
-  a regression test for every bug they fix. Testing and debugging time is part of
-  every stage's `hours`, not a separate unit.
-
-Purpose
-- Every drill serves a later unit: what it introduces appears in a later `assumes`.
-  A topic nothing uses is cut, folded into another unit, or marked `stretch: true`.
-- Advanced or low-level topics (unsafe code, FFI, concurrency, metaprogramming) only
-  when a later unit needs them, and scoped to that need.
-- The aim is a student who can explain, debug and extend their code, not one who
-  ticked every feature. Goals and briefs name skills, not feature counts.
-
-Workload
-- Estimate `hours` honestly for this student, including testing and debugging. Topics
-  that are routinely underestimated get more time or a higher difficulty: memory and
-  ownership models, data-structure and AST design, parsing, unsafe code and FFI,
-  processes, pipes and signals, concurrency. For those, take your first guess and add
-  half to all of it.
-- Estimate for work that passes the course's `rigor`, not for a version that only handles
-  the usual inputs. At strict rigor (the default) the hidden tests probe every edge case,
-  type limits, non-ASCII text and malformed input: count the time to get all of that right.
-- Required hours (stretch goals excluded) leave at least 10 to 15% of
-  hours_per_week x weeks free, for debugging and revisiting concepts. If the scope does
-  not fit, reduce the required scope or suggest more weeks; never squeeze estimates.
-- Students progress unevenly. Do not plan a schedule where every hour must go to plan.
-- A finale is ONE milestone. If it covers two hard topics, split it into a required
-  stage and a stretch stage.
-- Size: a drill fits in one sitting (usually 1 to 4 hours); a stage in one to three sittings
-  (at most about 12 hours).
-
-Minimum viable project and stretch goals
-- Every project states its `minimum`: what it must do to count as a success. The
-  required stages deliver exactly that and nothing more; extra features are stretch
-  stages. This prevents feature creep and is the fallback when time runs short.
-- Stretch stages come after the required finale and are attempted only once the
-  required work is stable. They are not counted in the budget. Nothing required may
-  assume what only a stretch goal introduces. The first stage of a project is never a stretch goal.
-- Plan for consolidation: the last required unit of the course is a consolidation stage
-  of about 5 to 10% of the budget: refactor, improve the tests, document the known
-  limitations in a README, and revisit the concepts that caused the most friction.
-  Its done_when: the tests still pass and the README lists the limitations.
-- Weekly review checkpoints are added automatically by the grader; do not add units for them.
-
-Difficulty
-- Track both scales. concept_difficulty is how hard the idea is to understand;
-  difficulty is how hard it is to implement and debug. They often differ: spawning a
-  process is easy to understand (concept 2) but a correct pipeline is hard to build
-  (difficulty 4).
-- Use the whole 1 to 5 scale so it carries information. 5 is rare: one or two units
-  in a whole course.
-Design decisions
-- Look ahead. When a later stage depends on a representation chosen earlier, say so in
-  the earlier stage's brief (for example: tokens keep their quoting, because a later
-  expansion stage needs it).
-- All stages of a project build one program (or library) that each stage extends: the
-  tests of every earlier stage run again at each later stage. Separate small programs are
-  drills. A stage never specifies what it does with a feature a later stage adds (no
-  `not supported yet` messages): that behaviour is left untested until the stage adding it.
-- Decide in the brief whatever drives the design: the project scope, the grammar of a
-  parser or protocol (written before the parser stage), the output order of concurrent
-  programs, and the edge cases (empty input, missing trailing newline, unreadable
-  files, invalid encodings).
-
-Fit
-- target: function when the exercise is about writing given functions (the grader
-  calls them with its own main; available for c, python and rust only). program when
-  the whole program is graded (arguments, output, exit code), and always for other
-  languages.
-- scaffold: none when creating the files and folders is part of the lesson (shell or
-  filesystem basics); minimal by default; full only for the very first drills. Big
-  projects use minimal: the student organizes the project.
-- Operating-system features only when the student's environment provides them; if
-  they don't, choose an alternative or make the unit a stretch goal.
-- Portable by default: only units that need Linux APIs get `platform: linux` (set it on a
-  project when all its stages need it). Once a stage of a project needs Linux, every later
-  stage does too, since earlier stages are tested again with it.
-- Alternate drills and projects: a project integrates the drills before it.
-- gradable: false only when nothing can be checked by a program (visual design,
-  essays). Prefer exercises with checkable results.
-- The student may use documentation and forums but no AI; exercises must be
-  doable that way.
+Rules:
+- Teach before use: every `assumes` item is in the `introduces` of an EARLIER unit (or the `teaches` of a
+  note revealed with it or earlier), tools included. A hard stage relies only on what was practised in a
+  graded unit, never on a note alone. A note is only for notions a short page explains.
+- Unless the student already writes the language, open with a guided drill (d00 or d01, 1 to 2 hours,
+  difficulty 1): toolchain check, creating, building and running a project, a first program. The first
+  ordinary drills introduce at most three concepts each; a stage introduces at most two.
+- Before a stage needs a hard concept, a small drill checks it. Introduce the test tool within the first
+  three units; project briefs then ask for tests and a regression test for every fixed bug.
+- Every drill feeds a later unit. Advanced topics only when a later unit needs them.
+- Hours: add half to routinely underestimated topics (ownership, parsing, unsafe, processes, concurrency).
+  Required hours leave 10 to 15% of hours_per_week x weeks free; cut scope or add weeks, never squeeze.
+- Each project's required stages deliver exactly its `minimum`; extras are stretch stages after the
+  required finale. The first stage is never stretch. The last required unit of the course is a
+  consolidation stage (5 to 10% of the budget: refactor, tests, README of known limitations).
+- All stages of a project extend one program. A stage never specifies behaviour a later stage adds.
+  Decide in the briefs what later stages depend on: scope, grammars, output order, edge cases.
+- Use the whole 1 to 5 difficulty scale; 5 is for one or two units.
+- Portable by default: `platform: linux` only where Linux APIs are needed (every later stage of a project
+  then needs it too). The student may use documentation but no AI.
 """
 
 PLAN_EXAMPLE = r"""---
@@ -286,39 +180,21 @@ Only once the required stages are stable.
 
 # The planning review: a second look at a draft, by the planner itself.
 REVIEW_CHECKLIST = r"""Review the curriculum as a demanding teacher would, then fix it:
-1. Prerequisites: for every unit, list what it really needs, basics included (control
-   flow, collections, printing and debug output, formatting, annotations). Anything not
-   introduced earlier is a gap. Anything a hard stage relies on must have been practised
-   in a graded unit, not only introduced or explained in a note.
-2. First steps: unless the student already writes this language, does the course open with a
-   guided drill that installs nothing by surprise and builds a first program step by step?
-   Do the first ordinary drills introduce at most three concepts each?
-   Progression: before each project stage that needs a hard concept, is there a small
-   drill that checks the concept first? Does any stage introduce more than two new concepts?
-3. Testing: is the test tool introduced in the first three units, do project briefs ask
-   for tests and regression tests, and do the `hours` include testing and debugging?
-4. Purpose: does every drill feed a later unit? Cut, merge or mark stretch the ones that don't.
-5. Workload: are the `hours` honest for this student, at the course's rigor (strict means
-   every edge case must be right, not just the usual inputs)? Are the routinely underestimated
-   topics (memory and ownership, AST and data-structure design, parsing, unsafe and FFI,
-   processes, pipes, signals, concurrency) given enough time? Do required hours leave
-   10 to 15% of the budget free? If not, cut required scope or suggest more weeks.
-6. Minimum viable projects: does every project state its `minimum`, and do its required
-   stages deliver exactly that? Are extra features stretch stages placed after the
-   required finale?
-7. Consolidation: does the course end with a consolidation stage (refactor, tests,
-   documented limitations, revisiting the hardest concepts)?
-8. Exit criteria: does each `done_when` describe the essential skills only, so the
-   student can move on while optional details remain?
-9. Difficulty: are concept_difficulty and difficulty both set and honest, with the scale
-   spread out and 5 kept for one or two units?
-10. Design: for every project, are the scope, the grammar or format, the edge cases and
-    the decisions later stages depend on written in the briefs?
-11. Fit: does every unit only need what the student's environment provides?
-12. Missing concepts: what will the final project need that no unit teaches?"""
+1. Prerequisites: every `assumes` item (basics included) is introduced by an earlier unit, and practised
+   in a graded unit before a hard stage relies on it.
+2. First steps and progression: a guided opening drill unless the student knows the language; at most
+   three concepts per first drill, two per stage; a small drill before each hard concept.
+3. Testing: the test tool comes within three units; project briefs ask for tests.
+4. Purpose: every drill feeds a later unit; cut, merge or mark stretch the rest.
+5. Workload: honest `hours` at the course's rigor, extra time for underestimated topics, 10 to 15% of
+   the budget free.
+6. Every project has a `minimum` its required stages deliver exactly, stretch stages after the finale,
+   and the course ends with a consolidation stage.
+7. Each `done_when` names the essential skills only; both difficulties are set, with 5 kept rare.
+8. Briefs state the design decisions later stages depend on. Nothing the final project needs is untaught."""
 
 
-def browser_prompt(lang: str | None, level: str | None, hours: str | None, env: str) -> str:
+def browser_prompt(lang: str | None, level: str | None, hours: str | None) -> str:
     wishes = ""
     if lang is not None:
         wishes += f"- Language: {lang}\n"
@@ -337,8 +213,6 @@ def browser_prompt(lang: str | None, level: str | None, hours: str | None, env: 
         "any version, check it against the review list below and fix what it finds. "
         "When I say it is final, output the complete curriculum in the exact format "
         f"below, as one markdown code block, with nothing else.\n\nWhat I want:\n{wishes}\n"
-        "## My machine (detected; plan only with tools listed as available, or tell me what to install)"
-        f"\n\n{env}\n"
         f"{PLAN_FORMAT}\n## 4. Example\n\n{PLAN_EXAMPLE}\n## 5. Review list\n\n{REVIEW_CHECKLIST}\n"
     )
 

@@ -726,12 +726,10 @@ def converse(
     (a revision), its ids are the baseline of the change list. Only `new` gets
     the separate self-review: a revision request includes it, and a
     conversion must keep the author's plan rather than redesign it."""
-    from coursecrafter import cli, env, linux
+    from coursecrafter import cli, linux
 
-    print("scanning this machine...", file=sys.stderr)
     system = (
         f"{prompts.GUIDED_SYSTEM}\n\n{prompts.PLAN_FORMAT}\n## Example\n\n{prompts.PLAN_EXAMPLE}"
-        f"\n\n{env.detect(None).prompt_block()}\n{linux.detect().planning_block()}"
     )
     messages = [llm.Msg.system(system), llm.Msg.user(intake)]
     asked = 0
