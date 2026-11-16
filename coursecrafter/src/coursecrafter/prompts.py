@@ -105,19 +105,7 @@ assumes: [compiling with cc, if statements, loops]
 target: function
 allows: [assert.h]
 
-Focus on off-by-one errors and empty strings. Write assert-based tests for each helper.
-
-## d03-read-loop: Reading input
-goal: Read standard input byte by byte and handle end of file.
-concept_difficulty: 2
-difficulty: 2
-hours: 2
-done_when: the program echoes its input exactly, including a missing trailing newline
-introduces: [reading stdin, EOF]
-assumes: [main, loops]
-target: program
-
-A small check before the project: the first stage builds on this read loop.
+Focus on off-by-one errors and empty strings.
 
 ## note-make: What a Makefile is
 teaches: [make]
@@ -127,18 +115,18 @@ with: p01.1-build
 goal: Build a small clone of `wc` that counts lines, words and bytes.
 minimum: prints line, word and byte counts of stdin and of file arguments, like `wc`
 difficulty: 3
-assumes: [pointers, reading stdin]
+assumes: [pointers]
 
 In scope: stdin, file arguments, the three counts. Out of scope: GNU flags, locales.
 
-### p01.1-build: Project setup
-goal: Organize the project with a Makefile and count bytes of standard input.
+### p01.1-build: Byte count
+goal: Organize the project with a Makefile and count the bytes of standard input.
 concept_difficulty: 2
 difficulty: 2
 hours: 3.5
 done_when: "`make` builds the binary and it prints the byte count of stdin"
-assumes: [make, reading stdin, assert-based tests]
-introduces: [multi-file projects]
+assumes: [make, pointers, assert-based tests]
+introduces: [reading stdin, multi-file projects]
 target: program
 
 Ship tests for the byte count. Decide now how input is read, the next stage reuses it.
@@ -162,8 +150,6 @@ done_when: the tests still pass and the README lists the known limitations
 assumes: [file I/O, assert-based tests]
 target: program
 
-Revisit pointers and EOF handling, the concepts that caused the most friction.
-
 ### p01.4-unicode: Characters
 goal: Add a character count that handles UTF-8 input.
 concept_difficulty: 3
@@ -174,8 +160,6 @@ done_when: "`-m` counts characters, not bytes, on multi-byte input"
 assumes: [file I/O]
 introduces: [UTF-8 decoding]
 target: program
-
-Only once the required stages are stable.
 """
 
 # The planning review: a second look at a draft, by the planner itself.
