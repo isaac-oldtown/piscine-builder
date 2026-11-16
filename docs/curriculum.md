@@ -114,6 +114,6 @@ edit the file yourself, or quit and keep the draft.
 coursecrafter assumes students work on the machine that builds the course. `coursecrafter env`
 shows what it detected: the OS, about 25 tools with their versions, facts it tests for real
 (AddressSanitizer, a POSIX bash), and Linux access (native, Docker, WSL). When students use
-another machine, declare it with `environment:` in the front matter: the planner and every
-generation request take it as authoritative, while tests are still verified on the build
+another machine, declare it with `environment:` in the front matter: every
+generation request takes it as authoritative, while tests are still verified on the build
 machine (Linux units in the container).
