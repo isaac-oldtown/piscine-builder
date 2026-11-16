@@ -281,7 +281,7 @@ def parse(text: str) -> Plan:
         else:
             if hashes == 3:
                 problems.append(Problem.err(j + 1, id, "only project stages use `###` headings"))
-            last_project = None
+            # Drills and notes may sit between the stages of a project.
             parent = None
         entries.append(
             Entry(
@@ -482,12 +482,13 @@ class Plan:
                                 f"`target: function` is available for c, python and rust; use `target: program` for {lang}",
                             )
                         )
-                    if e.f.gradable is False:
+                    intro = e.parent is not None and self.stages(e.parent)[0].id == id
+                    if e.f.gradable is False and not intro:
                         p.append(
                             Problem.warn(
                                 e.line,
                                 id,
-                                "gradable: false, so proctor will only check files, structure and the build",
+                                "gradable: false makes a reading-only unit: nothing is checked and the student passes it with `proctor check` once read; use it only for a project's introduction",
                             )
                         )
                     if e.f.teaches or e.f.with_ is not None:
@@ -677,6 +678,23 @@ class Plan:
                         "a project needs `minimum`: one line saying what it must do to count as a success",
                     )
                 )
+            if stages and stages[0].f.gradable is not False:
+                p.append(
+                    Problem.warn(
+                        stages[0].line,
+                        stages[0].id,
+                        "the first stage of a project is a reading-only introduction (`gradable: false`, about half an hour) that tells the student the goal, the roadmap, what is reused and the scope",
+                    )
+                )
+            required = [s for s in stages if not s.f.stretch]
+            if required and not any("consolidat" in f"{s.id} {s.title}".lower() for s in required):
+                p.append(
+                    Problem.warn(
+                        proj.line,
+                        proj.id,
+                        "no consolidation stage: end the required stages with one (refactor, tests, README of the known limitations)",
+                    )
+                )
             first_stretch = next((i for i, s in enumerate(stages) if s.f.stretch), None)
             if first_stretch is not None:
                 late = next((s for s in stages[first_stretch:] if not s.f.stretch), None)
@@ -770,6 +788,26 @@ class Plan:
                 and any(any(norm(c) == norm(a) for c in u.f.introduces) for a in e.f.assumes)
                 for e in self.entries
             )
+            if used and not any(
+                any(norm(a) == norm(c) for a in lt.f.assumes)
+                for lt in later
+                if not lt.f.stretch
+                for c in u.f.introduces
+            ):
+                only_stretch = not any(
+                    e.kind == Kind.PROJECT
+                    and e.line > u.line
+                    and any(any(norm(c) == norm(a) for c in u.f.introduces) for a in e.f.assumes)
+                    for e in self.entries
+                )
+                if only_stretch:
+                    p.append(
+                        Problem.warn(
+                            u.line,
+                            u.id,
+                            "only stretch units assume what this drill introduces: mark it `stretch: true` too",
+                        )
+                    )
             if not used:
                 p.append(
                     Problem.warn(

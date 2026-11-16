@@ -692,6 +692,10 @@ class Engine:
             case AgainstDir(d):
                 against = str(d)
         rep.start(self.unit, self.opts.seed, against)
+        if self.unit.reading:
+            ph = phase("reading", [Item.pass_("introduction", "read")], False, lambda n, t: "read")
+            rep.phase_end(ph)
+            return self.verdict([ph], 0)
         phases: list[Phase] = []
         blocked = False
         warnings = 0
@@ -1353,7 +1357,14 @@ def validate(c: course.CourseDir) -> list[str]:
                         unsupported[p.name] = e.msg
                     else:
                         problems.append(f"{u.id}: {e.msg}")
-        if u.target == Target.PROGRAM and c.run_cmd(u) is None and language not in ("c", "rust"):
+        if u.reading and (u.functions or u.files or u.has_tests()):
+            problems.append(f"{u.id}: a reading unit has no functions, files or tests")
+        if (
+            u.target == Target.PROGRAM
+            and not u.reading
+            and c.run_cmd(u) is None
+            and language not in ("c", "rust")
+        ):
             problems.append(f"{u.id}: `target: program` needs `run:` for {language}")
         for key, cmd in (("run", c.run_cmd(u)), ("build", c.build_cmd(u))):
             if cmd is not None and not run.split_words(cmd):

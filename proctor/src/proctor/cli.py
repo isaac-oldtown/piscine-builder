@@ -378,7 +378,7 @@ def print_reveal(c: course.CourseDir, u: Unit, r: scaffold.Revealed) -> None:
         print(
             "  this unit needs Linux: `proctor check` builds and tests it in a Linux container (Docker Desktop must be running), and `proctor shell` opens a terminal there to run your program by hand"
         )
-    if u.scaffold == Scaffold.NONE:
+    if u.scaffold == Scaffold.NONE and not u.reading:
         print(
             f"  no workspace was created: setting it up is part of the exercise ({c.workspace_name(u)}/)"
         )

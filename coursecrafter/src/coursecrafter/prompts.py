@@ -10,69 +10,90 @@ from dataclasses import dataclass
 
 from proctor.compat import trim, trim_end
 
-PLAN_FORMAT = r"""# PiscineBuilder curriculum format
+PLAN_FORMAT = r"""# Curriculum format
 
-A curriculum is ONE markdown file. Output only that file.
+One markdown file.
 
-Front matter (required):
+## Front matter (required)
 
 ---
 title: <course title>
-language: <default language: c, python, rust, bash, go, any name>
+language: <default language: c, python, rust, bash, go, javascript, any name>
 level: <beginner | intermediate | advanced>
 hours_per_week: <number>
 weeks: <number>
-rigor: <optional: relaxed | standard | strict (default), how thoroughly hidden tests probe edge cases>
-conventions: <optional, one paragraph of course-wide habits units rely on>
+environment: <optional: where students work if not on the build machine>
+rigor: <relaxed | standard | strict: how thoroughly hidden tests probe edge cases; strict unless I ask otherwise>
+conventions: <optional, one paragraph: course-wide habits units rely on, e.g. "errors go to stderr as `name: message`">
 ---
 
-Then the entries, in teaching order. Each is a heading `## <id>: <Title>` (`### ` for project stages), then
-`key: value` lines with NO blank line inside (quote a value that starts with a backtick or contains `: `),
-then an optional free-text brief (scope, design decisions, pitfalls) for the exercise writer.
+## Entries, in teaching order
 
-Ids (numbers grow in teaching order, slugs are lowercase words joined by hyphens):
-- `dNN-slug`   drill: one skill, one sitting (1 to 4 hours).
-- `pNN-slug`   project: app-sized, built in stages that follow it.
-- `pNN.k-slug` stage k of project pNN, heading `###`. One to three sittings, at most about 12 hours.
-- `note-slug`  note: half a page explaining an easy notion, revealed with a unit.
+Each entry is a heading `## <id>: <Title>` (`### ` for project stages), then `key: value` lines in YAML with NO blank line inside, then an optional free-text brief for the exercise writer (scope, design decisions, pitfalls to target). Quote a value that starts with a backtick or contains `: `. In a list, quote an item that contains a comma, a bracket or a brace.
+
+Ids (numbers grow in teaching order; slugs are lowercase words joined by hyphens):
+- `dNN-slug`   drill: small, one skill, one sitting.
+- `pNN-slug`   project: app-sized, built in stages. Its stages follow it; drills may sit between them.
+- `pNN.k-slug` stage k of project pNN, heading `###`, k = 1, 2, 3...
+- `note-slug`  note: half a page explaining an easy notion, revealed together with a unit.
 
 Keys of a drill or stage:
-- goal: one sentence (required)
-- concept_difficulty, difficulty: 1 to 5 (required): how hard to understand, how hard to implement and debug
-- hours: honest estimate including testing and debugging (required)
-- done_when: one line, the observable behaviour showing the essential skills are there
-- introduces: [ONE concept per item: three ideas are three items]
-- assumes: [everything it needs, basics included]
-- target: function | program (function: the grader calls given functions; c, python and rust only)
-- scaffold: none | minimal | full (minimal by default; full only for the first drills)
-- allows: [libraries, modules or functions the student may use]
-- stretch: true (optional unit), guided: true (drills: step-by-step walkthrough),
-  platform: linux (only for Linux APIs: fork, pipes, signals, /proc), gradable: false (nothing checkable),
-  language: <only if different from the default>
-Keys of a project: goal, difficulty, assumes, language, platform, and `minimum` (required): one line, what
-the project must do to count as a success. Its brief states what is in and out of scope.
-Keys of a note: teaches: [...], with: <id of the unit it is revealed with>.
+- goal: one sentence, what the student practises (required)
+- concept_difficulty: 1 to 5, how hard the ideas are to understand (required)
+- difficulty: 1 to 5, how hard it is to implement and debug correctly (required)
+- hours: implementation, testing and debugging (required; for planning only, never shown to the student)
+- done_when: one line, the observable behaviour showing the essential skills are there. Optional details are not part of it.
+- introduces: [concepts and tools this unit teaches; ONE concept per item, never "X and Y" in one]
+- assumes: [concepts and tools it needs, in exactly the words used where they were introduced]
+- target: function | program
+- scaffold: none | minimal | full
+- allows: [libraries, modules or functions the student may use besides their own code]
+- stretch: true   (optional unit: the student may skip it)
+- guided: true   (drills only: the instructions walk the student through it step by step)
+- platform: linux   (only when the unit needs Linux APIs)
+- gradable: false   (a reading-only unit: no exercise, nothing to hand in; the student passes it with `proctor check` once read)
+- language: <only if different from the default>
+Keys of a project: goal, difficulty, assumes, language, platform, and minimum (required): one line, what the project must do to count as a success. Its brief states the scope (in, out), what it reuses and what later projects will reuse from it.
+Keys of a note: teaches: [...], with: <id of the drill or stage it is revealed with>.
 
-Rules:
-- Teach before use: every `assumes` item is in the `introduces` of an EARLIER unit (or the `teaches` of a
-  note revealed with it or earlier), tools included. A hard stage relies only on what was practised in a
-  graded unit, never on a note alone. A note is only for notions a short page explains.
-- Unless the student already writes the language, open with a guided drill (d00 or d01, 1 to 2 hours,
-  difficulty 1): toolchain check, creating, building and running a project, a first program. The first
-  ordinary drills introduce at most three concepts each; a stage introduces at most two.
-- Before a stage needs a hard concept, a small drill checks it. Introduce the test tool within the first
-  three units; project briefs then ask for tests and a regression test for every fixed bug.
-- Every drill feeds a later unit. Advanced topics only when a later unit needs them.
-- Hours: add half to routinely underestimated topics (ownership, parsing, unsafe, processes, concurrency).
-  Required hours leave 10 to 15% of hours_per_week x weeks free; cut scope or add weeks, never squeeze.
-- Each project's required stages deliver exactly its `minimum`; extras are stretch stages after the
-  required finale. The first stage is never stretch. The last required unit of the course is a
-  consolidation stage (5 to 10% of the budget: refactor, tests, README of known limitations).
-- All stages of a project extend one program. A stage never specifies behaviour a later stage adds.
-  Decide in the briefs what later stages depend on: scope, grammars, output order, edge cases.
-- Use the whole 1 to 5 difficulty scale; 5 is for one or two units.
-- Portable by default: `platform: linux` only where Linux APIs are needed (every later stage of a project
-  then needs it too). The student may use documentation but no AI.
+# Rules
+
+Prerequisites
+1. Teach before use. Every item of `assumes` appears in the `introduces` of an EARLIER unit, or in the `teaches` of a note revealed with this unit or earlier. Tools count: a build system, a debugger, a test framework.
+2. `assumes` lists EVERYTHING a unit needs, basics included: control flow, the core collection types, printing and debug output, formatting helpers, common annotations. The first drills introduce these explicitly so later units can name them.
+3. Practised, not just read. A stage relies only on concepts already exercised in a graded drill or an earlier stage. A note is only for a notion a short page can explain. Principles that recur (resource cleanup, error propagation) are repeated in the briefs where they apply.
+
+First steps and progression
+4. `level` is how well the student programs, not how well they know this language. Unless they already write the course's language, open with a guided drill (`guided: true`, 1 to 2 hours, difficulty 1): check the toolchain, create, build and run a project, basic syntax, a first program step by step. Its brief lists the walkthrough. Nothing is installed by surprise. The same holds for each language added later.
+5. The first ordinary drills introduce at most three concepts each. A stage introduces at most two. Before a stage needs a hard concept, a small drill checks it: never jump from first meeting a concept to building a major feature with it. That drill sits right before the stage that needs it, between two stages of the project when that is where it belongs.
+6. Introduce the unit-test tool within the first three units. From then on every stage brief asks the student to ship tests with the code and add a regression test for every bug fixed. Testing and debugging time is part of every `hours`.
+7. Every drill serves a later unit: what it introduces appears in a later `assumes`. Otherwise cut it, fold it into another unit or mark it stretch. Advanced or low-level topics (unsafe code, FFI, concurrency, metaprogramming) only when a later unit needs them, scoped to that need.
+8. Goals and briefs name skills, not feature counts. The aim is a student who can explain, debug and extend their code.
+
+Projects
+9. No big blocks. The required stages of one project total at most the project cap I gave. A larger goal becomes several smaller projects, each usable on its own, ending with a finale project that assembles them.
+10. Continuity, as far as the topic honestly allows. Each project follows naturally from the previous ones and reuses their code where it can. Each project brief names what it reuses and what later projects will reuse from it. A constraint a later project puts on an earlier design is written in the earlier brief. Each project still builds and is graded alone.
+11. Project introduction. Every project starts with a reading-only stage, `pNN.1-intro`: no exercise, `gradable: false`, about half an hour, done when the student has read it and validated it. Its brief gives the exercise writer the content: the goal of the project; the roadmap, one line per stage and per drill placed between stages, with the finale, the consolidation and the stretch stages marked; what is reused from earlier projects and what later ones will reuse; the scope.
+12. One program. All building stages of a project extend one program or library; the tests of every earlier stage run again at each later stage. Separate small programs are drills. A stage never specifies what it does with a feature a later stage adds: that behaviour stays untested until then.
+13. Design decisions go in the briefs: the scope, the grammar, format or protocol (written before the stage that parses it), the output order of concurrent programs, the edge cases (empty input, missing trailing newline, unreadable files, invalid encodings), and a fixed choice wherever behaviour would otherwise be open, so results can be checked.
+14. `minimum` states what the project must do to succeed. The required stages deliver exactly that and nothing more; extra features are stretch stages.
+15. Order inside a project: the introduction, the building stages, the finale (ONE milestone; if it covers two hard topics, split it into a required stage and a stretch stage), a consolidation stage, then stretch stages. Stretch stages are not in the budget and nothing required depends on them. A drill needed only by a stretch stage is itself stretch.
+16. Consolidation. Every project ends its required work with a short consolidation stage: refactor, improve the tests, list the known limitations in a README, revisit the concepts that caused the most friction. Its done_when: the tests still pass and the README lists the limitations. Together these stages take 5 to 10% of the budget, and the last required unit of the course is one of them.
+
+Rules that apply only in some curricula
+17. When a project reuses code from an earlier one: the reused code comes with its tests, which keep passing. Before the first such project, a drill teaches the language's way to share and package code (packages, workspaces, modules or libraries, depending on a local library, running an already built program), unless the student has practised it.
+18. When a project rebuilds an existing tool or application: `minimum` is the core of that tool. Every other feature is a stretch stage or is listed as out of scope. Never aim at full compatibility with the original, and fix a choice wherever the original leaves behaviour open.
+
+Workload and difficulty
+19. Estimate `hours` honestly for this student, for work that passes the course's `rigor` (strict: every edge case, type limits, non-ASCII text, malformed input). For routinely underestimated topics (memory and ownership models, data-structure and AST design, parsing, unsafe code and FFI, processes, pipes, signals, concurrency), take your first guess and add half.
+20. Budget. Required hours (stretch excluded) leave at least the free share I gave out of hours_per_week x weeks. If the scope does not fit, move features to stretch or suggest more weeks; never squeeze estimates.
+21. Size. A drill fits in one sitting (usually 1 to 4 hours); a stage in one to three sittings (at most about 12 hours).
+22. Difficulty. Set both scales honestly and use the whole 1 to 5 range; 5 is for one or two units in the course. Weekly review checkpoints are added by the grader: add no units for them.
+
+Fit
+23. target: function when the exercise is about writing given functions (c, python and rust only); program when the whole program is graded, and always for other languages. scaffold: none when creating files and folders is the lesson; minimal by default; full only for the very first drills.
+24. Portable by default. Use only what my machine provides. Only units that need Linux APIs get `platform: linux`; once a stage of a project needs it, every later stage does too.
+25. Alternate drills and projects: a project integrates the drills before it. gradable: false only for a project's introduction. The student may use documentation and forums but no AI.
 """
 
 PLAN_EXAMPLE = r"""---
@@ -94,111 +115,179 @@ introduces: [compiling with cc, main, printf, if statements, loops]
 target: program
 scaffold: full
 
-## d02-strings: Strings by hand
-goal: Re-implement basic string helpers with pointers.
-concept_difficulty: 3
+Walkthrough: check `cc --version`, write and compile one file, run it, then build the greeting step by step.
+
+## d02-read-loop: Reading input
+goal: Read standard input byte by byte and handle end of file.
+concept_difficulty: 2
 difficulty: 2
-hours: 5
-done_when: the helpers match the standard functions on empty, short and long strings
-introduces: [pointers, NUL termination, assert-based tests]
-assumes: [compiling with cc, if statements, loops]
-target: function
+hours: 3
+done_when: the program echoes its input exactly, including a missing trailing newline
+introduces: [reading stdin, EOF, assert-based tests]
+assumes: [compiling with cc, main, printf, if statements, loops]
+target: program
 allows: [assert.h]
-
-Focus on off-by-one errors and empty strings.
-
-## note-make: What a Makefile is
-teaches: [make]
-with: p01.1-build
 
 ## p01-wc: Mini wc
 goal: Build a small clone of `wc` that counts lines, words and bytes.
 minimum: prints line, word and byte counts of stdin and of file arguments, like `wc`
 difficulty: 3
-assumes: [pointers]
+assumes: [reading stdin, EOF, assert-based tests]
 
-In scope: stdin, file arguments, the three counts. Out of scope: GNU flags, locales.
+In scope: stdin, file arguments, the three counts. Out of scope: GNU flags, locales. Reused later: the read loop and the counting functions become the library of p02.
 
-### p01.1-build: Byte count
-goal: Organize the project with a Makefile and count the bytes of standard input.
+### p01.1-intro: What you will build
+goal: Understand the goal of the project and the path through its stages.
+concept_difficulty: 1
+difficulty: 1
+hours: 0.5
+done_when: the student has read the introduction and validated it
+gradable: false
+
+Goal: a working `wc`. Roadmap: p01.2 setup and bytes; d03 a drill on arguments and files; p01.3 the finale (words, lines, files); p01.4 consolidation; p01.5 optional characters. Reuse: nothing yet; p02 reuses the counting code. Scope: as in the project brief.
+
+## note-make: What a Makefile is
+teaches: [make]
+with: p01.2-build
+
+### p01.2-build: Project setup
+goal: Organize the project with a Makefile and count bytes of standard input.
 concept_difficulty: 2
 difficulty: 2
 hours: 3.5
 done_when: "`make` builds the binary and it prints the byte count of stdin"
-assumes: [make, pointers, assert-based tests]
-introduces: [reading stdin, multi-file projects]
+introduces: [multi-file projects]
+assumes: [make, reading stdin, EOF, assert-based tests, printf]
 target: program
 
-Ship tests for the byte count. Decide now how input is read, the next stage reuses it.
+Keep reading and counting in separate files: the finale and p02 reuse them. Ship tests with the code and add a regression test for every bug fixed.
 
-### p01.2-finale: Words and lines
+## d03-files: Arguments and files
+goal: Open the files named on the command line and report the ones that cannot be read.
+concept_difficulty: 2
+difficulty: 2
+hours: 2
+done_when: the program prints the size of each readable file and an error for each unreadable one
+introduces: [argv, file I/O]
+assumes: [main, printf, loops, if statements, reading stdin, EOF]
+target: program
+
+A check before the finale, which reads its input from files.
+
+### p01.3-finale: Words and lines
 goal: Add word and line counts and file arguments.
 concept_difficulty: 2
 difficulty: 3
-hours: 7
+hours: 6
 done_when: output matches `wc` on empty files, missing trailing newlines and several files
-assumes: [reading stdin, multi-file projects]
-introduces: [argv, file I/O]
+assumes: [argv, file I/O, reading stdin, EOF, multi-file projects, make, assert-based tests]
 target: program
 
-### p01.3-consolidate: Consolidation
+Ship tests with the code and add a regression test for every bug fixed.
+
+### p01.4-consolidate: Consolidation
 goal: Refactor the counting code, strengthen the tests and document the limits of the tool.
 concept_difficulty: 1
 difficulty: 2
 hours: 2.5
 done_when: the tests still pass and the README lists the known limitations
-assumes: [file I/O, assert-based tests]
+assumes: [file I/O, assert-based tests, make]
 target: program
 
-### p01.4-unicode: Characters
+Revisit EOF handling, the concept that caused the most friction.
+
+### p01.5-unicode: Characters
 goal: Add a character count that handles UTF-8 input.
 concept_difficulty: 3
 difficulty: 4
 hours: 5
 stretch: true
 done_when: "`-m` counts characters, not bytes, on multi-byte input"
-assumes: [file I/O]
 introduces: [UTF-8 decoding]
+assumes: [file I/O]
 target: program
+
+Only once the required stages are stable.
 """
 
 # The planning review: a second look at a draft, by the planner itself.
-REVIEW_CHECKLIST = r"""Review the curriculum as a demanding teacher would, then fix it:
-1. Prerequisites: every `assumes` item (basics included) is introduced by an earlier unit, and practised
-   in a graded unit before a hard stage relies on it.
-2. First steps and progression: a guided opening drill unless the student knows the language; at most
-   three concepts per first drill, two per stage; a small drill before each hard concept.
-3. Testing: the test tool comes within three units; project briefs ask for tests.
-4. Purpose: every drill feeds a later unit; cut, merge or mark stretch the rest.
-5. Workload: honest `hours` at the course's rigor, extra time for underestimated topics, 10 to 15% of
-   the budget free.
-6. Every project has a `minimum` its required stages deliver exactly, stretch stages after the finale,
-   and the course ends with a consolidation stage.
-7. Each `done_when` names the essential skills only; both difficulties are set, with 5 kept rare.
-8. Briefs state the design decisions later stages depend on. Nothing the final project needs is untaught."""
+REVIEW_CHECKLIST = r"""Check the curriculum against every rule of the curriculum format, one by one, and fix what you find. Also ask yourself what each project needs that no unit teaches: that is a missing unit."""
 
 
-def browser_prompt(lang: str | None, level: str | None, hours: str | None) -> str:
-    wishes = ""
-    if lang is not None:
-        wishes += f"- Language: {lang}\n"
-    if level is not None:
-        wishes += f"- My level: {level}\n"
-    if hours is not None:
-        wishes += f"- Time: about {hours} hours per week\n"
-    if not wishes:
-        wishes += "- (Ask me what I want to learn, my level and my weekly time.)\n"
-    return (
-        "You are helping me plan an intensive, hands-on programming course: short "
-        "exercises (drills) and bigger projects built in stages, each graded by an "
-        "automatic checker. Ask me clarifying questions first if anything important is "
-        "missing, one at a time, each with a few lettered options and the one you "
-        "recommend. Then propose the curriculum and refine it with me. Before showing "
-        "any version, check it against the review list below and fix what it finds. "
-        "When I say it is final, output the complete curriculum in the exact format "
-        f"below, as one markdown code block, with nothing else.\n\nWhat I want:\n{wishes}\n"
-        f"{PLAN_FORMAT}\n## 4. Example\n\n{PLAN_EXAMPLE}\n## 5. Review list\n\n{REVIEW_CHECKLIST}\n"
+BROWSER_HEAD = """You are helping me plan an intensive, hands-on programming course: drills (short exercises) and projects built in stages, each graded by an automatic checker. Work in the three steps below, following the format and the rules after them.
+
+What I want:
+- Topic or language: {language}
+- My level: {level}
+- Time: {hours}, for {weeks}
+- Goal: {goal}
+- Free share: {free}
+- Project cap: {cap}
+
+Anything above left as a placeholder or as "ask me" is a question for step 1. Never assume a value for it.
+
+## My machine
+{machine}
+
+Plan only with tools listed as available, or tell me what to install. If this machine is not Linux, Linux-only APIs (fork, exec, pipes, signals, process groups, /proc, Unix permissions) do not work natively: a unit that needs them is marked `platform: linux` and is built and tested in a Linux container, which needs Docker or WSL.
+"""
+
+BROWSER_STEPS = """# Step 1: ask
+
+Ask what is missing and would change the plan, one question per message.
+- Form: one bold question, then 3 to 6 lettered options. Each option says what it leads to in one or two lines, with its cost in hours or weeks when it has one. Mark exactly one "(recommended)" and say why. The last option is "something else".
+- I may answer with a letter, several letters or my own words. Several letters: combine them into one path, give the order and the cost, and say so if they do not fit. If I rule something out, drop it and never offer it again.
+- Challenge an input that looks wrong or unsustainable (hours per week, number of weeks, level against goal) with a question that recommends a realistic value.
+- Usual order, skipping what I already gave: the language or technology; the time per week if it looks implausible; what the course builds towards; the platform variant; the number of weeks, each option saying what fits in it; the free share; the project cap; the projects.
+- Platform: ask ONE question only when the goal could be met either way (a portable variant, or a Linux variant run in the container), and say which you recommend. Do not ask when the goal clearly needs Linux or clearly does not.
+- Projects: propose a lettered shortlist of projects. For each: what it trains, rough hours, the main risk. Recommend one. Name the candidates you advise against and why (cannot be checked automatically, needs APIs my machine lacks, too large). When rebuilding a tool or application the student already knows is a good way to learn this topic, you may offer such candidates; it is never required.
+- Settle the smaller choices yourself (allowed libraries, rigor, design variants) and list them under "Decisions I made" in the proposal, so I can overrule them.
+
+# Step 2: propose and refine
+
+Before showing any version, check it against every rule below and fix what you find. Also ask yourself what each project needs that no unit teaches.
+- Show the curriculum as tables, one per phase: unit id, hours, difficulty as concept / implementation, what it teaches or delivers. Mark stretch units. For each project, say in one line what it reuses.
+- Then the totals: required hours and their share of the budget, the free share, stretch hours, consolidation hours. Then "Decisions I made". End with "Tell me what to change, or say final".
+- After a change, show the parts that changed and the new totals. Show the complete table again after a structural change, or when I ask.
+- When a change breaks a rule (the free share, the project cap, a prerequisite), say so and offer lettered ways out with a recommendation.
+- Keep messages short: do not restate my answers.
+
+# Step 3: final
+
+When I say it is final, output the complete curriculum in the format below, as one markdown code block, with nothing else.
+
+"""
+
+
+def browser_prompt(
+    lang: str | None,
+    level: str | None,
+    hours: str | None,
+    weeks: str | None = None,
+    goal: str | None = None,
+    free: str | None = None,
+    cap: str | None = None,
+    machine: str | None = None,
+) -> str:
+    """The prompt to paste into a chat assistant; what is not given stays a
+    placeholder the assistant asks about."""
+    head = BROWSER_HEAD.format(
+        language=lang if lang is not None else '<language, technology, or "ask me">',
+        level=level if level is not None else "<beginner | intermediate | advanced>",
+        hours=f"{hours} hours per week" if hours is not None else "<hours per week>",
+        weeks=f"{weeks} weeks" if weeks is not None else '<number of weeks, or "ask me">',
+        goal=goal if goal is not None else '<what I want to be able to build, or "ask me">',
+        free=f"{free}%"
+        if free is not None
+        else '<part of the total hours to leave unplanned for debugging and revisiting, as a percentage, or "ask me">',
+        cap=f"{cap} hours"
+        if cap is not None
+        else '<most required hours one project may take before it must be split, or "ask me">',
+        machine=trim(machine)
+        if machine is not None
+        else "<paste here: OS, tools available with versions, tools not installed, known limits>",
     )
+    return f"{head}\n{BROWSER_STEPS}{PLAN_FORMAT}\n# Example (format only)\n\n{PLAN_EXAMPLE}"
 
 
 def revise_request(current: str, changes: str, measured: str = "") -> str:
@@ -219,7 +308,7 @@ def revise_request(current: str, changes: str, measured: str = "") -> str:
         f"{measured}"
         f"Revise it: {changes}\n\n"
         "Keep everything I did not ask to change. Ask a question only if my request is ambiguous. "
-        "Check the result against the review list below, then reply with <changes>a short bullet "
+        "Check the result against the rules, then reply with <changes>a short bullet "
         "list of what you changed and why</changes> followed by <curriculum>the complete revised "
         f"curriculum file</curriculum>.\n\n{REVIEW_CHECKLIST}"
     )
@@ -265,14 +354,19 @@ def review_request() -> str:
 
 GUIDED_SYSTEM = r"""You plan programming courses for PiscineBuilder. Talk briefly.
 
-When important information is missing (language, current level, weekly time, number of weeks, final goal, libraries allowed), ask about it, ONE question per reply, so each question can build on the answers so far:
+Ask about what is missing and would change the plan, ONE question per reply, so each question can build on the answers so far:
 <questions>
-[{"question": "What should the final project be?", "options": ["A Unix shell", "A multithreaded HTTP server", "A key-value store with a network protocol"], "recommended": 0}]
+[{"question": "What should the final project be?", "options": ["A Unix shell (about 40 h)", "A multithreaded HTTP server (about 30 h)", "A key-value store with a network protocol (about 35 h)"], "recommended": 0}]
 </questions>
-That is a JSON array holding exactly one question, with 2 to 4 short, concrete options and the index of the one you recommend for this student. Never add an "other" option: the student can always type their own answer. Do not ask what the student already told you, and stop asking as soon as you can plan well.
+That is a JSON array holding exactly one question, with 3 to 6 concrete options, each saying what it leads to and its cost in hours or weeks when it has one, and the index of the one you recommend for this student. Never add an "other" option: the student can always type their own answer.
+- Usual order, skipping what is known: the language or technology; the time per week if it looks implausible; what the course builds towards; the platform variant; the number of weeks (each option says what fits in it); the free share of the hours left unplanned for debugging and revisiting (15% unless told otherwise); the project cap, the most required hours one project may take before it is split; the projects.
+- Challenge an input that looks wrong or unsustainable (hours, weeks, level against goal) with a question recommending a realistic value.
+- Platform: ask only when the goal could be met either way, a portable variant or a Linux variant run in a container (Docker or WSL). Do not ask when the goal clearly needs Linux or clearly does not.
+- Projects: the options are a shortlist saying what each trains, its rough hours and its main risk. Advise against candidates that cannot be checked automatically or are too large. Rebuilding a tool the student knows is a good way to learn, never required.
+- Settle the smaller choices yourself (allowed libraries, rigor, design variants). If the student rules something out, never offer it again. Do not ask what they already told you, and stop asking as soon as you can plan well.
 
 Otherwise reply with <curriculum>the complete curriculum file</curriculum>.
-Ask at most 6 questions in a conversation; after that, assume your recommended options and write the curriculum."""
+Ask at most 10 questions in a conversation; after that, assume your recommended options and write the curriculum."""
 
 # --------------------------------------------------------------- generation
 

@@ -167,3 +167,40 @@ def test_catches_teach_before_use_and_shape_errors() -> None:
     assert not parses("no front matter")
     wrong_id = GOOD.replace("## d01-hello: Hello", "## hello: Hello")
     assert not parses(wrong_id)
+
+
+def test_the_prompt_example_has_no_warning_either() -> None:
+    assert problems_of(prompts.PLAN_EXAMPLE) == []
+
+
+def test_drills_and_notes_may_sit_between_the_stages_of_a_project() -> None:
+    plan = parse(prompts.PLAN_EXAMPLE)
+    ids = [e.id for e in plan.entries]
+    assert ids.index("d03-files") < ids.index("p01.3-finale")
+    assert [s.id for s in plan.stages("p01-wc")] == [
+        "p01.1-intro",
+        "p01.2-build",
+        "p01.3-finale",
+        "p01.4-consolidate",
+        "p01.5-unicode",
+    ]
+    assert plan.entry("d03-files") is not None and plan.entry("d03-files").parent is None  # type: ignore[union-attr]
+
+
+def test_a_project_wants_an_introduction_and_a_consolidation_stage() -> None:
+    text = report(problems_of(GOOD))
+    assert "the first stage of a project is a reading-only introduction" in text, text
+    assert "no consolidation stage" in text, text
+
+
+def test_a_drill_only_a_stretch_unit_needs_is_stretch_too() -> None:
+    drill = (
+        "## d04-bits: Bits\ngoal: Use bit operations.\nconcept_difficulty: 2\ndifficulty: 2\nhours: 2\n"
+        "introduces: [bit operations]\nassumes: [argv]\ntarget: program\n\n"
+    )
+    text = prompts.PLAN_EXAMPLE.replace("### p01.3-finale", drill + "### p01.3-finale").replace(
+        "assumes: [file I/O]\ntarget: program\n\nOnly once",
+        "assumes: [file I/O, bit operations]\ntarget: program\n\nOnly once",
+    )
+    out = report(problems_of(text))
+    assert "d04-bits" in out and "only stretch units assume what this drill introduces" in out, out

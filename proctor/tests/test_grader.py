@@ -338,3 +338,28 @@ def test_text_given_for_bytes_is_its_utf8_encoding() -> None:
             assert isinstance(r.reference, Ok), f"{u.id}: {r.reference}"
             assert not r.vacuous, f"{u.id}: {r.vacuous}"
         assert checked > 0, "no unit could be checked on this machine"
+
+
+def test_a_reading_unit_has_nothing_to_hand_in() -> None:
+    with demo_copy("reading") as s:
+        s.write(
+            ".proctor/units/d00-intro.yaml",
+            "id: d00-intro\ntitle: Intro\nlanguage: python\nreading: true\ntarget: program\n"
+            "scaffold: none\ngoal: Read the introduction.\nlesson: |\n  ### Welcome\n\n  Read this.\n",
+        )
+        index = s.path / ".proctor" / "course.yaml"
+        write_text(index, read_text(index).replace("units:\n", "units:\n  - d00-intro\n", 1))
+        c = course.CourseDir.load(s.path)
+        assert engine.validate(c) == []
+        u = c.unit("d00-intro")
+        assert u is not None
+        page = render.unit_md(c, u)
+        assert "Read this." in page and "nothing to hand in" in page, page
+        assert "## Allowed" not in page and "Expected" not in page, page
+        opts = engine.Options(seed=1, against=engine.AgainstStudent(), tests_only=False)
+        v = engine.Engine.new(c, u, opts).check(selftest.Silent())
+        assert v.ok and (v.passed, v.total) == (1, 1)
+        spec = s.path / ".proctor" / "units" / "d00-intro.yaml"
+        write_text(spec, read_text(spec) + "functions:\n  - { name: f, sig: 'def f() -> int' }\n")
+        problems = engine.validate(course.CourseDir.load(s.path))
+        assert any("a reading unit has no functions" in p for p in problems), problems

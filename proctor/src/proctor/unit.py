@@ -233,6 +233,8 @@ class Unit:
     lesson: str | None = None
     # The lesson is a step-by-step walkthrough (first contact with a language).
     guided: bool = False
+    # Reading only (a project's introduction): nothing to hand in, `check` passes once unlocked.
+    reading: bool = False
     # Program target: what a run prints, shown when no test case gives an
     # exact output to use as an example.
     example: str | None = None

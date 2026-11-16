@@ -33,7 +33,7 @@ from proctor import ask, journal, progress
 
 MAX_AUTOFIX = 3
 # Questions in a whole conversation, asked one per planner reply.
-MAX_QUESTIONS = 6
+MAX_QUESTIONS = 10
 OTHER = "Something else: type your own answer"
 
 

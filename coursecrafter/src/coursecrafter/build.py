@@ -330,7 +330,7 @@ class Builder:
             failed: list[str] = []
             chosen = [u for u in units if self.selected(u)]
             for u in chosen:
-                if not self.unit_path(u.id).is_file():
+                if not self.unit_path(u.id).is_file() or u.f.gradable is False:
                     continue
                 self.log.say(f"[text] {u.id}")
                 try:
@@ -556,9 +556,11 @@ class Builder:
             return None
         stages = self.plan.stages(u.parent)
         pos = next((i for i, x in enumerate(stages) if x.id == u.id), None)
-        if pos is None or pos == 0:
+        if pos is None:
             return None
-        return stages[pos - 1]
+        # A reading stage (the project's introduction) builds nothing.
+        built = [x for x in stages[:pos] if x.f.gradable is not False]
+        return built[-1] if built else None
 
     def language_settings(self, lang_name: str) -> Any:
         messages = [
@@ -637,12 +639,15 @@ class Builder:
             s += "stretch: true (optional unit; the student may skip it)\n"
         if self.plan.platform(u) is not None:
             s += "platform: linux (built, run and tested on Linux: Ubuntu 24.04, /bin/sh is dash, GNU coreutils)\n"
-        s += lesson_request(
-            self.plan.language(u),
-            f.guided,
-            f.introduces,
-            f.assumes,
-        )
+        if f.gradable is False:
+            s += READING_REQUEST
+        else:
+            s += lesson_request(
+                self.plan.language(u),
+                f.guided,
+                f.introduces,
+                f.assumes,
+            )
         notes = [f"{n.title} (teaches {', '.join(n.f.teaches)})" for n in self.plan.notes_for(u.id)]
         if notes:
             s += f"revealed with notes: {'; '.join(notes)}\n"
@@ -742,6 +747,16 @@ class Builder:
             "rust_tests",
             "random",
         ]
+        if u.f.gradable is False:
+            # Reading only: the goal and the text, nothing to hand in.
+            m["reading"] = True
+            m["target"] = "program"
+            m["scaffold"] = "none"
+            goal = model.get("goal")
+            m["goal"] = goal if isinstance(goal, str) and trim(goal) else (u.f.goal or "")
+            if "lesson" in model:
+                m["lesson"] = model["lesson"]
+            return m
         if u.f.target is not None:
             m["target"] = u.f.target
         for k, v in model.items():
@@ -808,8 +823,16 @@ class Builder:
                 p.append(f"stubs path `{st}` is not allowed by the files rules")
         settings = languages.get(lang_name) if lang_name in languages else None
         lang_run = isinstance(settings, dict) and "run" in settings
+        if unit.reading:
+            if unit.lesson is None or sum(1 for x in lines(unit.lesson) if trim(x)) < 5:
+                p.append(
+                    "a reading unit needs a <lesson> block: the introduction written from the brief (see the request)"
+                )
+            if unit.functions or unit.files:
+                p.append("a reading unit has no functions or files: only `goal` and the lesson")
         if (
             unit.target == Target.PROGRAM
+            and not unit.reading
             and unit.run is None
             and not lang_run
             and lang_name not in ("c", "rust")
@@ -1288,6 +1311,15 @@ def has_preset(lang: str) -> bool:
 
 def note_slug(id: str) -> str:
     return trim_start_matches(id, "note-")
+
+
+READING_REQUEST = (
+    "gradable: false. A reading-only unit: no exercise and nothing to hand in. Send the <unit> block with only "
+    "`goal` (one sentence), then a <lesson>...</lesson> block after it (plain markdown, NOT inside the YAML; "
+    "headings ###, no ## headings, about 20 to 50 lines) that turns the brief into the page the student reads: "
+    "what they will build, the roadmap as a short list, what is reused, the scope. Write no functions, files, "
+    "requirements or tests. End with: when you have read this page, run `proctor check`.\n"
+)
 
 
 def lesson_request(lang: str, guided: bool, introduces: list[str], assumes: list[str]) -> str:

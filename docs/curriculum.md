@@ -44,8 +44,8 @@ Entry ids:
 | Id | Heading | What it is |
 |---|---|---|
 | `dNN-slug` | `##` | A drill: small, one concept, one sitting. |
-| `pNN-slug` | `##` | A project, built in stages that follow it. |
-| `pNN.k-slug` | `###` | Stage k of project pNN. The last required stage is the finale. |
+| `pNN-slug` | `##` | A project, built in stages that follow it; drills and notes may sit between its stages. |
+| `pNN.k-slug` | `###` | Stage k of project pNN. The first stage is a reading-only introduction (pNN.1-intro); the last required stage is the finale. |
 | `note-slug` | `##` | Half a page explaining an easy notion, revealed with a unit. |
 
 Keys of a drill or stage:
@@ -64,7 +64,7 @@ Keys of a drill or stage:
 | `stretch` | `true`: optional, the student may skip it. |
 | `guided` | `true` (drills only): the instructions walk the student through it step by step. The first unit of the course's language should be one, unless the student already writes it; drills may start at `d00` for it. |
 | `platform` | `linux`: needs Linux APIs; on other systems it runs in a container. |
-| `gradable` | `false` only when no program can check the result. |
+| `gradable` | `false`: a reading-only unit, nothing to hand in; the student passes it with `proctor check` once read. Used for a project's introduction. |
 | `language` | Only when different from the course's. |
 
 A project has `goal`, `difficulty`, `assumes`, `language`, `platform` and `minimum`
@@ -82,6 +82,7 @@ scope. A note has `teaches` and `with` (the unit it is revealed with).
   project's first stage is never a stretch goal, and no required stage follows a stretch
   stage.
 - **Minimum viable result:** every project states its `minimum`.
+- **Project shape (warnings):** a project starts with a reading-only introduction stage (`gradable: false`) and has a consolidation stage among its required stages; a drill only stretch units need is a stretch drill itself.
 - **Stages:** every earlier stage is tested again at each later one, so a stage never says
   what it does with a feature a later stage adds (a `not supported yet` message is an
   error), and once a stage needs Linux every later stage does too.
@@ -102,10 +103,9 @@ each hard project stage, the test tool within the first three units, testing tim
 every estimate, one program per project, portable units unless Linux is needed, and a
 consolidation stage at the end (refactor, tests, documented limitations).
 
-`coursecrafter new` asks at most six questions, one per reply, each built on the previous
-answers. Its first valid draft is reviewed by the planner against a twelve-point checklist
-(prerequisites, progression, testing, purpose, workload, minimum viable projects,
-consolidation, exit criteria, difficulty, design, fit, missing concepts), and it lists
+`coursecrafter new` asks at most ten questions, one per reply, each built on the previous
+answers (language, time, goal, platform, weeks, the free share of the hours, the cap on a
+project's required hours, the projects). Its first valid draft is reviewed by the planner against every rule of the format, and it lists
 what it changed. You then approve the plan, ask for changes (typed directly at the menu),
 edit the file yourself, or quit and keep the draft.
 

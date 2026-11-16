@@ -40,6 +40,8 @@ scaffold: minimal              # none (student creates everything) | minimal | f
 stubs: src/str_basics.c        # where empty mandatory functions are written on unlock
 goal: One sentence.
 guided: false                  # true: the lesson is a step-by-step Walkthrough
+reading: false                 # true: only a page to read (a project's introduction): no files, functions or tests;
+                               # proctor check passes it once unlocked
 lesson: |                      # markdown after the goal: "Before you start", or "Walkthrough" when guided
   ### Step 1: ...
 functions:                     # "Expected functions (minimal)" in the instructions

@@ -27,7 +27,7 @@ from proctor import compat
 
 USAGE = """coursecrafter: creates PiscineBuilder courses. The only part of PiscineBuilder that uses an LLM.
 
-  coursecrafter prompt [--lang L] [--level beginner] [--hours 10]
+  coursecrafter prompt [--lang L] [--level beginner] [--hours 10] [--weeks 8] [--goal G] [--free 15] [--cap 30] [--machine]
         print a prompt for any chat assistant; it ends with a curriculum file
   coursecrafter import <curriculum.md> [--course DIR] [--yes] [--paste]
         validate a curriculum, show it, and approve it into the course folder
@@ -311,12 +311,17 @@ def cmd_setup(raw: list[str]) -> bool:
 
 
 def cmd_prompt(raw: list[str]) -> bool:
-    a = Args.parse(raw, ["lang", "level", "hours"], [])
+    a = Args.parse(raw, ["lang", "level", "hours", "weeks", "goal", "free", "cap"], ["machine"])
     print(
         prompts.browser_prompt(
             a.get("lang"),
             a.get("level"),
             a.get("hours"),
+            a.get("weeks"),
+            a.get("goal"),
+            a.get("free"),
+            a.get("cap"),
+            env.detect(None).summary() if a.has("machine") else None,
         )
     )
     return True

@@ -72,3 +72,18 @@ def test_help_and_unknown_command(capsys: pytest.CaptureFixture[str]) -> None:
     assert capsys.readouterr().out == cli.USAGE + "\n"
     assert cli.run_main(["nope"]) == 2
     assert capsys.readouterr().err == f"error: unknown command `nope`\n\n{cli.USAGE}\n"
+
+
+def test_the_browser_prompt_keeps_what_is_not_given_as_a_question() -> None:
+    from coursecrafter import prompts
+
+    bare = prompts.browser_prompt(None, None, None)
+    assert '- Topic or language: <language, technology, or "ask me">' in bare
+    assert "<paste here: OS, tools available" in bare
+    assert "# Step 1: ask" in bare and "# Rules" in bare and "# Example (format only)" in bare
+    full = prompts.browser_prompt("rust", "beginner", "10", "8", "a shell", "15", "30", "OS: x")
+    assert "- Topic or language: rust" in full
+    assert "- Time: 10 hours per week, for 8 weeks" in full
+    assert "- Free share: 15%" in full and "- Project cap: 30 hours" in full
+    assert "## My machine\nOS: x\n" in full
+    assert "\u2014" not in full and "\u2013" not in full

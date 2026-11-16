@@ -131,7 +131,7 @@ The curriculum validator checks prerequisites, workload against available hours,
 |---|---|
 | `coursecrafter convert <file>... [--course DIR] [--yes] [--debug]` | Rewrite a curriculum you made elsewhere, in any format, in the curriculum format (LLM). Keeps your units and content; an existing `curriculum.md` is retained. |
 | `coursecrafter new "<goal>" [--from FILE] [--course DIR] [--yes] [--debug]` | Plan a curriculum with an LLM. `--from` adds a syllabus or notes. |
-| `coursecrafter prompt [--lang L] [--level beginner] [--hours 10]` | Print a prompt for a chat assistant. |
+| `coursecrafter prompt [--lang L] [--level beginner] [--hours 10] [--weeks 8] [--goal G] [--free 15] [--cap 30] [--machine]` | Print a prompt for a chat assistant: it asks what is missing, proposes the curriculum as tables, and ends with the curriculum file. What you leave out stays a placeholder it asks about; `--machine` adds this machine's detected tools. |
 | `coursecrafter import <file> [--course DIR] [--yes] [--paste]` | Validate and import a curriculum already in the curriculum format (no LLM). |
 | `coursecrafter revise "<changes>" [--course DIR] [--yes] [--debug]` | Revise the curriculum with an LLM. The previous version is retained. Once you have started the course, the planner also sees the hours planned and measured on each unit started (from proctor's journal), so `revise "adjust the hours to my pace"` works from real numbers. |
 | `coursecrafter show [file] [--course DIR] [--full]` | Show units, hours, difficulty, prerequisites, and approval status. |

@@ -90,13 +90,16 @@ def unit_md(c: course.CourseDir, u: Unit) -> str:
     found = c.project(u)
     if found is not None:
         pid, p = found
-        k = len(chain)
-        if k == 1:
+        built = [x for x in chain if not x.reading]
+        k = len(built)
+        if u.reading:
+            builds_on = "Introduction."
+        elif k == 1:
             builds_on = "First stage."
         elif k == 2:
-            builds_on = f"Builds on {label(chain[0])}."
+            builds_on = f"Builds on {label(built[0])}."
         else:
-            builds_on = f"Builds on {label(chain[0])} to {label(chain[k - 2])}."
+            builds_on = f"Builds on {label(built[0])} to {label(built[k - 2])}."
         code = pid.split("-")[0]
         overview = str(c.overview_rel(pid)).replace("\\", "/")
         s += f"Part of project {code} ({p.title}). {builds_on} See `{overview}`.\n\n"
@@ -160,6 +163,12 @@ def unit_md(c: course.CourseDir, u: Unit) -> str:
     if not requirements_is_empty(u.requirements):
         s += "\n## Requirements\n\n"
         s += requirements_markdown(u.requirements)
+
+    if u.reading:
+        return (
+            s
+            + "\n## Checking your work\n\nThere is nothing to hand in. When you have read this page, run `proctor check` to validate it and move on.\n"
+        )
 
     examples = examples_md(c, u)
     shown = rust_examples_md(u)

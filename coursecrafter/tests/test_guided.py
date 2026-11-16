@@ -31,7 +31,7 @@ def test_accepts_wrapped_questions_and_clamps() -> None:
 
 def test_caps_the_number_of_questions() -> None:
     one = """{"question": "Q", "options": ["x", "y"]}"""
-    body = f"[{','.join([one] * 7)}]"
+    body = f"[{','.join([one] * (MAX_QUESTIONS + 1))}]"
     assert len(parse_questions(body)) == MAX_QUESTIONS
 
 
@@ -99,17 +99,17 @@ def test_revise_sees_the_measured_hours(tmp_path: Path) -> None:
         (600, "check", "d01-hello", False),
         (1800, "check", "d01-hello", True),
         (1800, "pass", "d01-hello", None),
-        (1900, "unlock", "d02-strings", None),
+        (1900, "unlock", "d02-read-loop", None),
         # Two hours later: a break, not work.
-        (9100, "check", "d02-strings", False),
-        (10300, "check", "d02-strings", False),
+        (9100, "check", "d02-read-loop", False),
+        (10300, "check", "d02-read-loop", False),
     ]:
         journal.append(tmp_path, journal.Event(t=t, ev=ev, unit=unit, ok=ok))
     table = guided.measured(tmp_path, plan)
     assert table == (
         "| Unit | Planned h | Measured h | Checks | State |\n|---|---|---|---|---|\n"
         "| d01-hello | 1.5 | 0.5 | 2 | passed |\n"
-        "| d02-strings | 5 | 0.3 | 2 | in progress |\n\n"
+        "| d02-read-loop | 3 | 0.3 | 2 | in progress |\n\n"
         "Passed units: 1.5 h planned, 0.5 h measured.\n"
     )
     request = prompts.revise_request("c", "fewer hours", table)
@@ -151,7 +151,7 @@ def test_interactive_flow_revises_then_approves(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _quiet_machine(monkeypatch)
-    renamed = prompts.PLAN_EXAMPLE.replace("d02-strings", "d02-text")
+    renamed = prompts.PLAN_EXAMPLE.replace("d02-read-loop", "d02-text")
     fake = ScriptedLlm(
         [
             '<questions>[{"question": "Q1", "options": ["x", "y"]}, {"question": "Q2"}]</questions>',
@@ -170,7 +170,7 @@ def test_interactive_flow_revises_then_approves(
     out = capsys.readouterr().out
     assert "A few questions first." in out
     assert "\nPlanner review:\n- nothing\n" in out
-    assert "\nChanges: added d02-text; removed d02-strings\n" in out
+    assert "\nChanges: added d02-text; removed d02-read-loop\n" in out
     assert f"Approved: {tmp_path / 'curriculum.md'}.\nNext: coursecrafter build\n" in out
     assert (
         fake.seen[1][-1].content

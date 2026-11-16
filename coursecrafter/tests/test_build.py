@@ -20,7 +20,7 @@ from coursecrafter.build import (
 from proctor.compat import read_text
 from proctor.errors import Error
 
-from coursecrafter import build, config, curriculum, llm
+from coursecrafter import build, config, curriculum, llm, prompts
 from proctor import yamlio
 
 
@@ -204,6 +204,32 @@ def test_rust_contracts_may_list_methods_tested_in_rust(tmp_path: Path) -> None:
     both = {"cases": "f(1) == 2", "rust_tests": "#[test]\nfn t() {}"}
     assert build.all_cases(both) == "f(1) == 2\n#[test]\nfn t() {}"
     assert build.all_cases({"cases": "f(1) == 2"}) == "f(1) == 2"
+
+
+def test_a_reading_stage_keeps_only_its_goal_and_lesson(tmp_path: Path) -> None:
+    plan = curriculum.parse(prompts.PLAN_EXAMPLE)
+    dead = llm.Llm.resolve(
+        llm.Choice(provider="custom", base_url="http://127.0.0.1:9/v1", model="m"),
+        config.Config(),
+    )
+    opts = build.Options(retries=0, tests=False, only=[], yes=True, text_only=False, debug=False)
+    b = build.Builder.new(tmp_path, plan, dead, opts, "ENV")
+    intro = plan.entry("p01.1-intro")
+    assert intro is not None
+    assert "A reading-only unit" in b.entry_text(intro)
+    model = yamlio.load(
+        "goal: Know the road.\nfunctions:\n  - { name: f, sig: 'int f(void)' }\nrequirements: x\n"
+    )
+    model["lesson"] = "### The goal\n\nA wc.\n\n### Roadmap\n\n- p01.2\n- p01.3\n- p01.4\n"
+    m = b.merge_contract(intro, model)
+    assert m["reading"] is True and m["scaffold"] == "none"
+    assert "functions" not in m and "requirements" not in m
+    assert b.check_contract(intro, m, {}) == []
+    del m["lesson"]
+    assert any("reading unit needs a <lesson>" in p for p in b.check_contract(intro, m, {}))
+    # The stage after the introduction is the project's first building stage.
+    build_stage = plan.entry("p01.2-build")
+    assert build_stage is not None and b.previous_stage(build_stage) is None
 
 
 def test_replies_are_cached_by_the_full_request(tmp_path: Path) -> None:
