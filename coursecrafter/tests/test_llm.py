@@ -214,6 +214,45 @@ def test_a_native_call_round_trip() -> None:
     )
 
 
+def test_a_local_provider_is_woken_once_before_the_first_call() -> None:
+    paths: list[str] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            paths.append(self.path)
+            self.send_response(200)
+            self.send_header("content-length", "2")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, format: str, *args: Any) -> None:
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        port = server.server_address[1]
+        c = Llm(base_url=f"http://127.0.0.1:{port}/v1", model="m", key=None)
+        c.wake()
+        c.wake()
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert paths == ["/health"]
+
+
+def test_waking_gives_up_quietly_and_skips_remote_providers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(llm, "WAKE_SECONDS", 0)
+    dead = Llm(base_url="http://127.0.0.1:9/v1", model="m", key=None)
+    dead.wake()
+    assert dead.woken
+    remote = Llm(base_url="https://api.example.com/v1", model="m", key="k")
+    remote.wake()
+    assert not remote.woken
+
+
 def test_chat_error_is_an_error() -> None:
     # `?` turns a ChatError into its message (`From<ChatError> for String`).
     e = ChatError(Failure.SETUP, "HTTP 401: no")

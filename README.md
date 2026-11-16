@@ -112,7 +112,7 @@ Planning with `coursecrafter new` or converting with `coursecrafter convert` acc
 
 Things that lower the cost: the system prompt is the same for every request, so providers that cache prompts charge cached input at a fraction of the price. With `--provider anthropic`, coursecrafter uses Anthropic's own API and marks two cache points in each request: the system prompt, read back by every later call of the run, and the end of the conversation, read back when a rejected draft is retried. Replies are cached on disk, so rerunning a build or resuming it after an interruption costs nothing for finished work (the replies of a unit that failed are dropped, so the next run asks again), and `--only` regenerates just the units you name. Changing the curriculum's `environment:` line or updating coursecrafter's prompts invalidates that cache.
 
-With a Claude Code subscription through Meridian, there is no per-token cost, but a large build can reach the subscription's usage limit. When it does, the build stops cleanly: run the same command again later.
+With a Claude Code subscription through Meridian (or any provider on localhost), coursecrafter first pings the server's `/health` for up to a minute, which wakes a proxy that sat idle for hours. There is no per-token cost, but a large build can reach the subscription's usage limit. When it does, the build stops cleanly: run the same command again later.
 
 ## Course lifecycle
 

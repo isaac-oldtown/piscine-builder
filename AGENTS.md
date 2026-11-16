@@ -58,6 +58,8 @@ PiscineBuilder: a uv workspace (Python 3.12, typed, checked by mypy) with two pa
 ## LLM and cost
 
 - Local provider: Meridian at `http://127.0.0.1:3456` (`--provider meridian`, health check `/health`).
+  `Llm.wake` pings `/health` once per run before the first call to a loopback provider, because an idle
+  Meridian refuses the first request.
   Real builds cost calls and can hit the subscription's rate limit; ask before running large ones.
   Meridian serves both `/chat/completions` and Anthropic's `/messages` but strips `cache_control` (Claude
   Code caches on its own), so prompt-cache marks only matter for `--provider anthropic` (`llm.Api.MESSAGES`).

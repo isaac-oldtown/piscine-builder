@@ -11,6 +11,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Any
@@ -38,6 +39,8 @@ MAX_TOKENS = 16000
 
 # The whole request, retries excluded (ureq's `timeout_global`).
 TIMEOUT = 900
+# How long a local provider gets to answer `/health` before the first call.
+WAKE_SECONDS = 60
 
 ANTHROPIC_VERSION = "2023-06-01"
 
@@ -296,6 +299,7 @@ class Llm:
     # The key goes in `Authorization: Bearer`; Anthropic API keys go in
     # `x-api-key` instead (its auth tokens still use Bearer).
     bearer: bool = True
+    woken: bool = False
     calls: int = 0
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -400,7 +404,32 @@ class Llm:
                 headers["x-api-key"] = self.key
         return headers
 
+    def wake(self) -> None:
+        """Ping a local provider's `/health` until it answers, once per run.
+
+        A local proxy (Meridian) that has sat idle for hours can refuse the
+        first request; asking for its health first wakes it. Giving up is
+        harmless: the call then goes ahead and fails (or not) as usual.
+        """
+        if self.woken or not is_loopback(self.base_url):
+            return
+        self.woken = True
+        parts = urllib.parse.urlsplit(self.base_url)
+        url = f"{parts.scheme}://{parts.netloc}/health"
+        deadline = time.monotonic() + WAKE_SECONDS
+        while True:
+            try:
+                with urllib.request.urlopen(url, timeout=10):
+                    return
+            except urllib.error.HTTPError:
+                return
+            except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
+                if time.monotonic() >= deadline:
+                    return
+                time.sleep(2)
+
     def chat_inner(self, messages: list[Msg], rec: CallRecord) -> str:
+        self.wake()
         url, v = self.request(messages)
         # serde_json's `json!` objects keep their keys sorted, compact.
         body = json.dumps(v, separators=(",", ":"), ensure_ascii=False, sort_keys=True).encode(
