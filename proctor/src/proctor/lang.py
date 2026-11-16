@@ -515,6 +515,12 @@ def harness_supports(lang: str, p: sig.Proto) -> None:
     for prm in p.params:
         if lang == "python":
             continue
+        if lang == "rust" and "&" in rust_arg(prm.raw)[0]:
+            raise Error(
+                f"parameter `{prm.name}` of `{p.name}` has type `{prm.raw}`, which the rust harness cannot build: "
+                "a reference inside another type (only `&[&str]`, `Vec<&str>` and `Option<&str>` are supported); "
+                "take owned values there, such as `&[String]` or `Vec<String>`"
+            )
         if not ok(prm.ty, lang):
             raise Error(
                 f"parameter `{prm.name}` of `{p.name}` has type `{prm.raw}`, which the {lang} harness cannot build"
@@ -1041,8 +1047,9 @@ fn main() {
 """
 
 
-def rust_arg(raw: str) -> tuple[str, str]:
-    """Owned Rust type to decode into, and how to pass it."""
+def rust_arg(raw: str) -> tuple[str, str, str]:
+    """Owned Rust type to decode into, how to pass it, and what to append to
+    the variable to turn the owned value back into the borrowed shape."""
     t = trim(sig.strip_lifetimes(raw))
     if t.startswith("&mut"):
         owned, pass_ = trim(t[len("&mut") :]), "&mut "
@@ -1054,7 +1061,13 @@ def rust_arg(raw: str) -> tuple[str, str]:
         owned = "String"
     elif owned.startswith("[") and owned[1:].endswith("]"):
         owned = f"Vec<{owned[1:-1]}>"
-    return owned, pass_
+    # Borrowed text inside a container: decode owned Strings, lend them back.
+    suffix = ""
+    if pass_ != "&mut " and owned == "Vec<&str>":
+        owned, suffix = "Vec<String>", ".iter().map(String::as_str).collect::<Vec<&str>>()"
+    elif pass_ != "&mut " and owned == "Option<&str>":
+        owned, suffix = "Option<String>", ".as_deref()"
+    return owned, pass_, suffix
 
 
 def rust_harness_source(protos: list[sig.Proto], krate: str) -> str:
@@ -1064,9 +1077,9 @@ def rust_harness_source(protos: list[sig.Proto], krate: str) -> str:
         s += f'        "{p.name}" => {{\n'
         args: list[str] = []
         for i, prm in enumerate(p.params):
-            owned, pass_ = rust_arg(prm.raw)
+            owned, pass_, suffix = rust_arg(prm.raw)
             s += f"            let mut a{i}: {owned} = arg(it)?;\n"
-            args.append(f"{pass_}a{i}")
+            args.append(f"{pass_}a{i}{suffix}")
         call = f"{krate}::{p.name}({', '.join(args)})"
         unit_ret = trim(p.ret_raw) in ("", "()")
         mutated = next(

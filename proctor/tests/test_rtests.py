@@ -150,6 +150,24 @@ def test_methods_in_signatures() -> None:
     assert sig.parse("python", "def f(x)", "m.f").owner() is None
 
 
+def test_borrowed_text_inside_containers_is_lent_from_owned_values() -> None:
+    assert lang.rust_arg("&[&str]") == (
+        "Vec<String>",
+        "&",
+        ".iter().map(String::as_str).collect::<Vec<&str>>()",
+    )
+    assert lang.rust_arg("Option<&str>") == ("Option<String>", "", ".as_deref()")
+    assert lang.rust_arg("&mut [i32]") == ("Vec<i32>", "&mut ", "")
+    ok = sig.parse("rust", "pub fn f(w: &[&str]) -> String", "f")
+    lang.harness_supports("rust", ok)
+    bad = sig.parse("rust", "pub fn g(w: &[(String, &str)]) -> String", "g")
+    with pytest.raises(Error, match="a reference inside another type"):
+        lang.harness_supports("rust", bad)
+    src = lang.rust_harness_source([ok], "student")
+    assert "let mut a0: Vec<String> = arg(it)?;" in src
+    assert "student::f(&a0.iter().map(String::as_str).collect::<Vec<&str>>())" in src
+
+
 def test_a_method_is_found_only_in_its_type_impl() -> None:
     def src(text: str) -> Source:
         return Source(rel="src/lib.rs", raw=text, code=strip("rust", text))
