@@ -65,10 +65,10 @@ def test_verdict_lines() -> None:
     assert (
         report.verdict_line(verdict(("tests", t)), 1, s) == "KO case f(1) == 2: expected 2, got 3"
     )
-    r = item(False, "fuzz f", "f(0): expected 1, got 2 (round 3)", random=True)
+    r = item(False, "law f", "f(0): expected 1, got 2 (round 3)", random=True)
     assert (
         report.verdict_line(verdict(("regression", r)), 0xAB, s)
-        == "KO fuzz f: f(0): expected 1, got 2 (round 3)   (replay: proctor check --seed 00000000000000ab)"
+        == "KO law f: f(0): expected 1, got 2 (round 3)   (replay: proctor check --seed 00000000000000ab)"
     )
     c = item(False, "compile", "src/a.c:1: error: x")
     assert report.verdict_line(verdict(("build", c)), 1, s) == "KO build: src/a.c:1: error: x"
@@ -95,9 +95,9 @@ def test_term_lines(capsys: pytest.CaptureFixture[str]) -> None:
     t.phase_begin("build", False)
     t.phase_begin("tests", True)
     t.item(item(True, "case a", ""))
-    t.item(item(True, "fuzz f", "200 rounds vs reference"))
+    t.item(item(True, "law f", "200 rounds"))
     t.item(item(False, "case b", "line1\nline2"))
-    t.item(item(False, "fuzz g", "course error: no", course_error=True))
+    t.item(item(False, "law g", "course error: no", course_error=True))
     t.item(item(True, "n" * 80))
     t.phase_end(
         engine.Phase(
@@ -117,9 +117,9 @@ def test_term_lines(capsys: pytest.CaptureFixture[str]) -> None:
         "proctor d01-x  seed 00000000000000ff  against your work",
         " ▸ tests",
         "   ✔ case a",
-        "   ✔ fuzz f  200 rounds vs reference",
+        "   ✔ law f  200 rounds",
         "   ✘ case b  line1 line2",
-        "   ✘ fuzz g  course error: no",
+        "   ✘ law g  course error: no",
         "   ✔ " + "n" * 72 + "...",
         " ✘ tests       3/5",
         " · build       skipped (the build failed)",

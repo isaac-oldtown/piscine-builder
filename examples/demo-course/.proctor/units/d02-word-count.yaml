@@ -34,6 +34,10 @@ cases: |
   -l <<< "a\nb\nc\n" => out == "3\n"
 random:
   rounds: 25
-  fuzz:
-    - { name: words, stdin: 'string "ab \n\t" 0..60' }
-    - { name: lines, argv: 'lit ["-l"]', stdin: 'string "ab \n" 0..60' }
+  laws:
+    - name: counts the words
+      gen: { s: 'string "ab \n\t" 0..60' }
+      check: ['run(stdin=s).out == str(len(words(s))) + "\n"']
+    - name: counts the lines with -l
+      gen: { s: 'string "ab \n" 0..60' }
+      check: ['run(args=["-l"], stdin=s).out == str(count(s, "\n")) + "\n"']

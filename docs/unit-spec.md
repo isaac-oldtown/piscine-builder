@@ -16,7 +16,6 @@ course/
     course.yaml          title, unit order, projects, language settings
     units/<id>.yaml      one file per unit: contract and tests together
     lib.yaml             shared generators
-    refs/<id>/           hidden reference solution (a full workspace tree)
     scaffold/<id>/       files copied into a fresh workspace (never overwriting)
     support/<id>/        test-only support files
     notes/<name>.md      notes revealed with the units that list them
@@ -76,16 +75,21 @@ rust_tests: |                  # Rust only: #[test] functions, see "Tests in Rus
   fn push_then_pop() { let mut s = Stack::new(); s.push(1); assert_eq!(s.pop(), Some(1)); }
 random:
   rounds: 200
-  fuzz:                        # compared with the hidden reference on generated inputs
-    - str_len                  # generators derived from the parameter types
-    - { fn: str_split, args: { s: 'string "ab," 0..30', sep: "lit ','" } }
-    - { name: report, stdin: "lines(log_line) 0..40" }      # program target
-  laws:                        # invariants, no reference needed
+  laws:                        # properties checked on inputs generated from the run's seed
     - { name: counts agree, gen: { s: string }, check: ["word_count(s) == len(words(s))"] }
+    - { name: one line per entry, gen: { log: "lines(log_line) 0..40" },
+        check: ["len(lines(run(stdin=log).out)) == len(lines(log))"] }      # program target
     - { roundtrip: [encode, decode] }      # decode(encode(x)) == x
     - { idempotent: normalize }            # f(f(x)) == f(x)
     - { agree: [fast_sort, slow_sort] }
 ```
+
+There is no reference solution: every expected value comes from the test itself. Laws are
+the random tests. Each check draws a new seed (`proctor check` prints it on its first line,
+`--seed HEX` replays it), each law gets its own stream of that seed, and a failing round is
+shrunk to a small input and reported with the command that replays it. A `fuzz:` list from
+older builds, which compared the student with a reference, still loads but `proctor validate`
+reports it, and `coursecrafter build --tests` builds those units again.
 
 A C or Rust program target runs the built binary (for Rust, the only `[[bin]]` or the
 package name); other languages need `run`.
@@ -113,8 +117,10 @@ built-ins `len bytes sorted reversed sum min max abs count contains join split w
 lower upper trim chars unique keys values get all any int float str is_sorted permutation
 repeat range slice starts_with ends_with matches replace nonempty concat flatten approx
 raises then`. `then(a, b)` evaluates in order and returns `b`; `all(xs, nonempty)` and
-`any(xs, p)` take a built-in's name as predicate. There are no user functions or lambdas, so
-a spec cannot hide a reference solution in its tests.
+`any(xs, p)` take a built-in's name as predicate. Comprehensions state a property of every
+element: `[len(w) for w in words(s) if w != ""]`, and as the only argument of a call,
+`all(len(w) <= len(longest(s)) for w in words(s))`. There are no user functions or lambdas, so
+a spec cannot hide a solution of its own in its tests.
 
 Tests can be written in the habits of the course's language; they all mean the same thing:
 
@@ -156,6 +162,18 @@ functions:
 
 At unlock the stubs declare an empty `pub struct Stack {}` with these methods in an `impl`
 (a later stage only adds an `impl` block); the student gives it its fields, or turns it into
-the enum the requirements describe. For the stub check, `proctor selftest` replaces
-the listed functions' bodies in the reference with `todo!()`, so the reference's types stay
-for the tests to compile against. A function that cases call must still suit the harness.
+the enum the requirements describe. When the tests build the type or read its fields, the
+unit gives it in `types`, Rust definitions without `impl` blocks:
+
+```yaml
+types: |
+  #[derive(Debug, Clone, Copy, PartialEq)]
+  pub struct Point {
+      pub x: i32,
+      pub y: i32,
+  }
+```
+
+The instructions show them under "Expected types", and the stubs (at unlock and in
+`proctor selftest`) start with them, so the tests compile before any code exists. A function
+that cases call must still suit the harness.

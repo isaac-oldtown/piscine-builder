@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -261,48 +260,3 @@ def build(ctx: lang.Ctx, suites: list[tuple[str, str]], timeout: float) -> Suite
     return Suites(
         programs=programs, cwd=ctx.ws, env={"RUST_BACKTRACE": "0", **ctx.env}, timeout=timeout
     )
-
-
-def stub_reference(ref: Path, dst: Path, protos: list[sig.Proto]) -> list[str]:
-    """Copies the reference crate to `dst` with the bodies of `protos` replaced
-    by `todo!()`, so that its types stay for the tests to compile against.
-    Returns the functions it did not find."""
-    shutil.rmtree(dst, ignore_errors=True)
-    run.copy_tree(ref, dst)
-    found: set[str] = set()
-    for rel in scan.walk(dst):
-        if not rel.endswith(".rs"):
-            continue
-        path = dst / rel
-        try:
-            raw = read_text(path)
-        except OSError as e:
-            raise Error(f"{path}: {io_error(e)}") from None
-        code = scan.strip("rust", raw)
-        every_impl = scan.impl_blocks(code, None)
-        spans: list[tuple[int, int]] = []
-        for p in protos:
-            owner = p.owner()
-            blocks = every_impl if owner is None else scan.impl_blocks(code, owner)
-            for m in re.finditer(rf"\bfn\s+{re.escape(p.short_name())}\b", code):
-                in_block = any(a < m.start() < b for a, b in blocks)
-                # A free function outside every impl, a method inside its type's.
-                if in_block != (owner is not None):
-                    continue
-                open_ = scan.body_open(code, m.end())
-                close = scan.matching(code, open_) if open_ is not None else None
-                if open_ is not None and close is not None:
-                    spans.append((open_, close))
-                    found.add(p.name)
-        kept: list[tuple[int, int]] = []
-        for a, b in sorted(set(spans)):
-            if not kept or a > kept[-1][1]:
-                kept.append((a, b))
-        for a, b in reversed(kept):
-            raw = raw[:a] + "{\n    todo!()\n}" + raw[b + 1 :]
-        if kept:
-            try:
-                write_text(path, raw)
-            except OSError as e:
-                raise Error(f"{path}: {io_error(e)}") from None
-    return [p.name for p in protos if p.name not in found]

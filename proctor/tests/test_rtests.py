@@ -6,8 +6,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from common import Scratch
-from proctor.compat import read_text
 from proctor.errors import Error
 from proctor.scan import (
     ProtoFindingMissing,
@@ -208,32 +206,3 @@ def test_stubs_put_methods_in_an_impl_of_their_type() -> None:
     )
     later = lang.stub_source("rust", protos[2:], {"Stack"})
     assert later is not None and "pub struct" not in later and later.startswith("impl Stack {")
-
-
-def test_the_reference_is_stubbed_where_the_functions_are() -> None:
-    with Scratch("rstubs") as s:
-        s.write("ref/Cargo.toml", '[package]\nname = "st"\n')
-        s.write(
-            "ref/src/lib.rs",
-            "pub struct Stack { v: Vec<i32> }\n\n"
-            "impl Stack {\n    pub fn new() -> Self {\n        Stack { v: vec![] }\n    }\n\n"
-            "    pub fn len(&self) -> usize {\n        self.v.len()\n    }\n}\n\n"
-            "impl Other {\n    pub fn len(&self) -> usize {\n        0\n    }\n}\n\n"
-            'pub fn total(v: &[i32]) -> i32 {\n    let s = "}";\n    v.iter().sum()\n}\n',
-        )
-        protos = [
-            sig.parse("rust", "pub fn new() -> Self", "Stack::new"),
-            sig.parse("rust", "pub fn len(&self) -> usize", "Stack::len"),
-            sig.parse("rust", "pub fn total(v: &[i32]) -> i32", "total"),
-            sig.parse("rust", "pub fn gone(&self)", "Stack::gone"),
-        ]
-        missing = rtests.stub_reference(s.path / "ref", s.path / "tree", protos)
-        assert missing == ["Stack::gone"]
-        assert read_text(s.path / "tree" / "src" / "lib.rs") == (
-            "pub struct Stack { v: Vec<i32> }\n\n"
-            "impl Stack {\n    pub fn new() -> Self {\n    todo!()\n}\n\n"
-            "    pub fn len(&self) -> usize {\n    todo!()\n}\n}\n\n"
-            "impl Other {\n    pub fn len(&self) -> usize {\n        0\n    }\n}\n\n"
-            "pub fn total(v: &[i32]) -> i32 {\n    todo!()\n}\n"
-        )
-        assert read_text(s.path / "tree" / "Cargo.toml") == '[package]\nname = "st"\n'

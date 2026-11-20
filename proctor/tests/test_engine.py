@@ -41,16 +41,14 @@ def test_test_names_of_the_demo_units() -> None:
         'case then(fail_alloc_after(0), str_dup("abc")) == null',
         "case then(fail_alloc_after(0), str_split(\"a,b\", ',')) == null",
         "case then(fail_alloc_after(2), str_split(\"a,b\", ',')) == null",
-        "fuzz str_len",
-        "fuzz str_dup",
-        "fuzz str_split",
+        "law a copy equals its source",
         "law split keeps the non-empty fields",
     ]
-    assert [t.is_random() for t in tests] == [False] * 10 + [True] * 4
-    fuzz = tests[12].kind
-    assert isinstance(fuzz, engine.KindFuzz)
-    assert [n for n, _ in fuzz.params] == ["s", "sep"]
-    assert fuzz.rounds == engine.DEFAULT_ROUNDS
+    assert [t.is_random() for t in tests] == [False] * 10 + [True] * 2
+    law = tests[10].kind
+    assert isinstance(law, engine.KindLaw)
+    assert [n for n, _ in law.vars] == ["s"]
+    assert law.rounds == engine.DEFAULT_ROUNDS
 
 
 def test_program_case_names_are_cut_at_70_characters() -> None:
@@ -62,12 +60,12 @@ def test_program_case_names_are_cut_at_70_characters() -> None:
         'case <<< "2026-01-02 10:00:00 INFO a\\n2026-01-02 10:00:01 ERROR b\\n2026-01-...',
         'case <<< "" => out empty exit 0',
         'case <<< "garbage\\n2026-01-02 10:00:00 WARN w\\n" => out == "WARN 1\\n" err ~...',
-        "fuzz report",
         "law blank lines do not change the report",
+        "law one line per level, counts adding up",
     ]
-    fuzz = tests[3].kind
-    assert isinstance(fuzz, engine.KindFuzzProg)
-    assert fuzz.argv is None and fuzz.stdin is not None and fuzz.rounds == 20
+    law = tests[4].kind
+    assert isinstance(law, engine.KindLaw)
+    assert len(law.checks) == 2 and law.rounds == 20
 
 
 LAW_UNIT = """

@@ -161,25 +161,6 @@ class StaticCheck:
 
 
 @dataclass(kw_only=True)
-class FuzzSpec:
-    # Function target: the function to compare against the reference.
-    func: str | None = field(default=None, metadata={"yaml": "fn"})
-    # Program target: a name for the test.
-    name: str | None = None
-    # Function target: generator per parameter name (overrides defaults).
-    args: dict[str, Any] = field(default_factory=dict)
-    # Program target: generator for the argument list (list or string).
-    argv: Any = None
-    # Program target: generator for stdin.
-    stdin: Any = None
-    rounds: U32 | None = None
-
-
-# A fuzz entry: a function name, or a full spec (untagged in YAML).
-Fuzz = Annotated[str | FuzzSpec, Untagged("Fuzz")]
-
-
-@dataclass(kw_only=True)
 class Law:
     name: str | None = None
     vars: dict[str, Any] = field(default_factory=dict, metadata={"yaml": "gen"})
@@ -198,7 +179,10 @@ class Law:
 @dataclass(kw_only=True)
 class Random:
     rounds: U32 | None = None
-    fuzz: list[Fuzz] = field(default_factory=list)
+    # `fuzz` compared the student with a hidden reference solution. References
+    # are gone: the key still loads, so that old specs are read, but `validate`
+    # reports it and nothing runs it.
+    fuzz: list[Any] = field(default_factory=list)
     laws: list[Law] = field(default_factory=list)
 
 
@@ -279,6 +263,10 @@ class Unit:
     # Rust: `#[test]` functions compiled against the student's library
     # crate, which they reach as `student` (see `rtests`).
     rust_tests: str | None = None
+    # Rust: type definitions (structs with their public fields, enums) the
+    # student defines as given. The instructions show them, the stubs hold
+    # them, so `rust_tests` compile against an empty workspace.
+    types: str | None = None
     random: Random = field(default_factory=Random)
     timeout_ms: U64 | None = None
 
@@ -298,9 +286,4 @@ class Unit:
         return self.rust_tests is not None and self.rust_tests.strip(_WS) != ""
 
     def has_tests(self) -> bool:
-        return (
-            bool(self.case_lines())
-            or self.has_rust_tests()
-            or bool(self.random.fuzz)
-            or bool(self.random.laws)
-        )
+        return bool(self.case_lines()) or self.has_rust_tests() or bool(self.random.laws)

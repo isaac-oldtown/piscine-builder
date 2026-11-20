@@ -109,15 +109,20 @@ def reveal(c: course.CourseDir, u: Unit) -> Revealed:
     own = engine.protos_for(c, [u])
     # Types with methods in earlier stages exist already.
     earlier = {o for p in engine.protos_for(c, c.chain(u)[:-1]) if (o := p.owner()) is not None}
+    # The types the subject gives come with the stubs.
+    for x in c.chain(u):
+        earlier |= lang.type_names(x.types)
+    types = f"{u.types.rstrip()}\n\n" if u.types and u.types.strip() else ""
     stubs = u.stubs
-    if stubs is not None and own:
+    if stubs is not None and (own or types):
         path = ws / stubs
         if os.path.exists(path):
-            body = lang.stub_source(language, own, earlier) or ""
+            body = types + (lang.stub_source(language, own, earlier) or "")
             r.kept.append((f"{ws_name}/{stubs}", body))
         else:
             stub = lang.stub_source(language, own, earlier)
             if stub is not None:
+                stub = types + stub
                 match language:
                     case "c":
                         header = next(

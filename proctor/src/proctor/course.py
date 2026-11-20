@@ -229,9 +229,6 @@ class CourseDir:
     def stages_of(self, project: str) -> list[Unit]:
         return [u for u in self.units if u.project == project]
 
-    def ref_dir(self, u: Unit) -> Path:
-        return self.hidden() / "refs" / u.id
-
     def subject_rel(self, u: Unit) -> Path:
         if u.project is None:
             return Path("subjects") / f"{u.id}.md"

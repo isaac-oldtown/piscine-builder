@@ -51,9 +51,10 @@ and still describe how the code is organised: follow them when changing it.
   `&mut Command` can be passed between modules (`run.run(cmd, stdin, timeout)`). Use
   `Popen` directly only where Rust uses `Child` (`try_wait` -> `poll()`, `id()` -> `pid`).
 - `proctor/unit.py`: the course schema (`Course`, `LangConfig`, `Project`, `Target`,
-  `Scaffold`, `Func`, `Rule`, `FileRule`, `StaticCheck`, `FuzzSpec`, `Law`, `Random`, `Unit`).
+  `Scaffold`, `Func`, `Rule`, `FileRule`, `StaticCheck`, `Law`, `Random`, `Unit`).
   `Requirements` is `str | list[str]` with helpers `requirements_is_empty(r)` and
-  `requirements_markdown(r)`; `Fuzz` is `str | FuzzSpec`; `LangConfig::with` is `with_`.
+  `requirements_markdown(r)`; `LangConfig::with` is `with_`. Since the port, reference
+  solutions and `random.fuzz` are gone (the key still loads, untyped, for `validate` to report).
 
 Put a helper that several modules need in the foundation rather than in private copies.
 
@@ -115,7 +116,7 @@ Fields of tuple-like variants used across modules:
 | `ProtoFinding::Ok Missing Mismatch(m)` | `ProtoFindingOk()`, `ProtoFindingMissing()`, `ProtoFindingMismatch(msg)` |
 | `Answer::Pick(i) Other(s)` | `AnswerPick(index)`, `AnswerOther(value)` (`Answer.text(options)` is a method) |
 | `engine::Kind::Prog(case)` | `KindProg(case)` (the other `Kind` variants are struct-like) |
-| `engine::Against::Student Reference Dir(p)` | `AgainstStudent()`, `AgainstReference()`, `AgainstDir(path)` |
+| `engine::Against::Student Dir(p)` | `AgainstStudent()`, `AgainstDir(path)` (`Reference` was dropped after the port) |
 | `engine::Item::pass(..)` | `Item.pass_(..)` (keyword) |
 
 ## Types
@@ -150,8 +151,8 @@ Fields of tuple-like variants used across modules:
 - `.ok()`, `.unwrap_or(...)`, `.is_ok()`, `if let Ok(x) = ...` on a `Result` -> `try/except`.
 - `std::io::Error` comes as `OSError`: catch `OSError` around file and process operations and
   format it with `compat.io_error(e)` where Rust formats `{e}`.
-- A `Result` stored in a variable, a field or a list instead of being propagated (for example
-  `UnitReport.reference: Result<(usize, usize), String>`): `errors.Ok(value)` /
+- A `Result` stored in a variable, a field or a list instead of being propagated:
+  `errors.Ok(value)` /
   `errors.Err(msg)`, typed `errors.Result[T]` (`Ok[T] | Err`); match with `case Ok(v):` and
   `case Err(msg):`. Only `String` errors are stored this way in the Rust code.
 - `panic!`, `unwrap()` and `expect()` on things that cannot fail: let Python raise.

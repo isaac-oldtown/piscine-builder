@@ -1,9 +1,12 @@
 """Course self-test, used by coursecrafter's quality gate and by course
-authors: the reference solution must pass every check, and every
-function test must fail against empty stubs (otherwise it proves nothing)."""
+authors. There is no reference solution: the tests run against empty stubs,
+where they must build and run without a course error, and every function
+needs a test that fails there (otherwise it proves nothing)."""
 
 from __future__ import annotations
 
+import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,7 +14,7 @@ from typing import Any
 
 from proctor import course, engine, lang, rtests, sig
 from proctor.compat import U64_MASK, io_error, write_text
-from proctor.errors import Err, Error, Ok, Result
+from proctor.errors import Error
 from proctor.unit import Target, Unit
 
 
@@ -44,29 +47,21 @@ class Silent(engine.Reporter):
 @dataclass(kw_only=True)
 class UnitReport:
     unit: str
-    reference: Result[tuple[int, int]]
+    # Why the tests cannot run on stubs: they do not build, or a test is wrong.
+    error: str | None
     # Weak spots: functions no test catches on an empty stub, tests that test nothing.
     vacuous: list[str]
     vacuity_checked: int
     notes: list[str]
 
     def ok(self) -> bool:
-        return isinstance(self.reference, Ok) and not self.vacuous
+        return self.error is None and not self.vacuous
 
     def to_json(self) -> dict[str, Any]:
-        """One JSON line, how the Linux container reports back. The keys are
-        in serde_json's (sorted) order."""
-        passed: list[int] | None
-        error: str | None
-        match self.reference:
-            case Ok((p, t)):
-                passed, error = [p, t], None
-            case Err(e):
-                passed, error = None, e
+        """One JSON line, how the Linux container reports back (sorted keys)."""
         return {
-            "error": error,
+            "error": self.error,
             "notes": list(self.notes),
-            "passed": passed,
             "unit": self.unit,
             "vacuity_checked": self.vacuity_checked,
             "vacuous": list(self.vacuous),
@@ -77,40 +72,32 @@ class UnitReport:
         def get(k: str) -> Any:
             return v.get(k) if isinstance(v, dict) else None
 
-        def as_u64(x: Any) -> int | None:
-            return x if type(x) is int and 0 <= x <= U64_MASK else None
-
         def strings(k: str) -> list[str]:
             a = get(k)
             if not isinstance(a, list):
                 return []
             return [x for x in a if isinstance(x, str)]
 
-        pt, e = get("passed"), get("error")
-        reference: Result[tuple[int, int]]
-        if isinstance(pt, list):
-            p = as_u64(pt[0]) if len(pt) > 0 else None
-            if p is None:
-                return None
-            t = as_u64(pt[1]) if len(pt) > 1 else None
-            if t is None:
-                return None
-            reference = Ok((p, t))
-        elif isinstance(e, str):
-            reference = Err(e)
-        else:
+        unit, error, checked = get("unit"), get("error"), get("vacuity_checked")
+        if not isinstance(unit, str) or not (error is None or isinstance(error, str)):
             return None
-        unit = get("unit")
-        if not isinstance(unit, str):
-            return None
-        checked = as_u64(get("vacuity_checked"))
         return UnitReport(
             unit=unit,
-            reference=reference,
+            error=error,
             vacuous=strings("vacuous"),
-            vacuity_checked=checked if checked is not None else 0,
+            vacuity_checked=checked if type(checked) is int and 0 <= checked <= U64_MASK else 0,
             notes=strings("notes"),
         )
+
+
+def crate_name(unit_id: str) -> str:
+    """A Cargo package name for a unit id: `d03-longest-word` -> `d03_longest_word`."""
+    return re.sub(r"[^A-Za-z0-9_]", "_", unit_id)
+
+
+def rust_types(chain: list[Unit]) -> str:
+    """The `types` blocks of a project chain, in order."""
+    return "".join(f"{t.rstrip()}\n\n" for u in chain if (t := u.types) and t.strip())
 
 
 def stub_workspace(
@@ -118,10 +105,12 @@ def stub_workspace(
     protos: list[sig.Proto],
     module: str | None,
     dir: Path,
-    reference: Path,
+    package: str,
+    types: str = "",
 ) -> None:
     """Writes a workspace holding only mechanical stubs for `protos`. `module` is
-    the unit's `module:`, the Python module of undotted function names."""
+    the unit's `module:`, the Python module of undotted function names; Rust
+    stubs are package `package` and start with `types`."""
     # The `lang` parameter hides the module of the same name.
     from proctor import lang as lang_mod
 
@@ -164,42 +153,31 @@ def stub_workspace(
                 rel = f"{m.replace('.', '/')}/__init__.py"
                 w(rel, body)
         case "rust":
-            try:
-                pkg = lang_mod.cargo_package(reference)
-            except lang_mod.BuildError as e:
-                raise Error(e.msg) from None
             w(
                 "Cargo.toml",
-                f'[package]\nname = "{pkg}"\nversion = "0.0.0"\nedition = "2024"\n\n[workspace]\n',
+                f'[package]\nname = "{package}"\nversion = "0.0.0"\nedition = "2024"\n\n[workspace]\n',
             )
-            w("src/lib.rs", lang_mod.stub_source(lang, protos) or "")
+            stubs = lang_mod.stub_source(lang, protos, lang_mod.type_names(types)) or ""
+            w("src/lib.rs", f"{types}{stubs}")
         case other:
             raise Error(f"no stub generator for {other}")
 
 
+def package_of(c: course.CourseDir, chain: list[Unit]) -> str:
+    """The package the student's workspace declares: the scaffold's, else one
+    named after the project (or drill)."""
+    for u in chain:
+        d = c.hidden() / "scaffold" / u.id
+        if os.path.isfile(d / "Cargo.toml"):
+            try:
+                return lang.cargo_package(d)
+            except lang.BuildError:
+                break
+    return crate_name(chain[0].id)
+
+
 def unit(c: course.CourseDir, u: Unit, seed: int) -> UnitReport:
-    r = UnitReport(unit=u.id, reference=Err(""), vacuous=[], vacuity_checked=0, notes=[])
-    ref_dir = c.ref_dir(u)
-    if not ref_dir.is_dir():
-        if u.has_tests() or u.functions:
-            r.reference = Err(f"no reference solution in .proctor/refs/{u.id}/")
-        else:
-            r.reference = Ok((0, 0))
-    else:
-        opts = engine.Options(seed=seed, against=engine.AgainstReference(), tests_only=False)
-        silent = Silent(log="")
-        try:
-            v = engine.Engine.new(c, u, opts).check(silent)
-        except Error as e:
-            r.reference = Err(e.msg)
-        else:
-            if v.ok:
-                r.reference = Ok((v.passed, v.total))
-            elif v.first_fail is not None:
-                cat, item = v.first_fail
-                r.reference = Err(f"{cat} {item.name}: {item.detail}")
-            else:
-                r.reference = Err("failed")
+    r = UnitReport(unit=u.id, error=None, vacuous=[], vacuity_checked=0, notes=[])
     language = c.language(u)
     if u.target != Target.FUNCTION or not u.has_tests():
         return r
@@ -210,19 +188,13 @@ def unit(c: course.CourseDir, u: Unit, seed: int) -> UnitReport:
     try:
         protos = engine.protos_for(c, chain)
     except Error as e:
-        r.notes.append(e.msg)
+        r.error = e.msg
         return r
     d = c.hidden() / "cache" / f"stubs-{u.id}" / "tree"
     try:
-        if language == "rust" and engine.rust_suites(chain):
-            # Tests in Rust use the reference's types: keep them, stub its functions.
-            missing = rtests.stub_reference(ref_dir, d, protos)
-            if missing:
-                raise Error(f"cannot find `{missing[0]}` in the reference to stub it")
-        else:
-            stub_workspace(language, protos, u.module, d, ref_dir)
+        stub_workspace(language, protos, u.module, d, package_of(c, chain), rust_types(chain))
     except Error as e:
-        r.notes.append(f"stubs: {e.msg}")
+        r.error = f"stubs: {e.msg}"
         return r
     # Tests may also call test-only helpers; the stubs cover only the student's functions.
     callable = list(protos)
@@ -233,7 +205,7 @@ def unit(c: course.CourseDir, u: Unit, seed: int) -> UnitReport:
     try:
         tests = engine.tests_of(c, u, callable)
     except Error as e:
-        r.notes.append(e.msg)
+        r.error = e.msg
         return r
     known = [p.name for p in protos]
 
@@ -243,19 +215,25 @@ def unit(c: course.CourseDir, u: Unit, seed: int) -> UnitReport:
         return [n for n in engine.expression_calls(t) if n in known]
 
     opts = engine.Options(seed=seed, against=engine.AgainstDir(d), tests_only=True)
-    silent = Silent(log="")
     try:
-        v = engine.Engine.new(c, u, opts).check(silent)
+        v = engine.Engine.new(c, u, opts).check(Silent(log=""))
     except Error as e:
-        r.notes.append(e.msg)
+        r.error = e.msg
         return r
-    failed_on_stub = [
-        i.name
-        for p in v.phases
-        if p.name == "tests" and p.status != engine.Status.SKIP
-        for i in p.items
-        if not i.ok
+    failed_build = next(
+        (p for p in v.phases if p.name == "build" and p.status == engine.Status.FAIL), None
+    )
+    if failed_build is not None:
+        r.error = f"the tests do not build against empty stubs: {failed_build.summary}"
+        return r
+    ran = [
+        i for p in v.phases if p.name == "tests" and p.status != engine.Status.SKIP for i in p.items
     ]
+    wrong = next((i for i in ran if i.course_error), None)
+    if wrong is not None:
+        r.error = f"{wrong.name}: {wrong.detail}"
+        return r
+    failed_on_stub = [i.name for i in ran if not i.ok]
     for t in tests:
         names = called(t)
         if not names and isinstance(t.kind, engine.KindCheck | engine.KindLaw):
@@ -267,9 +245,4 @@ def unit(c: course.CourseDir, u: Unit, seed: int) -> UnitReport:
             r.vacuous.append(f"`{f.name}` is never tested")
         elif not any(t.name in failed_on_stub for t in calling):
             r.vacuous.append(f"no test of `{f.name}` fails on an empty stub")
-    failed_build = next(
-        (p for p in v.phases if p.name == "build" and p.status == engine.Status.FAIL), None
-    )
-    if failed_build is not None:
-        r.notes.append(f"stubs do not build: {failed_build.summary}")
     return r

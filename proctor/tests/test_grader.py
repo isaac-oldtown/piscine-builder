@@ -4,11 +4,12 @@ course. Units whose toolchain is not installed are skipped."""
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 from common import Scratch, demo_copy, missing_tool
 from proctor.compat import read_text, write_text
-from proctor.errors import Ok
+from proctor.unit import Unit
 
 from proctor import course, engine, render, scaffold, selftest
 
@@ -43,6 +44,13 @@ def test_a_ban_with_nothing_allowed_anywhere_is_rejected() -> None:
         assert any(p.startswith("d03-longest-word: `forbidden` needs") for p in problems), problems
 
 
+def assert_passes(c: course.CourseDir, u: Unit, solution: Path) -> None:
+    """A correct solution in `solution` passes every check of `u`."""
+    opts = engine.Options(seed=1, against=engine.AgainstDir(solution), tests_only=False)
+    v = engine.Engine.new(c, u, opts).check(selftest.Silent())
+    assert v.ok, f"{u.id}: {v.first_fail}"
+
+
 BYTES_COURSE = [
     (
         ".proctor/course.yaml",
@@ -67,11 +75,11 @@ cases: |
 """,
     ),
     (
-        ".proctor/refs/d01-rust-bytes/Cargo.toml",
+        "solutions/d01-rust-bytes/Cargo.toml",
         '[package]\nname = "bytes_drill"\nversion = "0.1.0"\nedition = "2024"\n\n[workspace]\n',
     ),
     (
-        ".proctor/refs/d01-rust-bytes/src/lib.rs",
+        "solutions/d01-rust-bytes/src/lib.rs",
         "pub fn byte_len(b: &[u8]) -> usize {\n    b.len()\n}\n\npub fn utf8_of(s: &str) -> Vec<u8> {\n    s.as_bytes().to_vec()\n}\n",
     ),
     (
@@ -92,7 +100,7 @@ cases: |
 """,
     ),
     (
-        ".proctor/refs/d02-python-bytes/pybytes/__init__.py",
+        "solutions/d02-python-bytes/pybytes/__init__.py",
         'def byte_len(b: bytes) -> int:\n    assert isinstance(b, bytes)\n    return len(b)\n\n\ndef utf8_of(s: str) -> bytes:\n    return s.encode("utf-8")\n',
     ),
 ]
@@ -171,8 +179,8 @@ def test_types_and_methods_are_graded_by_tests_in_rust() -> None:
     with Scratch("rust-tests") as s:
         s.write(".proctor/course.yaml", "title: Stack\nunits: [d01-stack]\n")
         s.write(".proctor/units/d01-stack.yaml", STACK_UNIT)
-        s.write(".proctor/refs/d01-stack/Cargo.toml", STACK_TOML)
-        s.write(".proctor/refs/d01-stack/src/lib.rs", STACK_LIB)
+        s.write("solutions/d01-stack/Cargo.toml", STACK_TOML)
+        s.write("solutions/d01-stack/src/lib.rs", STACK_LIB)
         s.write(".proctor/scaffold/d01-stack/Cargo.toml", STACK_TOML)
         c = course.CourseDir.load(s.path)
         assert engine.validate(c) == []
@@ -186,10 +194,10 @@ def test_types_and_methods_are_graded_by_tests_in_rust() -> None:
         if why is not None:
             pytest.skip(why)
         r = selftest.unit(c, u, 1)
-        assert isinstance(r.reference, Ok), r.reference
-        assert r.reference.value[0] == r.reference.value[1]
+        assert r.error is None, r.error
         assert not r.vacuous and r.vacuity_checked == 5, (r.vacuous, r.notes)
         assert not r.notes, r.notes
+        assert_passes(c, u, s.path / "solutions" / u.id)
 
         def check(tests_only: bool = False) -> dict[str, str]:
             opts = engine.Options(seed=1, against=engine.AgainstStudent(), tests_only=tests_only)
@@ -235,7 +243,6 @@ def test_with_tests_in_rust_only_what_cases_call_must_suit_the_harness() -> None
     peek = '  - { name: peek_of, sig: "pub fn peek_of(s: &Stack) -> Option<i32>" }\ncases: |\n'
     with Scratch("rust-tests-harness") as s:
         s.write(".proctor/course.yaml", "title: Stack\nunits: [d01-stack]\n")
-        s.write(".proctor/refs/d01-stack/Cargo.toml", STACK_TOML)
         s.write(".proctor/units/d01-stack.yaml", STACK_UNIT.replace("cases: |\n", peek))
         assert engine.validate(course.CourseDir.load(s.path)) == []
         called = STACK_UNIT.replace("cases: |\n", peek + "  peek_of(1) == 1\n")
@@ -251,6 +258,75 @@ def test_with_tests_in_rust_only_what_cases_call_must_suit_the_harness() -> None
             "d01-stack: `Stack::new` is an associated function; only free functions can be called"
             in problems
         )
+
+
+POINT_TYPES = """#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Point {
+    pub x: i32,
+    pub y: i32,
+}
+"""
+
+POINT_UNIT = (
+    """id: d01-point
+title: Points
+language: rust
+target: function
+stubs: src/lib.rs
+goal: Measure points.
+types: |
+"""
+    + "".join(f"  {line}\n" for line in POINT_TYPES.splitlines())
+    + """functions:
+  - { name: "Point::dist2", sig: "pub fn dist2(&self) -> i32", returns: the squared distance to the origin }
+rust_tests: |
+  #[test]
+  fn three_four_five() {
+      assert_eq!(Point { x: 3, y: 4 }.dist2(), 25);
+  }
+"""
+)
+
+POINT_IMPL = "\nimpl Point {\n    pub fn dist2(&self) -> i32 {\n        self.x * self.x + self.y * self.y\n    }\n}\n"
+
+
+def test_given_types_let_tests_in_rust_build_on_stubs() -> None:
+    with Scratch("rust-types") as s:
+        s.write(".proctor/course.yaml", "title: Points\nunits: [d01-point]\n")
+        s.write(".proctor/units/d01-point.yaml", POINT_UNIT)
+        s.write(".proctor/scaffold/d01-point/Cargo.toml", STACK_TOML)
+        s.write("solutions/d01-point/Cargo.toml", STACK_TOML)
+        s.write("solutions/d01-point/src/lib.rs", POINT_TYPES + POINT_IMPL)
+        c = course.CourseDir.load(s.path)
+        assert engine.validate(c) == []
+        u = c.unit("d01-point")
+        assert u is not None
+        page = render.unit_md(c, u)
+        assert "## Expected types" in page and "pub x: i32," in page, page
+        why = missing_tool(c, u)
+        if why is not None:
+            pytest.skip(why)
+        r = selftest.unit(c, u, 1)
+        assert r.error is None and not r.vacuous, (r.error, r.vacuous)
+        assert_passes(c, u, s.path / "solutions" / u.id)
+        # The stubs written at unlock hold the types: the tests build and fail.
+        scaffold.reveal(c, u)
+        lib = read_text(c.workspace(u) / "src" / "lib.rs")
+        assert lib.count("pub struct Point") == 1 and "impl Point {" in lib, lib
+        opts = engine.Options(seed=1, against=engine.AgainstStudent(), tests_only=True)
+        v = engine.Engine.new(c, u, opts).check(selftest.Silent())
+        got = {i.name: "" if i.ok else i.detail for p in v.phases for i in p.items}
+        assert got["compile"] == "", got
+        assert got["test three_four_five"].startswith("not yet implemented"), got
+        # Without the types, the stubs cannot build the tests.
+        s.write(
+            ".proctor/units/d01-point.yaml",
+            POINT_UNIT.split("types: |")[0] + "functions:" + POINT_UNIT.split("functions:")[1],
+        )
+        c = course.CourseDir.load(s.path)
+        u = c.unit("d01-point")
+        assert u is not None
+        assert selftest.unit(c, u, 1).error is not None
 
 
 LIFETIMES_UNIT = """id: d01-life
@@ -295,8 +371,8 @@ def test_lifetimes_and_where_clauses_in_prototypes() -> None:
     with Scratch("lifetimes") as s:
         s.write(".proctor/course.yaml", "title: Lifetimes\nunits: [d01-life]\n")
         s.write(".proctor/units/d01-life.yaml", LIFETIMES_UNIT)
-        s.write(".proctor/refs/d01-life/Cargo.toml", STACK_TOML)
-        s.write(".proctor/refs/d01-life/src/lib.rs", LIFETIMES_LIB)
+        s.write("solutions/d01-life/Cargo.toml", STACK_TOML)
+        s.write("solutions/d01-life/src/lib.rs", LIFETIMES_LIB)
         c = course.CourseDir.load(s.path)
         assert engine.validate(c) == []
         u = c.unit("d01-life")
@@ -305,9 +381,9 @@ def test_lifetimes_and_where_clauses_in_prototypes() -> None:
         if why is not None:
             pytest.skip(why)
         r = selftest.unit(c, u, 1)
-        assert isinstance(r.reference, Ok), r.reference
-        assert r.reference.value[0] == r.reference.value[1]
+        assert r.error is None, r.error
         assert not r.vacuous and not r.notes, (r.vacuous, r.notes)
+        assert_passes(c, u, s.path / "solutions" / u.id)
 
 
 def test_an_empty_command_is_a_course_error() -> None:
@@ -335,8 +411,9 @@ def test_text_given_for_bytes_is_its_utf8_encoding() -> None:
                 continue
             checked += 1
             r = selftest.unit(c, u, 1)
-            assert isinstance(r.reference, Ok), f"{u.id}: {r.reference}"
+            assert r.error is None, f"{u.id}: {r.error}"
             assert not r.vacuous, f"{u.id}: {r.vacuous}"
+            assert_passes(c, u, s.path / "solutions" / u.id)
         assert checked > 0, "no unit could be checked on this machine"
 
 

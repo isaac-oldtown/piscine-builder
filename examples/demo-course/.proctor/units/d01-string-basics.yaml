@@ -48,11 +48,12 @@ cases: |
   then(fail_alloc_after(0), str_split("a,b", ',')) == null
   then(fail_alloc_after(2), str_split("a,b", ',')) == null
 random:
-  fuzz:
-    - str_len
-    - str_dup
-    - { fn: str_split, args: { s: 'string "ab," 0..30', sep: "lit ','" } }
   laws:
+    - name: a copy equals its source
+      gen: { s: 'string "abc xyz,é" 0..60' }
+      check:
+        - "str_dup(s) == s"
+        - "str_len(s) == bytes(s)"
     - name: split keeps the non-empty fields
       gen: { s: 'string "ab, " 0..40' }
       check:

@@ -173,6 +173,23 @@ def test_static_check_explains() -> None:
     assert "no variables" in ei.value.msg
 
 
+def test_comprehensions_state_properties_of_every_element() -> None:
+    assert holds("[len(w) for w in ft_split(s)] == [3, 3]") == Ok(True)
+    assert holds("[w for w in ft_split(s) if w != 'one'] == ['two']") == Ok(True)
+    assert holds("all(len(w) <= 3 for w in ft_split(s))") == Ok(True)
+    assert holds("any(w.upper() == 'TWO' for w in ft_split(s))") == Ok(True)
+    assert holds("max([len(c) for c in chars(s)]) == 1") == Ok(True)
+    assert holds("[[w, c] for w in ft_split(s) for c in w]") == Err("expected `]`")
+    # The variable is bound inside its comprehension only.
+    r = holds("[w for w in ft_split(s)] == w")
+    assert isinstance(r, Err) and "unknown name `w`" in r.msg
+    assert holds("[1, 2,] == [1, 2] and [] == []") == Ok(True)
+    with pytest.raises(Error, match="a variable name after `for`"):
+        expr.parse("[x for 1 in s]")
+    with pytest.raises(Error, match="expected `\\)`"):
+        expr.parse("all(x for x in s, 2)")
+
+
 def test_err_comparisons_mean_raises() -> None:
     assert holds(r'ft_parse_port("80") == Err(1)') == Ok(False)
     assert holds(r'ft_parse_port("0") != Err(1)') == Ok(False)

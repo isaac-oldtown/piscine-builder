@@ -1,17 +1,22 @@
 """End to end on the demo course: its specs validate, every unit passes the
-check coursecrafter's build gate runs (the reference passes its own tests,
-and the function tests fail on empty stubs), and runaway student work is
-stopped. Units whose toolchain is not installed are skipped."""
+check coursecrafter's build gate runs (the tests run on empty stubs and the
+function tests fail there), its tests and random laws accept the known-good
+solutions in `demo_solutions/` under several seeds, and runaway student work
+is stopped. Units whose toolchain is not installed are skipped."""
 
 from __future__ import annotations
 
+import shutil
 import sys
+from pathlib import Path
 
 import pytest
 from common import DEMO, demo_copy, missing_tool
 from proctor.compat import read_text, write_text
 
 from proctor import course, docker, engine, selftest
+
+SOLUTIONS = Path(__file__).parent / "demo_solutions"
 
 
 def fixed_cases(id: str, limit_ms: int, files: list[tuple[str, str]]) -> list[engine.Item] | None:
@@ -55,10 +60,33 @@ def test_demo_course_passes_the_build_gate() -> None:
                 continue
             checked += 1
             r = selftest.unit(c, u, 1)
-            if not r.ok() or any(n.startswith("stubs") for n in r.notes):
-                failures.append(
-                    f"{u.id}: reference {r.reference}, weak {r.vacuous}, notes {r.notes}"
+            if not r.ok() or r.notes:
+                failures.append(f"{u.id}: error {r.error}, weak {r.vacuous}, notes {r.notes}")
+        assert not failures, "\n".join(failures)
+        assert checked > 0, "no unit could be checked on this machine"
+
+
+def test_correct_solutions_pass_whatever_the_seed() -> None:
+    with demo_copy("demo") as s:
+        c = course.CourseDir.load(s.path)
+        failures = []
+        checked = 0
+        for u in c.units:
+            why = "needs the Linux container" if docker.needed(u) else missing_tool(c, u)
+            if why is not None or not (SOLUTIONS / u.id).is_dir():
+                continue
+            # Built in the scratch copy, never in the repo.
+            solution = s.path / "solutions" / u.id
+            shutil.copytree(SOLUTIONS / u.id, solution)
+            checked += 1
+            for seed in (1, 0xDEADBEEF, 0x0123456789ABCDEF):
+                opts = engine.Options(
+                    seed=seed, against=engine.AgainstDir(solution), tests_only=False
                 )
+                v = engine.Engine.new(c, u, opts).check(selftest.Silent(log=""))
+                if not v.ok:
+                    failures.append(f"{u.id} (seed {seed:016x}): {v.first_fail}")
+                    break
         assert not failures, "\n".join(failures)
         assert checked > 0, "no unit could be checked on this machine"
 
@@ -74,7 +102,7 @@ def test_a_program_flooding_its_output_is_stopped() -> None:
 
 
 def test_a_function_printing_forever_times_out() -> None:
-    cargo = read_text(DEMO / ".proctor" / "refs" / "d03-longest-word" / "Cargo.toml")
+    cargo = read_text(DEMO / ".proctor" / "scaffold" / "d03-longest-word" / "Cargo.toml")
     lib = 'pub fn longest_word(text: &str) -> Option<&str> {\n    loop {\n        println!("{text}");\n    }\n}\n\npub fn word_count(text: &str) -> usize {\n    loop {\n        println!("{text}");\n    }\n}\n'
     items = fixed_cases("d03-longest-word", 500, [("Cargo.toml", cargo), ("src/lib.rs", lib)])
     if items is None:

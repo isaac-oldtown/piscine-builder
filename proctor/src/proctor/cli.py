@@ -22,7 +22,7 @@ from proctor import (
     scaffold,
     selftest,
 )
-from proctor.errors import Err, Error, Ok
+from proctor.errors import Error
 from proctor.unit import Scaffold, Target, Unit
 
 USAGE = """proctor: PiscineBuilder's grader. Works offline, never calls an LLM.
@@ -483,20 +483,8 @@ def cmd_explain(args: list[str]) -> int:
         print(f"\n{'tests of ' if x.id == u.id else 'regression from '}{x.id}")
         for t in tests:
             match t.kind:
-                case engine.KindCheck() | engine.KindProg():
+                case engine.KindCheck() | engine.KindProg() | engine.KindRust():
                     print(f"  {t.name}")
-                case engine.KindFuzz(func=func, params=params, rounds=rounds):
-                    print(f"  fuzz {func}: {rounds} rounds, compared with the reference")
-                    for n, g in params:
-                        print(f"      {n}: {gens.describe(g)}")
-                case engine.KindFuzzProg(argv=argv, stdin=stdin, rounds=rounds):
-                    print(
-                        f"  {t.name}: {rounds} rounds, stdout and exit code compared with the reference"
-                    )
-                    if argv is not None:
-                        print(f"      argv: {gens.describe(argv)}")
-                    if stdin is not None:
-                        print(f"      stdin: {gens.describe(stdin)}")
                 case engine.KindLaw(vars=vars_, checks=checks, rounds=rounds, time_ms=time_ms):
                     per_round = f", {time_ms} ms per round" if time_ms is not None else ""
                     print(f"  {t.name}: {rounds} rounds{per_round}")
@@ -612,18 +600,17 @@ def cmd_selftest(args: list[str]) -> int:
             all_ok &= r.ok()
             continue
         name = r.unit
-        match r.reference:
-            case Ok((passed, total)):
-                reference = style.green(f"reference OK {passed}/{total}")
-            case Err(e):
-                reference = style.red(f"reference KO {report.truncate(e, 160)}")
-        if r.vacuity_checked == 0:
+        if r.error is not None:
+            status = style.red(f"KO {report.truncate(r.error, 160)}")
+        else:
+            status = style.green("OK")
+        if r.error is not None or r.vacuity_checked == 0:
             vac = ""
         elif not r.vacuous:
             vac = style.green(f"  every function caught on stubs ({r.vacuity_checked})")
         else:
             vac = style.red(f"  weak: {'; '.join(r.vacuous)}")
-        print(f"{name:<28} {reference}{vac}")
+        print(f"{name:<28} {status}{vac}")
         for n in r.notes:
             print(f"{'':<28} {style.yellow(n)}")
         all_ok &= r.ok()

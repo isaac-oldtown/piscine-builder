@@ -17,7 +17,7 @@ Requirements hold the behaviour the signatures and their `returns` cannot state:
 
 The tests come with two more pieces of text. Cases preceded by a `# example` comment line are shown as **Examples** with their results, so examples always agree with the grading (a program needs one case with an exact output). `think_about` lists two to four edge-case categories: coursecrafter drops a bullet that gives a case or its answer away (a quoted input, a result, a number of three digits or more or a distinctive string from the cases) and any beyond the fourth, and logs what it dropped; the list is sent back only when fewer than two bullets remain. Every test must follow from the instructions, the examples or the rules of the course's rigor level, which the test request states.
 
-In Rust, a unit about types, methods or traits lists methods under their type (`Stack::push`) and gets its tests as `rust_tests`, `#[test]` functions compiled against the student's crate, instead of encoding the type in strings to suit cases; the contract check leaves Rust functions the harness cannot call to the gate, which rejects a suite whose cases call one. Tests marked `// example` are shown like example cases.
+In Rust, a unit about types, methods or traits lists methods under their type (`Stack::push`) and gets its tests as `rust_tests`, `#[test]` functions compiled against the student's crate, instead of encoding the type in strings to suit cases; the contract check leaves Rust functions the harness cannot call to the gate, which rejects a suite whose cases call one. Tests marked `// example` are shown like example cases. The types those tests build (structs with public fields, enums) come with the contract, in `types`: the student gets them as written and the empty stubs hold them, so the tests compile before any code exists.
 
 Fields that come from the plan (hours, difficulty, stretch, platform...) are copied by
 coursecrafter, not by the model; editing them in the plan updates the existing contracts on the
@@ -25,27 +25,33 @@ next build, with no LLM call.
 
 ## Pass 2: the correction suite
 
-With `--tests` (or when you answer yes), each unit gets its tests, generators, hidden
-reference solution and scaffold files. Before the first call, the contract goes through
-`proctor validate`: a problem no test suite can fix stops the unit there and drops its cached
-contract, so that `--tests --only <id>` asks for a new one. A unit is kept only if `proctor selftest` passes:
-the reference passes every check, including Allowed and the linters, and every function has
-a test that fails on an empty stub. Linux units are self-tested in the Linux container.
+With `--tests` (or when you answer yes), each unit gets its tests, generators and scaffold
+files. No reference solution is written or run: fixed cases hold small inputs whose results
+are obvious, and random tests are laws, generated inputs checked against properties every
+correct result keeps (an independent built-in expression, two functions that agree, a
+roundtrip, an invariant). proctor draws those inputs from a new seed at every check.
+
+Before the first call, the contract goes through `proctor validate`: a problem no test suite
+can fix stops the unit there and drops its cached contract, so that `--tests --only <id>` asks
+for a new one. A unit is kept only if `proctor selftest` passes: the tests build and run on
+empty stubs without a course error (a wrong name, a type error in a law), and every function
+has a test that fails there. The gate also rejects a suite with no laws when the harness can
+call one of the unit's functions, or when the unit is a program. Linux units are self-tested in
+the Linux container.
 
 Each request carries what the model cannot guess:
 
 - the unit's contract and its language's notes;
-- what the code may use at this stage, earlier stages' Allowed entries merged;
-- for a stage: the previous stage's reference to build on, the earlier stages' tests (they
-  run again against the new program), and the later stages (so it never tests behaviour a
-  later stage changes).
+- what the student's code may use at this stage, earlier stages' Allowed entries merged;
+- for a stage: the earlier stages' functions, types and tests (the tests run again against
+  the new program), and the later stages (so it never tests behaviour a later stage changes).
 
-What is mechanical is done by coursecrafter: a Rust unit with a workspace scaffold always gets a `Cargo.toml`, derived from the reference (same package and targets, no dependency entries) when the model sends none; a Rust reference sent without a `Cargo.toml` gets a default one-crate manifest; Rust references are run through `cargo fmt`, and a member crate's own `[workspace]` table is dropped when the root `Cargo.toml` has one (Cargo rejects two workspace roots); C and
+What is mechanical is done by coursecrafter: a Rust unit with a workspace scaffold always gets a `Cargo.toml` (a default one-crate manifest named after the unit or project when the model sends none), and a member crate's own `[workspace]` table is dropped when the root `Cargo.toml` has one (Cargo rejects two workspace roots); C and
 Rust programs run as built (a project's other languages keep their first stage's `run`
 command), and a `run` pointing into a build folder is rejected.
 
 When the gate rejects a unit, the exact failure goes back to the model, which sends only the
-files it changes: the rest of its earlier reply is kept, so fixing one error cannot break
+parts it changes: the rest of its earlier reply is kept, so fixing one error cannot break
 what already worked. After `--retries` attempts (default 3) the unit is marked FAILED: its
 contract stays, without tests, and the build exits non-zero. The following stages of that
 project are not generated, since they build on it; they wait for the next run. The cached
@@ -61,7 +67,7 @@ After a build, the instructions of units the student already unlocked are render
 
 ## Rewriting the teaching text only
 
-`coursecrafter build --text-only [--only ID]...` rewrites the lesson, the requirements and the Think about list of built units, about one call per unit, and keeps their tests, reference and scaffold. The same contract checks apply.
+`coursecrafter build --text-only [--only ID]...` rewrites the lesson, the requirements and the Think about list of built units, about one call per unit, and keeps their tests and scaffold. The same contract checks apply.
 
 ## What you see and what is logged
 

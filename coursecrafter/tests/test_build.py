@@ -14,7 +14,6 @@ from coursecrafter.build import (
     one_workspace_root,
     redundant_requirement,
     revealing_phrase,
-    scaffold_cargo_toml,
     uncovered_concepts,
 )
 from proctor.compat import read_text
@@ -89,20 +88,13 @@ def test_only_accepts_short_ids_and_projects() -> None:
     assert not names("d03", st)
 
 
-def test_scaffold_cargo_toml_keeps_the_package_and_drops_dependencies() -> None:
-    r = '[package]\nname = "minishell"\nedition = "2021"\n\n[dependencies]\nnix = { version = "0.29" }\n\n[dependencies.libc]\nversion = "0.2"\n\n[[bin]]\nname = "ft"\npath = "src/main.rs"\n\n[workspace]\n'
-    s = scaffold_cargo_toml(r)
-    assert 'name = "minishell"' in s and "[dependencies]\n" in s
-    assert '[[bin]]\nname = "ft"' in s and "[workspace]" in s
-    assert "nix" not in s and "libc" not in s, s
+def test_a_scaffold_without_cargo_toml_gets_the_default_one(tmp_path: Path) -> None:
+    from proctor import lang, selftest
 
-
-def test_a_reference_without_cargo_toml_gets_the_default_one(tmp_path: Path) -> None:
-    from proctor import lang
-
-    (tmp_path / "Cargo.toml").write_text(default_cargo_toml("d08-structs-enums"))
-    assert lang.cargo_package(tmp_path) == "d08-structs-enums"
-    assert scaffold_cargo_toml(default_cargo_toml("d08")) == default_cargo_toml("d08")
+    name = selftest.crate_name("d08-structs-enums")
+    assert name == "d08_structs_enums"
+    (tmp_path / "Cargo.toml").write_text(default_cargo_toml(name))
+    assert lang.cargo_package(tmp_path) == name
 
 
 def test_member_crates_lose_their_own_workspace_table() -> None:
@@ -138,15 +130,15 @@ def test_repeated_fixed_keys_cannot_break_the_contract() -> None:
 def test_a_retry_replaces_only_what_it_sends() -> None:
     d = Draft()
     d.merge(
-        '<tests>\ncases: |\n  f(1) == 1\n</tests>\n<file path="src/main.rs">\nfn main() {}\n</file>\n<file path="Cargo.toml">\n[package]\n</file>\n'
+        '<tests>\ncases: |\n  f(1) == 1\n</tests>\n<scaffold path="src/main.rs">\nfn main() {}\n</scaffold>\n<scaffold path="Cargo.toml">\n[package]\n</scaffold>\n'
     )
     d.merge(
-        '<file path="src/main.rs">\nfn main() { println!(); }\n</file>\n<file path="old.rs">\n</file>\n'
+        '<scaffold path="src/main.rs">\nfn main() { println!(); }\n</scaffold>\n<scaffold path="old.rs">\n</scaffold>\n'
     )
     assert d.tests is not None and "f(1) == 1" in d.tests
-    assert "println" in d.files["src/main.rs"]
-    assert "Cargo.toml" in d.files
-    assert "old.rs" not in d.files
+    assert "println" in d.scaffold["src/main.rs"]
+    assert "Cargo.toml" in d.scaffold
+    assert "old.rs" not in d.scaffold
 
 
 def test_cache_keys_match_the_rust_tool() -> None:
@@ -201,6 +193,11 @@ def test_rust_contracts_may_list_methods_tested_in_rust(tmp_path: Path) -> None:
     # Tests come with the tests request, never with the contract.
     assert "rust_tests" not in m
     assert b.check_contract(u, m, {}) == []
+    # The types the tests build come with the contract; methods never do.
+    m["types"] = "#[derive(Debug)]\npub struct Stack {\n    pub items: Vec<i32>,\n}\n"
+    assert b.check_contract(u, m, {}) == []
+    m["types"] = "pub struct Stack;\nimpl Stack { fn f() {} }\n"
+    assert any("only type definitions" in p for p in b.check_contract(u, m, {}))
     both = {"cases": "f(1) == 2", "rust_tests": "#[test]\nfn t() {}"}
     assert build.all_cases(both) == "f(1) == 2\n#[test]\nfn t() {}"
     assert build.all_cases({"cases": "f(1) == 2"}) == "f(1) == 2"
@@ -230,6 +227,25 @@ def test_a_reading_stage_keeps_only_its_goal_and_lesson(tmp_path: Path) -> None:
     # The stage after the introduction is the project's first building stage.
     build_stage = plan.entry("p01.2-build")
     assert build_stage is not None and b.previous_stage(build_stage) is None
+
+
+def test_suites_built_with_a_reference_are_built_again(tmp_path: Path) -> None:
+    plan = curriculum.parse("---\ntitle: T\nlanguage: python\n---\n\n## d01-a: A\ngoal: g.\n")
+    dead = llm.Llm.resolve(
+        llm.Choice(provider="custom", base_url="http://127.0.0.1:9/v1", model="m"),
+        config.Config(),
+    )
+    opts = build.Options(retries=0, tests=False, only=[], yes=True, text_only=False, debug=False)
+    b = build.Builder.new(tmp_path, plan, dead, opts, "ENV")
+    units = tmp_path / ".proctor" / "units"
+    units.mkdir(parents=True)
+    spec = "id: d01-a\ntitle: A\ngoal: g.\ncases: |\n  m.f(1) == 1\n"
+    (units / "d01-a.yaml").write_text(spec)
+    assert b.has_suite("d01-a")
+    (units / "d01-a.yaml").write_text(spec + "random:\n  fuzz: [m.f]\n")
+    assert not b.has_suite("d01-a")
+    (units / "d01-a.yaml").write_text("id: d01-a\ntitle: A\ngoal: g.\n")
+    assert not b.has_suite("d01-a")
 
 
 def test_replies_are_cached_by_the_full_request(tmp_path: Path) -> None:

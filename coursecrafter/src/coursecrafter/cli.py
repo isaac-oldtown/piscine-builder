@@ -50,7 +50,7 @@ USAGE = """coursecrafter: creates PiscineBuilder courses. The only part of Pisci
         for a curriculum with Linux units: set up Docker Desktop or WSL here
         (installs or starts it after asking; `new` offers the same)
   coursecrafter build [--course DIR] [--yes] [--tests | --no-tests | --text-only] [--only ID]... [--retries N] [--debug]
-        write the unit specs, notes, tests and hidden references (uses the LLM)
+        write the unit specs, notes and tests (uses the LLM)
 
 new, revise, convert and build log every call (time, tokens, errors, fixes) to .proctor/coursecrafter/logs/;
   --debug also prints it here.

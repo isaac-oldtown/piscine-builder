@@ -24,9 +24,10 @@ cases: |
   <<< "ab\ncd" => out == "ba\ndc\n"
 random:
   rounds: 25
-  fuzz:
-    - { name: lines, stdin: 'lines(string "abc xyz" 0..12) 0..10' }
   laws:
+    - name: every line is reversed
+      gen: { s: 'lines(string "abc xyz" 0..12) 0..10' }
+      check: ['run(stdin=s).out == join([join(reversed(chars(l)), "") + "\n" for l in lines(s)], "")']
     - name: reversing twice gives the input back
       gen: { s: "lines(word) 0..8" }
       check: ["run(stdin=run(stdin=s).out).out == s"]

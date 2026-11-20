@@ -32,10 +32,13 @@ cases: |
   longest_word("aa bb") == "aa"
   word_count("  hello \t world  ") == 2
 random:
-  fuzz:
-    - { fn: longest_word, args: { text: 'string "ab é\t\n" 0..40' } }
-    - word_count
   laws:
+    - name: the first of the longest words
+      gen: { text: 'string "ab é\t\n" 0..40' }
+      check:
+        - "(longest_word(text) == null) == (words(text) == [])"
+        - "all(len(w) <= len(longest_word(text)) for w in words(text))"
+        - "longest_word(text) == null || [w for w in words(text) if len(w) == len(longest_word(text))][0] == longest_word(text)"
     - name: counts agree
       gen: { text: 'string "ab \n" 0..40' }
       check:

@@ -127,6 +127,13 @@ def unit_md(c: course.CourseDir, u: Unit) -> str:
         heading = "Walkthrough" if u.guided else "Before you start"
         s += f"\n## {heading}\n\n{trim(lesson)}\n"
 
+    if u.types is not None and trim(u.types) != "":
+        s += (
+            "\n## Expected types\n\n"
+            "Define them as written (`proctor next` puts them in your stubs): proctor's tests build and read them.\n\n"
+            f"```rust\n{trim(u.types)}\n```\n"
+        )
+
     if u.functions:
         s += (
             "\n## Expected functions (minimal)\n\n"
@@ -248,10 +255,10 @@ def checking(c: course.CourseDir, u: Unit, lang: str) -> str:
         lines.append(
             f"**Regression:** the tests of {label(chain[0])} to {label(chain[len(chain) - 2])} run again, so earlier behaviour must keep working."
         )
-    if u.random.fuzz or u.random.laws:
+    if u.random.laws:
         rounds = u.random.rounds if u.random.rounds is not None else engine.DEFAULT_ROUNDS
         lines.append(
-            f"**Randomized tests:** about {rounds} generated inputs each, compared with a hidden reference or checked against invariants."
+            f"**Randomized tests:** about {rounds} generated inputs each, checked against properties your code must keep. The inputs come from the seed `proctor check` prints; `proctor check --seed <seed>` replays them."
         )
     w = c.wrap(u)
     if w is not None:

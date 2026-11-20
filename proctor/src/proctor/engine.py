@@ -15,9 +15,9 @@ from typing import Any
 
 from proctor.command import Command
 from proctor.compat import as_millis, lines, trim_end_matches, trim_start_matches
-from proctor.errors import Err, Error, Ok, Result
-from proctor.unit import FuzzSpec, Law, Target, Unit
-from proctor.value import Value, ValueList, ValueStr
+from proctor.errors import Error
+from proctor.unit import Law, Target, Unit
+from proctor.value import Value
 
 DEFAULT_ROUNDS = 200
 DEFAULT_TIMEOUT_MS = 10_000
@@ -107,16 +107,11 @@ from proctor import (  # noqa: E402
 
 
 class Against:
-    """Base of `AgainstStudent`, `AgainstReference` and `AgainstDir`."""
+    """Base of `AgainstStudent` and `AgainstDir` (the self-test's stubs)."""
 
 
 @dataclass(frozen=True)
 class AgainstStudent(Against):
-    pass
-
-
-@dataclass(frozen=True)
-class AgainstReference(Against):
     pass
 
 
@@ -137,8 +132,7 @@ class Options:
 
 
 class Kind:
-    """Base of `KindCheck`, `KindProg`, `KindRust`, `KindFuzz`, `KindFuzzProg`
-    and `KindLaw`."""
+    """Base of `KindCheck`, `KindProg`, `KindRust` and `KindLaw`."""
 
 
 @dataclass(frozen=True)
@@ -162,21 +156,10 @@ class KindRust(Kind):
 
 
 @dataclass(frozen=True)
-class KindFuzz(Kind):
-    func: str
-    params: list[tuple[str, gens.Gen]]
-    rounds: int
-
-
-@dataclass(frozen=True)
-class KindFuzzProg(Kind):
-    argv: gens.Gen | None
-    stdin: gens.Gen | None
-    rounds: int
-
-
-@dataclass(frozen=True)
 class KindLaw(Kind):
+    """A law: `rounds` rounds of generated values for `vars`, each round
+    checking every expression. The seed of `Options` replays a run."""
+
     vars: list[tuple[str, gens.Gen]]
     checks: list[tuple[str, expr.Expr]]
     rounds: int
@@ -228,13 +211,11 @@ def rust_suites(units: list[Unit]) -> list[tuple[str, str]]:
 
 
 def expression_calls(t: Test) -> list[str]:
-    """The functions a case, a fuzz entry or a law calls through the harness."""
+    """The functions a case or a law calls through the harness."""
     names: list[str] = []
     match t.kind:
         case KindCheck(e):
             expr.calls(e, names)
-        case KindFuzz(func=func):
-            names.append(func)
         case KindLaw(checks=checks):
             for _, e in checks:
                 expr.calls(e, names)
@@ -274,10 +255,6 @@ def tests_of(c: course.CourseDir, u: Unit, protos: list[sig.Proto]) -> list[Test
     from proctor import report
 
     out: list[Test] = []
-
-    def find(name: str) -> sig.Proto | None:
-        return next((p for p in protos if p.name == name), None)
-
     ars = arities(protos)
     for n, line in u.case_lines():
         short = report.truncate(line, 70)
@@ -306,69 +283,6 @@ def tests_of(c: course.CourseDir, u: Unit, protos: list[sig.Proto]) -> list[Test
                 Test(
                     name=f"test {rt.name}",
                     kind=KindRust(unit=u.id, test=rt.name, code=rt.code),
-                    target=u.target,
-                )
-            )
-    for f in u.random.fuzz:
-        if isinstance(f, str) and u.target == Target.FUNCTION:
-            spec = FuzzSpec(func=f)
-        elif isinstance(f, str):
-            spec = FuzzSpec(name=f)
-        else:
-            spec = copy.copy(f)
-        rounds = rounds_of(u, spec.rounds)
-        if u.target == Target.FUNCTION:
-            fname = spec.func
-            if fname is None:
-                raise Error(f"{u.id}: fuzz entry needs `fn:`")
-            p = find(fname)
-            if p is None:
-                raise Error(f"{u.id}: fuzz `{fname}` is not an expected function")
-            params: list[tuple[str, gens.Gen]] = []
-            for prm in p.params:
-                if prm.name in spec.args:
-                    try:
-                        g = parse_gen(c, spec.args[prm.name])
-                    except Error as e:
-                        raise Error(f"{u.id}: fuzz {fname} arg {prm.name}: {e.msg}") from None
-                else:
-                    d = sig.default_gen(prm.ty)
-                    if d is None:
-                        raise Error(
-                            f"{u.id}: fuzz {fname}: no default generator for `{prm.name}: {prm.raw}`; give one under args:"
-                        )
-                    g = d
-                params.append((prm.name, g))
-            for k in sorted(spec.args):
-                if not any(x.name == k for x in p.params):
-                    raise Error(f"{u.id}: fuzz {fname}: `{k}` is not a parameter")
-            out.append(
-                Test(
-                    name=f"fuzz {fname}",
-                    kind=KindFuzz(func=fname, params=params, rounds=rounds),
-                    target=u.target,
-                )
-            )
-        else:
-            argv: gens.Gen | None = None
-            if spec.argv is not None:
-                try:
-                    argv = parse_gen(c, spec.argv)
-                except Error as e:
-                    raise Error(f"{u.id}: fuzz argv: {e.msg}") from None
-            stdin: gens.Gen | None = None
-            if spec.stdin is not None:
-                try:
-                    stdin = parse_gen(c, spec.stdin)
-                except Error as e:
-                    raise Error(f"{u.id}: fuzz stdin: {e.msg}") from None
-            if argv is None and stdin is None:
-                raise Error(f"{u.id}: a program fuzz entry needs `argv:` and/or `stdin:`")
-            name = spec.name if spec.name is not None else "program"
-            out.append(
-                Test(
-                    name=f"fuzz {name}",
-                    kind=KindFuzzProg(argv=argv, stdin=stdin, rounds=rounds),
                     target=u.target,
                 )
             )
@@ -546,11 +460,6 @@ class Built:
 
 
 @dataclass(kw_only=True)
-class Reference:
-    built: Result[Built] | None
-
-
-@dataclass(kw_only=True)
 class Engine:
     c: course.CourseDir
     unit: Unit
@@ -576,8 +485,6 @@ class Engine:
         match self.opts.against:
             case AgainstStudent():
                 return self.c.workspace(self.unit)
-            case AgainstReference():
-                return self.c.ref_dir(self.unit)
             case AgainstDir(p):
                 return p
         raise AssertionError(self.opts.against)
@@ -687,8 +594,6 @@ class Engine:
         match self.opts.against:
             case AgainstStudent():
                 against = "your work"
-            case AgainstReference():
-                against = "the reference solution"
             case AgainstDir(d):
                 against = str(d)
         rep.start(self.unit, self.opts.seed, against)
@@ -802,15 +707,12 @@ class Engine:
         match self.opts.against:
             case AgainstStudent():
                 what_key = "student"
-            case AgainstReference():
-                what_key = "ref"
             case AgainstDir(_):
                 what_key = "dir"
         key = self.cache_key(what_key)
         ws, work, base = self.stage(src, key)
         items = []
         built = Built(harness=None, program=None)
-        reference = Reference(built=None)
         try:
             build_ok = True
             if need_fn or need_prog or lang.has_harness(self.lang) or self.lang == "bash":
@@ -909,7 +811,7 @@ class Engine:
                 rep.phase_begin(name, True)
                 items = []
                 for t in tests:
-                    item = self.run_test(t, built, reference, callable)
+                    item = self.run_test(t, built)
                     if not is_current:
                         item.name = f"{u.id.split('-')[0]} {item.name}"
                     rep.item(item)
@@ -931,10 +833,6 @@ class Engine:
                     phases.append(ph)
             return self.verdict(phases, warnings)
         finally:
-            # Rust drops `reference`, then `built`, at the end of `check`.
-            match reference.built:
-                case Ok(rb):
-                    rb.close()
             built.close()
 
     def static_checks(self) -> list[tuple[str, str]]:
@@ -963,48 +861,9 @@ class Engine:
             phases=phases,
         )
 
-    def reference(self, r: Reference, protos: list[sig.Proto]) -> Built:
-        if r.built is None:
-
-            def res() -> Built:
-                d = self.c.ref_dir(self.unit)
-                if not d.is_dir():
-                    raise Error(f"no reference solution at .proctor/refs/{self.unit.id}")
-                key = self.cache_key("oracle")
-                ws, work, base = self.stage(d, key)
-                chain = self.c.chain(self.unit)
-                need_fn = bool(protos) and any(
-                    u.target == Target.FUNCTION and u.has_tests() for u in chain
-                )
-                need_prog = any(u.target == Target.PROGRAM for u in chain)
-                try:
-                    b, _ = self.build(ws, work, base, protos, need_fn, need_prog)
-                except lang.BuildError as e:
-                    raise Error(f"the reference solution does not build: {e.msg}") from None
-                return b
-
-            built: Result[Built]
-            try:
-                b = res()
-            except Error as e:
-                built = Err(e.msg)
-            else:
-                built = Ok(b)
-            r.built = built
-        match r.built:
-            case Ok(b):
-                return b
-            case Err(msg):
-                raise Error(msg)
-        raise Error("internal: reference not built")
-
-    def run_test(
-        self,
-        t: Test,
-        built: Built,
-        reference: Reference,
-        protos: list[sig.Proto],
-    ) -> Item:
+    def run_test(self, t: Test, built: Built) -> Item:
+        # Each test draws from its own stream of the run's seed, so a test's
+        # inputs do not depend on the tests before it.
         rng = gens.Rng.new(gens.sub_seed(self.opts.seed, t.name))
         match t.kind:
             case KindCheck(e):
@@ -1041,31 +900,6 @@ class Engine:
                         )
             case KindLaw(vars, checks, rounds, time_ms):
                 item = self.run_law(t, vars, checks, rounds, time_ms, built, rng)
-            case KindFuzz(func, params, rounds):
-                try:
-                    rb = self.reference(reference, protos)
-                except Error as err:
-                    item = course_error(t.name, err.msg)
-                else:
-                    rh = rb.harness
-                    if rh is None:
-                        return course_error(t.name, "reference has no harness")
-                    sh = built.harness
-                    if sh is None:
-                        return course_error(t.name, "no harness was built")
-                    item = fuzz_function(t.name, func, params, rounds, sh, rh, rng)
-            case KindFuzzProg(argv, stdin, rounds):
-                try:
-                    rb = self.reference(reference, protos)
-                except Error as err:
-                    item = course_error(t.name, err.msg)
-                else:
-                    if built.program is not None and rb.program is not None:
-                        item = fuzz_program(
-                            t.name, argv, stdin, rounds, built.program, rb.program, rng
-                        )
-                    else:
-                        item = course_error(t.name, "no program was built")
             case _:
                 raise AssertionError(t.kind)
         item.random = t.is_random()
@@ -1166,149 +1000,6 @@ def phase(
     return Phase(name=name, status=status, summary=text, items=items, streamed=streamed)
 
 
-def call_result(h: harness.Harness, f: str, args: list[Value]) -> Value:
-    try:
-        return h.call(f, args)
-    except harness.CallError as e:
-        raise Error(e.message()) from None
-
-
-def fuzz_function(
-    name: str,
-    func: str,
-    params: list[tuple[str, gens.Gen]],
-    rounds: int,
-    student: harness.Harness,
-    reference: harness.Harness,
-    rng: gens.Rng,
-) -> Item:
-    skipped = 0
-
-    # None if the reference rejects the input; else (None,) when the student
-    # agrees with the reference, (message,) when they differ.
-    def differs(
-        vals: list[tuple[str, Value]],
-        student: harness.Harness,
-        reference: harness.Harness,
-    ) -> tuple[str | None] | None:
-        args = [v for _, v in vals]
-        try:
-            want = call_result(reference, func, args)
-        except Error:
-            # Outside the reference's domain: not a meaningful input.
-            return None
-        call = f"{func}({args_short(args)})"
-        try:
-            got = call_result(student, func, args)
-        except Error as e:
-            return (f"{call} {e.msg}",)
-        if got == want:
-            return (None,)
-        return (f"{call}: expected {want.short(100)}, got {got.short(100)}",)
-
-    def fails(trial: list[tuple[str, Value]]) -> bool:
-        d = differs(trial, student, reference)
-        return d is not None and d[0] is not None
-
-    for round in range(1, rounds + 1):
-        vals = [(n, g.generate(rng)) for n, g in params]
-        d = differs(vals, student, reference)
-        if d is None:
-            skipped += 1
-        elif d[0] is None:
-            pass
-        else:
-            shrink(params, vals, fails)
-            again = differs(vals, student, reference)
-            msg = (
-                again[0]
-                if again is not None and again[0] is not None
-                else "differs from the reference"
-            )
-            return Item.fail(name, f"{msg} (round {round})")
-    if skipped == rounds:
-        return course_error(
-            name,
-            "the reference rejected every generated input; check the generators",
-        )
-    return Item.pass_(name, f"{rounds} rounds vs reference")
-
-
-def _debug_code(code: int | None) -> str:
-    """`{:?}` of an `Option<i32>`."""
-    return "None" if code is None else f"Some({code})"
-
-
-def fuzz_program(
-    name: str,
-    argv: gens.Gen | None,
-    stdin: gens.Gen | None,
-    rounds: int,
-    student: program.Program,
-    reference: program.Program,
-    rng: gens.Rng,
-) -> Item:
-    def to_args(v: Value) -> list[str]:
-        match v:
-            case ValueList(items):
-                out: list[str] = []
-                for x in items:
-                    t = x.text()
-                    out.append(t if t is not None else str(x))
-                return out
-            case other:
-                t = other.text()
-                return run.split_words(t if t is not None else "")
-
-    gens_: list[tuple[str, gens.Gen]] = []
-    if argv is not None:
-        gens_.append(("argv", argv))
-    if stdin is not None:
-        gens_.append(("stdin", stdin))
-
-    # Raises `Error` when a program cannot run.
-    def differs(vals: list[tuple[str, Value]]) -> str | None:
-        a = next((v for n, v in vals if n == "argv"), None)
-        args = to_args(a) if a is not None else []
-        s = next((v for n, v in vals if n == "stdin"), None)
-        input = s.text() if s is not None else None
-        want = reference.run(args, input, [])
-        got = student.run(args, input, [])
-        if got.stopped:
-            return got.status
-        if got.out != want.out:
-            return (
-                f"stdout: expected {ValueStr(want.out).short(80)}, "
-                f"got {ValueStr(got.out).short(80)}"
-            )
-        if got.exit != want.exit:
-            return f"exit code: expected {_debug_code(want.exit)}, got {_debug_code(got.exit)}"
-        return None
-
-    def fails(trial: list[tuple[str, Value]]) -> bool:
-        try:
-            return differs(trial) is not None
-        except Error:
-            return False
-
-    for round in range(1, rounds + 1):
-        vals = [(n, g.generate(rng)) for n, g in gens_]
-        try:
-            d = differs(vals)
-        except Error as e:
-            return course_error(name, e.msg)
-        if d is None:
-            continue
-        shrink(gens_, vals, fails)
-        try:
-            again = differs(vals)
-        except Error:
-            again = None
-        msg = again if again is not None else "differs from the reference"
-        return Item.fail(name, f"{msg} with {describe_vars(vals)} (round {round})")
-    return Item.pass_(name, f"{rounds} rounds vs reference")
-
-
 def validate(c: course.CourseDir) -> list[str]:
     """Parses every unit's tests and signatures without running anything."""
     problems: list[str] = []
@@ -1377,7 +1068,10 @@ def validate(c: course.CourseDir) -> list[str]:
             for name in dict.fromkeys(n for t in tests for n in expression_calls(t)):
                 if name in unsupported:
                     problems.append(f"{u.id}: {unsupported[name]} (test it in `rust_tests`)")
-        needs_ref = bool(u.random.fuzz)
-        if needs_ref and not c.ref_dir(u).is_dir():
-            problems.append(f"{u.id}: fuzz needs a reference solution in .proctor/refs/{u.id}/")
+        if u.random.fuzz:
+            problems.append(
+                f"{u.id}: `random.fuzz` compared the student with a reference solution, which proctor no longer uses; test the behaviour with `random.laws` instead"
+            )
+        if u.types is not None and language != "rust":
+            problems.append(f"{u.id}: `types` is only for Rust units")
     return problems

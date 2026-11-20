@@ -36,9 +36,11 @@ cases: |
   logstat.parse_line("2026-01-02 10:00:00 INFO") == null
   logstat.parse_line("2026-1-02 10:00:00 INFO x") == null
 random:
-  fuzz:
-    - logstat.parse_line
   laws:
+    - name: an unknown level makes a line malformed
+      gen: { line: log_line }
+      check:
+        - 'logstat.parse_line(replace(line, " " + words(line)[2] + " ", " DEBUG ")) == null'
     - name: generated lines parse back
       gen: { line: log_line }
       check:

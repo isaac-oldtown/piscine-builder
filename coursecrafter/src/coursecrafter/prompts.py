@@ -385,7 +385,7 @@ def gen_system(langs: list[str]) -> str:
     s += GEN_PROGRAM_TESTS
     s += (
         "Expressions: literals, == != < <= > >= && || ! + - * / %, x.field, x[i], the student's functions, "
-        f'run(args=[...], stdin="...") for programs, and only these built-ins: {" ".join(expr.BUILTINS)}. There are no user functions or lambdas.\n'
+        f'run(args=[...], stdin="...") for programs, comprehensions ([len(w) for w in words(s) if w != ""], all(len(w) <= 5 for w in words(s))), and only these built-ins: {" ".join(expr.BUILTINS)}. There are no user functions or lambdas.\n'
     )
     s += GEN_RULES
     s += "\n# Language notes\n"
@@ -406,7 +406,7 @@ def gen_system(langs: list[str]) -> str:
     return s
 
 
-GEN_INTRO = r"""You write exercises for PiscineBuilder, a hands-on course system. A grader, proctor, checks the student's work offline from one YAML spec per unit and renders the instructions from it, so you produce data only. The student sees the rendered contract, never your tests or your reference solution.
+GEN_INTRO = r"""You write exercises for PiscineBuilder, a hands-on course system. A grader, proctor, checks the student's work offline from one YAML spec per unit and renders the instructions from it, so you produce data only. The student sees the rendered contract, never your tests. There is no reference solution: the tests alone decide, so they must be right by construction.
 
 # A good exercise
 
@@ -424,7 +424,7 @@ YAML with these keys (coursecrafter adds id, title, language, difficulty, concep
 - forbidden: items banned even though `allowed` (here or in an earlier stage) covers them, when the brief bans a few things (allowed: [std], forbidden: [std::mem::swap]). Things `allowed` does not cover are banned already: never list them.
 - stubs: function target only, where the empty functions are written at unlock; it must fit the files rules.
 - environment: one line, only if the student must install or set something unusual.
-Style: plain, short sentences, no long dashes. Never reveal the tests, the reference solution or how the checks work inside. Naming the student's commands (`proctor check`, `proctor shell`) is fine when the brief does.
+Style: plain, short sentences, no long dashes. Never reveal the tests or how the checks work inside. Naming the student's commands (`proctor check`, `proctor shell`) is fine when the brief does.
 
 # Tests (the <tests> block)
 
@@ -450,28 +450,25 @@ Strings use \n \t \" escapes. Keep fixed cases small and obviously correct by in
 
 random:
   rounds: 200                 # default; use 20 to 40 for program targets (each round runs processes)
-  fuzz:                       # compared with your reference on generated inputs
-    - str_len                 # generators derived from the parameter types
-    - { fn: str_split, args: { s: 'string "ab," 0..30', sep: "lit ','" } }
-    - { name: report, stdin: "lines(log_line) 0..40", argv: 'lit ["-c"]' }   # program target
-  laws:                       # invariants that need no reference
+  laws:                       # proctor draws new inputs from a seed at every check, and shrinks a failure
     - { name: counts agree, gen: { s: 'string "ab \n" 0..40' }, check: ["word_count(s) == len(words(s))"] }
+    - { name: split keeps the fields, gen: { s: 'string "ab," 0..30' }, check: ["join(str_split(s, ','), '') == replace(s, ',', '')"] }
+    - { name: one line per entry, gen: { log: "lines(log_line) 0..40" }, check: ['len(lines(run(stdin=log).out)) == len(lines(log))'] }   # program target
     - { roundtrip: [encode, decode] }    # decode(encode(x)) == x
     - { idempotent: normalize }          # f(f(x)) == f(x)
+    - { agree: [fast_sum, sum_list] }    # two functions of the unit give the same result
 Generators: int lo..hi [wN zero-padded], uint, float lo..hi, bool, char "abc", string "alphabet" lo..hi, word, ascii,
 list(g) lo..hi, lines(g) lo..hi, opt(g), choice ["a", "b"], lit <value>, and named templates in a <lib> block:
   log_line: { fmt: "{h}:{m} {lvl} {msg}", vars: { h: int 0..23 w2, m: int 0..59 w2, lvl: 'choice ["INFO","WARN"]', msg: word } }
 """
 
 GEN_RULES = r"""Test rules:
-- Fuzz what the requirements fully specify; prefer laws for structural truths; generate only valid inputs unless the requirements say how invalid ones behave.
+- No reference solution is written or run: every expected value is computed by the test itself. Fixed cases hold small inputs whose results are obvious by inspection.
+- Random tests are laws, never inputs you invent one by one: generators describe the whole input space and each law checks a property every result must keep (the result equals an independent built-in expression, two functions agree, a roundtrip, idempotence, an invariant of the output). Every function or program the cases can call gets at least one law; generate only valid inputs unless the requirements say how invalid ones behave.
 - Every function needs a test that fails when the function is an empty stub.
-- Deterministic: no timing-dependent checks, no network, no files outside the working directory.
+- Deterministic apart from the seed: no timing-dependent checks, no network, no files outside the working directory.
 - For a stage, test only what it adds: the earlier stages' tests run again, unchanged, against this stage's program.
 
-# Reference solution (<file path="..."> blocks)
-
-The complete workspace that passes every test, using only what the contract allows, warning-free under the course's checks (see the language notes). For a stage: the whole project at this stage, built on the previous stage's reference, and still passing the earlier stages' tests.
 Optional <scaffold path="..."> blocks: files the student receives at unlock. Never solution code.
 """
 
@@ -481,7 +478,7 @@ GEN_C = r"""C: signatures like "size_t str_len(const char *s)"; harness types: i
 GEN_PYTHON = r"""Python: signatures like "def parse_line(line: str) -> dict | None", named with their module (logstat.parse_line) or with a `module:` key. stubs: the module file, e.g. logstat/__init__.py. `allowed` lists every imported module (built-in functions are implicit). A program target needs `run:`, e.g. "python -m logstat": one command for a whole project.
 """
 
-GEN_RUST = r"""Rust: signatures like "pub fn word_count(text: &str) -> usize" in src/lib.rs (stubs: src/lib.rs). Cases call free functions whose types are integers, f64, bool, char, &str/String, Vec and slices of those, Option, Result<_, E: Debug>, tuples, maps. Anything else (the student's own structs, enums, methods, traits, generics, closures) is tested in Rust: list methods under their type, {name: "Stack::push", sig: "pub fn push(&mut self, x: i32)"} and {name: "Stack::new", sig: "pub fn new() -> Self"}, state the types and their public fields in the requirements, and give in <tests> a `rust_tests` block string of top-level #[test] functions, compiled against the student's crate, which they reach through `use student::*;` (already at the top), with assert!/assert_eq! and no printing. Put a line `// example` above two or three ordinary ones: they are shown to the student. Never encode a type in strings or command lists to suit cases. The prelude is implicit in `allowed`; list std modules (or `std` whole) and crates. A program target runs the built binary: never set `run` or `build`. Reference: the root Cargo.toml is the graded package, with a `[workspace]` table: empty for a single crate; for a project split into several crates, the root package lists the member folders in it (members = ["kit"]) and the member crates have no `[workspace]` of their own. Clean under cargo clippy -D warnings (formatting is applied for you). Crates: nix 0.29 (features such as process, signal, fs, poll, term, user; there is no `unistd` feature, nix::unistd is always there) and libc 0.2.
+GEN_RUST = r"""Rust: signatures like "pub fn word_count(text: &str) -> usize" in src/lib.rs (stubs: src/lib.rs). Cases call free functions whose types are integers, f64, bool, char, &str/String, Vec and slices of those, Option, Result<_, E: Debug>, tuples, maps. Anything else (the student's own structs, enums, methods, traits, generics, closures) is tested in Rust: list methods under their type, {name: "Stack::push", sig: "pub fn push(&mut self, x: i32)"} and {name: "Stack::new", sig: "pub fn new() -> Self"}, write the types in the contract's `types` key (a block string of Rust definitions: structs with their public fields, enums, derives, no impl blocks; the student gets them as written and the empty stubs hold them, so your tests compile before any code exists), and give in <tests> a `rust_tests` block string of top-level #[test] functions, compiled against the student's crate, which they reach through `use student::*;` (already at the top), with assert!/assert_eq! and no printing. Put a line `// example` above two or three ordinary ones: they are shown to the student. Never encode a type in strings or command lists to suit cases. The prelude is implicit in `allowed`; list std modules (or `std` whole) and crates. A program target runs the built binary: never set `run` or `build`. Scaffold: the root Cargo.toml (a default one is written when you send none) is the graded package, with a `[workspace]` table: empty for a single crate; for a project split into several crates, the root package lists the member folders in it (members = ["kit"]) and the member crates have no `[workspace]` of their own. The student's code must be clean under cargo clippy -D warnings. Crates: nix 0.29 (features such as process, signal, fs, poll, term, user; there is no `unistd` feature, nix::unistd is always there) and libc 0.2.
 """
 
 GEN_BASH = r"""Bash: program target only; `run:` e.g. "bash wc.sh" (one command for a whole project); `allowed` lists the external commands.
@@ -498,7 +495,7 @@ with `extra_flags: [-Dmalloc=sc_malloc]` in <tests>, then: then(fail_alloc_after
 
 
 def contract_request(context: str, entry: str, project: str, language: str) -> str:
-    return f"# Course so far\n{context}\n{project}# Language\n{language}\n\n# Unit to write\n{entry}\n\nReply with only the <unit>...</unit> block holding the contract YAML (plus the <lesson> block when the unit asks for one, and the <requirements> block). Do NOT write tests, reference files or scaffolds now: they are requested separately, once the contract is accepted."
+    return f"# Course so far\n{context}\n{project}# Language\n{language}\n\n# Unit to write\n{entry}\n\nReply with only the <unit>...</unit> block holding the contract YAML (plus the <lesson> block when the unit asks for one, and the <requirements> block). Do NOT write tests or scaffolds now: they are requested separately, once the contract is accepted."
 
 
 @dataclass(kw_only=True)
@@ -508,11 +505,10 @@ class TestsContext:
     # Not a pytest test class, despite its name.
     __test__ = False
 
-    previous_ref: str
     lib: str
     language: str
     later_stages: list[str]
-    # The earlier stages' tests, as (stage id, YAML).
+    # The earlier stages' functions, types and tests, as (stage id, YAML).
     earlier_tests: list[tuple[str, str]]
     # Everything the code may use at this stage, earlier stages included.
     allowed: list[str] | None
@@ -523,7 +519,7 @@ class TestsContext:
 def text_request(contract: str, entry: str, language: str, cases: str) -> str:
     """`build --text-only`: new teaching text for a unit whose tests stay as they are."""
     return (
-        f"# Language\n{language}\n\n# Unit\n{entry}\n# Its contract (tests and reference are final and stay as they are)\n```yaml\n{contract}\n```\n\n"
+        f"# Language\n{language}\n\n# Unit\n{entry}\n# Its contract (the tests are final and stay as they are)\n```yaml\n{contract}\n```\n\n"
         f"# Its test cases\n```\n{cases}\n```\n\n"
         "Rewrite only the teaching text of this unit, following the contract rules: "
         "a <lesson>...</lesson> block (as the unit asks; empty if it introduces nothing), "
@@ -540,13 +536,12 @@ def rigor_rules(rigor: str) -> str:
         case "relaxed":
             return "relaxed: test the behaviour the unit states and the cases its examples suggest; random inputs stay within the stated ranges."
         case "standard":
-            return "standard: beyond the stated behaviour, test the usual edge cases (empty input, one element, zero, a missing trailing newline), the invalid input the unit describes, and random inputs against the reference."
+            return "standard: beyond the stated behaviour, test the usual edge cases (empty input, one element, zero, a missing trailing newline), the invalid input the unit describes, and random inputs checked by laws."
         case _:
-            return "strict: beyond the stated behaviour, test every edge case (empty input, one element, zero, the limits of the types involved, text outside ASCII, a missing trailing newline), adversarial input (very long text, large counts, malformed input: a program must never crash, panic or hang), random inputs against the reference, and, where a needlessly slow algorithm is the likely mistake, a law with `time_ms` on large input."
+            return "strict: beyond the stated behaviour, test every edge case (empty input, one element, zero, the limits of the types involved, text outside ASCII, a missing trailing newline), adversarial input (very long text, large counts, malformed input: a program must never crash, panic or hang), random inputs checked by laws, and, where a needlessly slow algorithm is the likely mistake, a law with `time_ms` on large input."
 
 
 def tests_request(unit_yaml: str, cx: TestsContext) -> str:
-    previous_ref = cx.previous_ref
     lib = cx.lib
     language = cx.language
     later_stages = cx.later_stages
@@ -559,10 +554,10 @@ def tests_request(unit_yaml: str, cx: TestsContext) -> str:
             if not cx.forbidden
             else f" Forbidden even so: {', '.join(f'`{a}`' for a in cx.forbidden)}."
         )
-        s += f"\n# What the reference may use\nIn its code (not in `tests/`): its own code, the language built-ins and anything inside {inside}. Nothing else.{forbidden}\n"
+        s += f"\n# What the student's code may use\nIn its code (not in `tests/`): its own code, the language built-ins and anything inside {inside}. Nothing else.{forbidden}\n"
     s += f"\n# Rigor\n{rigor_rules(cx.rigor)}\nThe contract wins over these defaults: when its requirements or lesson relax one (a slow algorithm is expected, an input is guaranteed valid), follow the contract.\n"
     if cx.earlier_tests:
-        s += "\n# Tests of the earlier stages\nThey run again, unchanged, against this stage's program, which must still pass them all:\n"
+        s += "\n# Earlier stages\nTheir functions and types stay required, so your tests may use them, and their tests run again, unchanged, against this stage's program, which must still pass them all:\n"
         for id, yaml in cx.earlier_tests:
             s += f"## {id}\n```yaml\n{trim_end(yaml)}\n```\n"
     if later_stages:
@@ -570,9 +565,7 @@ def tests_request(unit_yaml: str, cx: TestsContext) -> str:
         s += f"\n# Later stages\nThese tests run again, unchanged, at every later stage of this project, against the later program:\n{listed}\nSo test only behaviour that stays true in all of them. Never test that a feature is missing or unsupported, the output for input a later stage gives a meaning to, or a usage message a later stage may change.\n"
     if trim(lib):
         s += f"\n# Named generators already in lib.yaml\n```yaml\n{lib}\n```\n"
-    if previous_ref:
-        s += f"\n# Reference of the previous stage (build on it)\n{previous_ref}\n"
-    s += '\nReply with the <tests> block (cases, random, think_about, and optional rust_tests / helpers / extra_flags / wrap), an optional <lib> block (new named generators only), every reference <file path="..."> block, optional <support path="..."> blocks for helpers, and optional <scaffold path="..."> blocks. Nothing else.'
+    s += '\nReply with the <tests> block (cases, random with its laws, think_about, and optional rust_tests / helpers / extra_flags / wrap), an optional <lib> block (new named generators only), optional <support path="..."> blocks for helpers, and optional <scaffold path="..."> blocks. Nothing else: no solution code.'
     return s
 
 
@@ -603,6 +596,6 @@ def tests_retry(problems: str) -> str:
     """After a gate failure: fix the error, change nothing else."""
     return (
         f"The quality gate rejected it:\n\n{problems}\n\nFix exactly this and change nothing else. Send only what changes: "
-        'each corrected file, complete, in its <file path="..."> block (files you do not send stay as they are; '
-        "an empty block deletes a file), and <tests>, <lib>, <support> or <scaffold> only if that part itself must change."
+        "<tests>, <lib>, <support> or <scaffold>, each only if that part itself must change, complete "
+        '(a <support path="..."> or <scaffold path="..."> block you do not send stays as it is; an empty one deletes the file).'
     )

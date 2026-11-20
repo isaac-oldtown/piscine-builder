@@ -6,7 +6,7 @@ PiscineBuilder is a command-line system for learning programming by building rea
 
 It has two tools:
 
-- **coursecrafter** plans a curriculum with drills and multi-stage projects, then generates each unit's instructions, tests, and hidden reference solution. Units are kept only if they pass the quality checks.
+- **coursecrafter** plans a curriculum with drills and multi-stage projects, then generates each unit's instructions and tests: a few fixed cases and random laws, properties that proctor checks on inputs it generates from a seed. There is no reference solution. Units are kept only if they pass the quality checks.
 - **proctor** reveals one unit at a time, grades your work, and tracks progress, schedule, and weekly reviews. It needs no LLM, API key, or network access.
 
 This is a personal project, shared as is. It works for my courses and my machine (Windows, with Docker for Linux-specific units) and may need adjustments for yours.
@@ -108,7 +108,7 @@ Rough estimates for planning and building a course with tests, with the default 
 | Medium: about 25 units | 4 weeks, two projects | 1 M | 150 k | $3 to $4 |
 | Large: about 50 units | 7 weeks, five projects | 2.5 M | 350 k | $8 to $10 |
 
-Planning with `coursecrafter new` or converting with `coursecrafter convert` accounts for 5 to 10% of this (a conversion is usually one or two calls); most of it is the build. A project stage costs about twice as much as a drill, because its request carries the previous stage's reference and the earlier stages' tests. Each rejected attempt also adds a call. The large row is based on the output of a real 51-unit Rust course; the input figures are estimates.
+Planning with `coursecrafter new` or converting with `coursecrafter convert` accounts for 5 to 10% of this (a conversion is usually one or two calls); most of it is the build. A project stage costs about twice as much as a drill, because its request carries the earlier stages' functions and tests. Each rejected attempt also adds a call. The large row is based on the output of a real 51-unit Rust course; the input figures are estimates.
 
 Things that lower the cost: the system prompt is the same for every request, so providers that cache prompts charge cached input at a fraction of the price. With `--provider anthropic`, coursecrafter uses Anthropic's own API and marks two cache points in each request: the system prompt, read back by every later call of the run, and the end of the conversation, read back when a rejected draft is retried. Replies are cached on disk, so rerunning a build or resuming it after an interruption costs nothing for finished work (the replies of a unit that failed are dropped, so the next run asks again), and `--only` regenerates just the units you name. Changing the curriculum's `environment:` line or updating coursecrafter's prompts invalidates that cache.
 
@@ -118,7 +118,7 @@ With a Claude Code subscription through Meridian (or any provider on localhost),
 
 1. **Plan:** Write your own curriculum and convert it with `coursecrafter convert` (recommended), plan interactively with `coursecrafter new`, or use `coursecrafter prompt` with a chat assistant and `coursecrafter import` its answer.
 2. **Review:** Inspect and edit `curriculum.md`. The plan must be approved before it can be built.
-3. **Build:** `coursecrafter build --tests` generates unit instructions, tests, and hidden reference solutions. Each unit must pass the generation quality checks.
+3. **Build:** `coursecrafter build --tests` generates unit instructions and tests. Each unit must pass the generation quality checks: its tests run on empty stubs, every function has a test that fails there, and every function or program the harness can call has random laws.
 4. **Practise:** Use `proctor next`, implement the assignment, and run `proctor check`. Project stages share a workspace and are tested together.
 
 The curriculum validator checks prerequisites, workload against available hours, project stages, and minimum viable results. Optional stretch goals can be skipped.
@@ -160,13 +160,15 @@ Configuration comes from the `PISCINEBUILDER_*` environment variables, provider-
 | `proctor shell [unit] [--port N]` | Open a Bash shell in the Linux container for a Linux unit. |
 | `proctor init [pwsh\|bash\|zsh\|fish]` | Print the shell function that moves you to each new unit's folder (see Comfort settings). |
 | `proctor validate` | Validate unit specifications without running checks. |
-| `proctor selftest [unit...]` | Check that reference solutions pass and required functions have tests that fail on empty stubs. |
+| `proctor selftest [unit...]` | Check that the tests run on empty stubs and that every required function has a test that fails there. |
 
 Set `NO_COLOR` to disable colors. Set `PROCTOR_ASCII` to replace check marks.
 
 ## Grading and progress
 
-Checks cover file layout, required function signatures, allowed functions and modules, compilation, linting, fixed tests, fuzzing against the hidden reference, invariants, and regression across earlier project stages.
+Checks cover file layout, required function signatures, allowed functions and modules, compilation, linting, fixed tests, random laws, and regression across earlier project stages.
+
+Random laws draw new inputs at every check from a seed, which `proctor check` prints on its first line. A failing law shows the smallest input it could shrink to and the command that replays the same inputs: `proctor check --seed <seed>`.
 
 Supported languages include C, Python, Rust, Bash, JavaScript, TypeScript, Go, Java, Ruby, and other languages declared through the language configuration.
 

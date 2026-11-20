@@ -37,5 +37,8 @@ random:
       gen: { log: lines(log_line) 0..30 }
       check:
         - 'run(stdin=log).out == run(stdin="\n" + log + "\n").out'
-  fuzz:
-    - { name: report, stdin: "lines(log_line) 0..40" }
+    - name: one line per level, counts adding up
+      gen: { log: lines(log_line) 0..30 }
+      check:
+        - 'len(lines(run(stdin=log).out)) == len(unique([words(l)[2] for l in lines(log)]))'
+        - 'sum([int(words(l)[1]) for l in lines(run(stdin=log).out)]) == len(lines(log))'

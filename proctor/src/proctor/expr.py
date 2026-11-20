@@ -2,9 +2,11 @@
   str_len("abc") == 3
   join(nonempty(split(s, ",")), ",") == join(str_split(s, ','), ",")
   raises(parse(""))
+  all(len(w) <= len(longest(s)) for w in words(s))
 Calls resolve to the student's functions (through the harness), to
-`run(...)` for programs, or to built-ins. There are no user-defined
-functions or lambdas, so a spec cannot smuggle in a reference solution."""
+`run(...)` for programs, or to built-ins. Comprehensions state a property
+of every element; there are no user-defined functions or lambdas, so a
+spec cannot smuggle in a solution of its own."""
 
 from __future__ import annotations
 
@@ -532,6 +534,17 @@ class ExprIndex(Expr):
     index: Expr
 
 
+@dataclass(frozen=True)
+class ExprComp(Expr):
+    """`[elem for var in source if cond]`, also as the only argument of a call:
+    `all(len(w) <= 5 for w in words(s))`."""
+
+    elem: Expr
+    var: str
+    source: Expr
+    cond: Expr | None
+
+
 # Constructors that only wrap a value in some language: `Ok(v)` is `v`
 # (harnesses unwrap them), `String::from("a")` is `"a"`.
 WRAPPERS: list[str] = [
@@ -622,6 +635,25 @@ class Parser:
         if not self.eat(p):
             raise Error(f"expected `{p}`")
 
+    def is_word(self, w: str) -> bool:
+        t = self.peek()
+        return isinstance(t, TokIdent) and t.f0 == w
+
+    def comprehension(self, elem: Expr) -> Expr:
+        """The rest of `elem for var in source [if cond]`, at `for`."""
+        self.pos += 1
+        t = self.peek()
+        if not isinstance(t, TokIdent) or "." in t.f0:
+            raise Error("expected a variable name after `for`")
+        self.pos += 1
+        self.expect("in")
+        source = self.expr()
+        cond = None
+        if self.is_word("if"):
+            self.pos += 1
+            cond = self.expr()
+        return ExprComp(elem, t.f0, source, cond)
+
     def expr(self) -> Expr:
         return self.binary(0)
 
@@ -680,7 +712,12 @@ class Parser:
                     named = n
             if named is not None:
                 self.pos += 2
-            args.append((named, self.expr()))
+            a = self.expr()
+            if named is None and not args and self.is_word("for"):
+                args.append((None, self.comprehension(a)))
+                self.expect(")")
+                break
+            args.append((named, a))
             if not self.eat(","):
                 self.expect(")")
                 break
@@ -801,7 +838,17 @@ class Parser:
                 items.extend(self.list_items(")"))
                 return ExprList(items)
             case TokP("["):
-                return ExprList(self.list_items("]"))
+                if self.eat("]"):
+                    return ExprList([])
+                first_item = self.expr()
+                if self.is_word("for"):
+                    comp = self.comprehension(first_item)
+                    self.expect("]")
+                    return comp
+                if self.eat(","):
+                    return ExprList([first_item, *self.list_items("]")])
+                self.expect("]")
+                return ExprList([first_item])
             case TokP("{"):
                 pairs: list[tuple[Expr, Expr]] = []
                 while not self.eat("}"):
@@ -920,27 +967,29 @@ def stray_err(e: Expr) -> str | None:
     return found
 
 
+def _children(e: Expr) -> list[Expr]:
+    match e:
+        case ExprCall(_, args):
+            return [a for _, a in args]
+        case ExprList(items):
+            return list(items)
+        case ExprMap(pairs):
+            return [x for k, v in pairs for x in (k, v)]
+        case ExprNot(x) | ExprNeg(x) | ExprField(x, _):
+            return [x]
+        case ExprBin(_, a, b) | ExprIndex(a, b):
+            return [a, b]
+        case ExprComp(elem, _, source, cond):
+            return [source, elem] if cond is None else [source, elem, cond]
+        case _:
+            return []
+
+
 def walk(e: Expr, f: Callable[[Expr], None]) -> None:
     """Visits every node of `e`."""
     f(e)
-    match e:
-        case ExprCall(_, args):
-            for _, a in args:
-                walk(a, f)
-        case ExprList(items):
-            for x in items:
-                walk(x, f)
-        case ExprMap(pairs):
-            for k, v in pairs:
-                walk(k, f)
-                walk(v, f)
-        case ExprNot(x) | ExprNeg(x) | ExprField(x, _):
-            walk(x, f)
-        case ExprBin(_, a, b) | ExprIndex(a, b):
-            walk(a, f)
-            walk(b, f)
-        case ExprLit() | ExprName():
-            pass
+    for x in _children(e):
+        walk(x, f)
 
 
 def parse(src: str) -> Expr:
@@ -982,6 +1031,22 @@ class Host(abc.ABC):
 
     @abc.abstractmethod
     def is_external(self, name: str) -> bool: ...
+
+
+class _Bound(Host):
+    """`h` with the variable of a comprehension bound."""
+
+    def __init__(self, h: Host, name: str, value: Value) -> None:
+        self.h, self.name, self.value = h, name, value
+
+    def var(self, name: str) -> Value | None:
+        return self.value if name == self.name else self.h.var(name)
+
+    def call(self, name: str, args: Args) -> Value | None:
+        return self.h.call(name, args)
+
+    def is_external(self, name: str) -> bool:
+        return self.h.is_external(name)
 
 
 def spec(msg: str) -> NoReturn:
@@ -1045,6 +1110,13 @@ def eval(e: Expr, h: Host) -> Value:  # noqa: A001
         case ExprBin(op, a, b):
             av, bv = eval(a, h), eval(b, h)
             return binop(op, av, bv)
+        case ExprComp(elem, var, source, cond):
+            out: list[Value] = []
+            for item in list_(eval(source, h), f"for {var} in"):
+                bound = _Bound(h, var, item)
+                if cond is None or eval(cond, bound).truthy():
+                    out.append(eval(elem, bound))
+            return ValueList(out)
         case ExprCall(name, args):
             if name == "raises":
                 if len(args) != 1:
@@ -1631,6 +1703,11 @@ def calls(e: Expr, out: list[str]) -> None:
         case ExprBin(_, a, b) | ExprIndex(a, b):
             calls(a, out)
             calls(b, out)
+        case ExprComp(elem, _, source, cond):
+            calls(source, out)
+            calls(elem, out)
+            if cond is not None:
+                calls(cond, out)
         case ExprLit() | ExprName():
             pass
 
@@ -1685,6 +1762,8 @@ def resolve_methods(e: Expr, functions: list[Arity]) -> Expr:
         case ExprIndex(a, b):
             ra = r(a)
             return ExprIndex(ra, r(b))
+        case ExprComp(elem, var, source, cond):
+            return ExprComp(r(elem), var, r(source), None if cond is None else r(cond))
         case ExprLit() | ExprName():
             return e
     raise AssertionError(e)
@@ -1712,12 +1791,29 @@ def static_check(e: Expr, functions: list[Arity], vars: list[str]) -> None:
     of `vars`. The message says what to write instead."""
     err: str | None = None
     predicates: list[Expr] = []
+    # The comprehension variables each node sees.
+    bound: dict[int, list[str]] = {}
+
+    def scope(x: Expr, names: list[str]) -> None:
+        bound[id(x)] = names
+        if isinstance(x, ExprComp):
+            scope(x.source, names)
+            for part in (x.elem, x.cond):
+                if part is not None:
+                    scope(part, [*names, x.var])
+            return
+        for child in _children(x):
+            scope(child, names)
+
+    scope(e, [])
 
     def visit(x: Expr) -> None:
         nonlocal err
         if err is not None:
             return
         match x:
+            case ExprName(n) if n.split(".")[0] in bound.get(id(x), []):
+                pass
             case ExprCall(name, args):
                 match (name, args):
                     case ("all" | "any", [_, (None, ExprName() as p)]):

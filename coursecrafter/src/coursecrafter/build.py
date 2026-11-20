@@ -1,6 +1,6 @@
 """`coursecrafter build`: curriculum -> course.
   pass 1: one contract per unit (and notes, and settings for unknown languages)
-  pass 2: tests, generators, reference solution, scaffold; gated by proctor selftest
+  pass 2: tests, random laws, scaffold; gated by proctor selftest on empty stubs
 Each LLM reply is cached on disk by a hash of its request, so a re-run only
 pays for what changed. Nothing that fails the gate is kept."""
 
@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from proctor.command import Command
 from proctor.compat import (
     U64_MASK,
     byte_len,
@@ -29,7 +28,7 @@ from proctor.compat import (
     trim_start_matches,
     write_text,
 )
-from proctor.errors import Err, Error, Ok
+from proctor.errors import Error
 from proctor.unit import LangConfig, Rule, Target, Unit, requirements_markdown
 
 from coursecrafter import curriculum, llm, prompts, session
@@ -41,9 +40,7 @@ from proctor import (
     journal,
     lang,
     program,
-    run,
     scaffold,
-    scan,
     schema,
     selftest,
     sig,
@@ -115,10 +112,15 @@ class Builder:
 
     def has_suite(self, id: str) -> bool:
         """A unit whose correction suite already passed the gate: its spec holds
-        tests and its reference exists (a failed unit is restored to neither)."""
+        tests (a failed unit is restored without them). A suite from before
+        references were dropped, with `random.fuzz`, is built again."""
         m = self.read_unit_map(id)
-        tested = m is not None and ("cases" in m or "rust_tests" in m or "random" in m)
-        return tested and (hidden(self.root) / "refs" / id).is_dir()
+        if m is None:
+            return False
+        random = m.get("random")
+        if isinstance(random, dict) and random.get("fuzz"):
+            return False
+        return "cases" in m or "rust_tests" in m or "random" in m
 
     def selected(self, e: curriculum.Entry) -> bool:
         return not self.opts.only or any(names(o, e) for o in self.opts.only)
@@ -266,11 +268,13 @@ class Builder:
                     f"--only {o}: no unit or project has that id (use `d03`, `d03-refs-slices`, `p02` or `p02-minishell`)"
                 )
         h = hidden(self.root)
-        for d in ["units", "refs", "notes", "scaffold", "coursecrafter/cache"]:
+        for d in ["units", "notes", "scaffold", "coursecrafter/cache"]:
             try:
                 (h / d).mkdir(parents=True, exist_ok=True)
             except OSError as e:
                 raise Error(io_error(e)) from None
+        # Reference solutions of older builds: proctor no longer uses them.
+        shutil.rmtree(h / "refs", ignore_errors=True)
         languages = self.existing_languages()
         needed: set[str] = set()
         for u in self.plan.units():
@@ -352,9 +356,7 @@ class Builder:
             from coursecrafter import cli
 
             want_tests = self.log.wait_user(
-                lambda: cli.ask_yes(
-                    "Generate the correction suite (tests and hidden reference solutions)?"
-                )
+                lambda: cli.ask_yes("Generate the correction suite (tests and random laws)?")
             )
         if not want_tests:
             self.log.say(
@@ -363,7 +365,7 @@ class Builder:
             self.refresh_unlocked()
             return not no_contract
 
-        # Pass 2: tests + reference, unit by unit, each gated.
+        # Pass 2: tests, unit by unit, each gated.
         linux_pending = not sys.platform.startswith("linux") and any(
             self.selected(u)
             and self.plan.platform(u) is not None
@@ -393,8 +395,8 @@ class Builder:
             if self.has_suite(u.id) and not self.explicit(u):
                 done_before += 1
                 continue
-            # A stage builds on the previous stage's reference and must pass its
-            # tests: without them it would be written blind and fail for nothing.
+            # A stage's tests build on the previous stage's: without them they
+            # would be written blind and fail for nothing.
             prev = self.previous_stage(u)
             if prev is not None and prev.f.gradable is not False and not self.has_suite(prev.id):
                 self.log.say(
@@ -453,25 +455,20 @@ class Builder:
             self.log.say(f"refreshed the instructions of {n} unlocked unit(s) in subjects/")
 
     def ensure_rust_scaffold(self, u: curriculum.Entry) -> None:
-        """A Rust unit with a workspace scaffold always gets a Cargo.toml, derived
-        from the reference when the model sent none. A project's stages share
-        one workspace, so only its first stage needs one."""
-        if self.plan.language(u) != "rust" or u.f.scaffold == "none":
+        """A Rust unit with a workspace scaffold always gets a Cargo.toml, the
+        default one when the model sent none. A project's stages share one
+        workspace, so only its first stage needs one."""
+        if self.plan.language(u) != "rust" or u.f.scaffold == "none" or u.f.gradable is False:
             return
         if self.previous_stage(u) is not None:
             return
-        h = hidden(self.root)
-        target = h / "scaffold" / u.id / "Cargo.toml"
-        try:
-            reference = read_text(h / "refs" / u.id / "Cargo.toml")
-        except OSError:
-            return
+        target = hidden(self.root) / "scaffold" / u.id / "Cargo.toml"
         if not target.is_file():
-            write(target, scaffold_cargo_toml(reference))
+            write(target, default_cargo_toml(selftest.crate_name(u.parent or u.id)))
 
     def rewrite_text(self, u: curriculum.Entry, languages: Mapping) -> None:
         """New lesson, requirements and Think about for a built unit; its
-        contract fields, tests, reference and scaffold stay as they are."""
+        contract fields, tests and scaffold stay as they are."""
         old = self.read_unit_map(u.id)
         if old is None:
             raise Error("no contract yet")
@@ -814,6 +811,12 @@ class Builder:
                     )
         if unit.target == Target.FUNCTION and unit.functions and unit.stubs is None:
             p.append("a function target needs `stubs:` (where the empty functions are written)")
+        if unit.types is not None and lang_name != "rust":
+            p.append("`types` is only for Rust units: drop it")
+        elif unit.types is not None and re.search(r"\bimpl\b|\bfn\b", unit.types):
+            p.append(
+                "`types` holds only type definitions (structs, enums, derives): methods and functions are listed in `functions`"
+            )
         st = unit.stubs
         if st is not None:
             fits = not unit.files or any(
@@ -937,21 +940,9 @@ class Builder:
             messages.append(llm.Msg.user(prompts.feedback(last, "the <unit> block")))
         raise Error(f"{u.id}: contract rejected after {self.opts.retries + 1} attempt(s): {last}")
 
-    def ref_text(self, id: str) -> str:
-        dir = hidden(self.root) / "refs" / id
-        out = ""
-        for rel in scan.walk(dir):
-            if rel.endswith("Cargo.lock"):
-                continue
-            try:
-                body = read_text(dir / rel)
-            except OSError:
-                continue
-            out += f'<file path="{rel}">\n{body}</file>\n'
-        return out
-
     def earlier_tests(self, u: curriculum.Entry) -> list[tuple[str, str]]:
-        """`cases`, `rust_tests` and `random` of each earlier stage of `u`'s project."""
+        """The functions, types and tests of each earlier stage of `u`'s project:
+        they stay required, and the new tests may build on them."""
         p = u.parent
         if p is None:
             return []
@@ -963,7 +954,7 @@ class Builder:
             if m is None:
                 continue
             t: Mapping = {}
-            for k in ["cases", "rust_tests", "random"]:
+            for k in ["functions", "types", "cases", "rust_tests", "random"]:
                 if k in m:
                     t[k] = m[k]
             if t:
@@ -1031,8 +1022,6 @@ class Builder:
             raise Error(
                 f"its contract has a problem no test suite can fix: {'; '.join(own)}. `coursecrafter build --tests --only {u.id.split('-')[0]}` writes a new contract"
             )
-        prev = self.previous_stage(u)
-        previous = self.ref_text(prev.id) if prev is not None else ""
         lib_path = h / "lib.yaml"
         try:
             lib_text = read_text(lib_path)
@@ -1053,7 +1042,6 @@ class Builder:
         req = prompts.tests_request(
             contract_text,
             prompts.TestsContext(
-                previous_ref=previous,
                 lib=lib_text,
                 language=language,
                 later_stages=later,
@@ -1095,7 +1083,6 @@ class Builder:
         text = yamlio.dump(contract)
         write(self.unit_path(u.id), text)
         write(lib_path, lib_text)
-        shutil.rmtree(h / "refs" / u.id, ignore_errors=True)
         raise Error(llm.cut(last, 400))
 
     def try_tests(
@@ -1180,22 +1167,20 @@ class Builder:
                 write(support_dir / path, body)
                 support.append(f"support/{u.id}/{path}")
             unit["support"] = seq(support)
+        if draft.files:
+            self.log.log(
+                f"  ignored {len(draft.files)} <file> block(s): proctor tests without a reference solution"
+            )
+        given = dict(draft.scaffold)
         if self.plan.language(u) == "rust":
-            refs, changed = one_workspace_root(draft.files)
+            given, changed = one_workspace_root(given)
             for path in changed:
                 self.log.log(
                     f"  {path}: dropped its [workspace] table (the root Cargo.toml has the only one)"
                 )
-            if "Cargo.toml" not in refs and any(p.startswith("src/") for p in refs):
-                refs = {**refs, "Cargo.toml": default_cargo_toml(u.id)}
-                self.log.log("  Cargo.toml: missing from the reference, the default one was added")
-        else:
-            refs = dict(draft.files)
-        if not refs:
-            raise Error('missing the reference solution (<file path="..."> blocks)')
-        for path in sorted(refs):
+        for path in sorted(given):
             if path.startswith("/") or ".." in path or ":" in path:
-                raise Error(f"reference path `{path}` must be relative to the workspace")
+                raise Error(f"scaffold path `{path}` must be relative to the workspace")
         # lib.yaml: keep existing names, add new ones.
         try:
             old_lib = yamlio.load(lib_text)
@@ -1216,21 +1201,9 @@ class Builder:
         lib_out = "" if not lib else yamlio.dump(lib)
         write(h / "lib.yaml", lib_out)
         write(self.unit_path(u.id), yamlio.dump(unit))
-        ref_dir = h / "refs" / u.id
-        shutil.rmtree(ref_dir, ignore_errors=True)
-        for path, body in sorted(refs.items()):
-            write(ref_dir / path, body)
-        if self.plan.language(u) == "rust":
-            # Formatting is mechanical: done here rather than asked of the model.
-            fmt = Command(lang.resolve("cargo"))
-            fmt.arg("fmt").current_dir(ref_dir)
-            try:
-                run.run(fmt, None, 60.0)
-            except Error:
-                pass
         scaffold_dir = h / "scaffold" / u.id
         shutil.rmtree(scaffold_dir, ignore_errors=True)
-        for path, body in sorted(draft.scaffold.items()):
+        for path, body in sorted(given.items()):
             write(scaffold_dir / path, body)
         self.ensure_rust_scaffold(u)
         # Gate: the course up to this unit must load, parse and self-test.
@@ -1250,18 +1223,20 @@ class Builder:
         else:
             r = selftest.unit(c, loaded, seed)
         issues: list[str] = []
-        if isinstance(r.reference, Err):
-            issues.append(f"your reference solution fails proctor: {r.reference.msg}")
+        if r.error is not None:
+            issues.append(f"the tests cannot run on proctor's empty stubs: {r.error}")
         for v in r.vacuous:
             issues.append(f"weak tests: {v}; add a check that fails when the function does nothing")
-        for n in r.notes:
-            if n.startswith("stubs"):
-                issues.append(n)
+        if not loaded.random.laws and laws_apply(c, loaded):
+            issues.append(
+                "no random tests: add `random.laws`, generated inputs checked against properties of the result (fixed cases alone are not enough)"
+            )
         if issues:
             raise Error("\n".join(issues))
-        p, t = r.reference.value if isinstance(r.reference, Ok) else (0, 0)
-        caught = ", every function caught on stubs" if r.vacuity_checked > 0 else ""
-        self.log.log(f"  gate OK: reference {p}/{t}{caught}")
+        caught = (
+            f", every function caught on stubs ({r.vacuity_checked})" if r.vacuity_checked else ""
+        )
+        self.log.log(f"  gate OK: {len(loaded.random.laws)} law(s){caught}")
 
 
 def hidden(root: Path) -> Path:
@@ -1586,36 +1561,30 @@ def names(only: str, e: curriculum.Entry) -> bool:
     )
 
 
-def default_cargo_toml(unit_id: str) -> str:
-    """The Cargo.toml of a one-crate reference that came without one."""
-    return f'[package]\nname = "{unit_id}"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n\n[workspace]\n'
+def default_cargo_toml(name: str) -> str:
+    """The Cargo.toml of a Rust scaffold that came without one."""
+    return f'[package]\nname = "{name}"\nversion = "0.1.0"\nedition = "2024"\n\n[dependencies]\n\n[workspace]\n'
 
 
-def scaffold_cargo_toml(reference: str) -> str:
-    """Cargo.toml for a Rust workspace scaffold, from the reference's: the same
-    package, targets and features, with no dependency entries (adding one is
-    the student's job when the unit asks for it)."""
-    # A `[dependencies]` table keeps its header, emptied; a table naming one
-    # dependency (`[dependencies.nix]`, `[target.'cfg(unix)'.dependencies]`) goes.
-    out = ""
-    skip_body, skip_all = False, False
-    for line in lines(reference):
-        t = trim(line)
-        if t.startswith("["):
-            name = t.strip("[]")
-            skip_all = "dependencies." in name or name.startswith("target.")
-            skip_body = name.endswith("dependencies")
-            if skip_all:
-                continue
-        elif skip_all or (skip_body and t and not t.startswith("#")):
+def laws_apply(c: course.CourseDir, u: Unit) -> bool:
+    """Random laws can test `u`: a program, or a function the harness calls
+    (Rust methods and types are tested in `rust_tests` instead)."""
+    if u.target == Target.PROGRAM:
+        return True
+    language = c.language(u)
+    if not lang.has_harness(language):
+        return False
+    for p in engine.protos_for(c, [u]):
+        try:
+            lang.harness_supports(language, p)
+        except Error:
             continue
-        out += line
-        out += "\n"
-    return out
+        return True
+    return False
 
 
 def one_workspace_root(files: dict[str, str]) -> tuple[dict[str, str], list[str]]:
-    """A Rust reference with one workspace root: Cargo rejects a member crate
+    """A Rust scaffold with one workspace root: Cargo rejects a member crate
     with its own `[workspace]` table ("multiple workspace roots"), which a
     model adds by habit to every crate when the root already has one. Returns
     the files and the paths it changed."""

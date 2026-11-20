@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import functools
 import os
+import re
 import shutil
 import sys
 from collections.abc import Collection
@@ -1171,6 +1172,14 @@ def rust_stub(p: sig.Proto, indent: str) -> str:
         case _:
             unused = f"{indent}    let _ = ({', '.join(names)});\n"
     return f"{indent}/// TODO\n{indent}pub {text} {{\n{unused}{indent}    todo!()\n{indent}}}\n"
+
+
+_TYPE_NAME = re.compile(r"\b(?:struct|enum|trait|type|union)\s+([A-Za-z_]\w*)")
+
+
+def type_names(types: str | None) -> set[str]:
+    """Names a Rust `types` block defines."""
+    return set(_TYPE_NAME.findall(types or ""))
 
 
 def stub_source(lang: str, protos: list[sig.Proto], defined: Collection[str] = ()) -> str | None:

@@ -25,10 +25,11 @@ PiscineBuilder: a uv workspace (Python 3.12, typed, checked by mypy) with two pa
   `test_grader.py` holds grader behaviour on edited copies of the demo course.
 - End-to-end grader check with no LLM: `uv run pytest proctor/tests/test_demo_course.py` (part of the suite,
   about 15 s). It copies the demo course to the temp folder, runs `validate` and the build gate's selftest on
-  every unit, and checks that runaway output and print loops are stopped; units whose toolchain is missing
-  are skipped. By hand: in `examples/demo-course`, run `uv run proctor validate` and `uv run proctor selftest`,
-  then delete `examples/demo-course/.proctor/cache`. To play the demo (`next`, `check`), copy it to a temp
-  folder first.
+  every unit, checks that the known-good solutions in `proctor/tests/demo_solutions/` (test fixtures only:
+  courses have no reference solution) pass under several seeds, and that runaway output and print loops are
+  stopped; units whose toolchain is missing are skipped. By hand: in `examples/demo-course`, run
+  `uv run proctor validate` and `uv run proctor selftest`, then delete `examples/demo-course/.proctor/cache`.
+  To play the demo (`next`, `check`), copy it to a temp folder first.
 - `uv run` puts `.venv\Scripts` on PATH; both CLIs drop it at start (`compat.leave_own_venv`), so the
   programs they find (the student's `python`) and coursecrafter's environment block, hence the reply cache
   key, match the installed tools. Code that probes tools outside `main()` (tests) still sees the venv.

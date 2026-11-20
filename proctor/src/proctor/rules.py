@@ -28,13 +28,13 @@ STANDARD = """Beyond what a unit states, hidden tests cover:
 
 - **the usual edge cases**: empty input, a single element, zero, a missing trailing newline;
 - **invalid input** the unit describes, handled without crashing;
-- **random input** compared with a hidden reference, a few hundred cases per function or program."""
+- **random input**: a few hundred generated cases per function or program, checked against properties the result must keep (the seed `proctor check` prints replays them)."""
 
 STRICT = """You have unlimited attempts, the lessons and the documentation: the work is expected to be complete, not merely to pass the examples. Beyond what a unit states, hidden tests cover:
 
 - **every edge case**: empty input, a single element, zero, the limits of the types involved, text outside ASCII, a missing trailing newline;
 - **adversarial input**: very long text or large counts, malformed input; a program never crashes, panics or hangs;
-- **random input** compared with a hidden reference, a few hundred cases per function or program;
+- **random input**: a few hundred generated cases per function or program, checked against properties the result must keep (the seed `proctor check` prints replays them);
 - **performance**: a reasonable algorithm is expected; one that is needlessly slow on large input fails on the time limit."""
 
 
