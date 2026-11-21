@@ -440,3 +440,52 @@ def test_a_reading_unit_has_nothing_to_hand_in() -> None:
         write_text(spec, read_text(spec) + "functions:\n  - { name: f, sig: 'def f() -> int' }\n")
         problems = engine.validate(course.CourseDir.load(s.path))
         assert any("a reading unit has no functions" in p for p in problems), problems
+
+
+READING_INTRO_COURSE = [
+    (
+        ".proctor/course.yaml",
+        "title: Intro\nunits: [p01.1-intro, p01.2-words]\n"
+        "projects:\n  p01-words: { title: Words, goal: Count words. }\n",
+    ),
+    (
+        ".proctor/units/p01.1-intro.yaml",
+        "id: p01.1-intro\ntitle: Intro\nproject: p01-words\nlanguage: python\nreading: true\n"
+        "target: program\nscaffold: none\ngoal: Read the introduction.\n"
+        "lesson: |\n  ### Welcome\n\n  Read this.\n",
+    ),
+    (
+        ".proctor/units/p01.2-words.yaml",
+        """id: p01.2-words
+title: Words
+project: p01-words
+language: python
+target: function
+module: wordfreq
+stubs: wordfreq.py
+goal: Split words.
+functions:
+  - { name: words, sig: "def words(text: str) -> list[str]" }
+cases: |
+  words("a b") == ["a", "b"]
+  words("") == []
+""",
+    ),
+    ("solutions/p01.2-words/wordfreq.py", "def words(text):\n    return text.split()\n"),
+]
+
+
+def test_a_function_stage_after_a_reading_introduction_needs_no_program() -> None:
+    with Scratch("intro") as s:
+        for rel, body in READING_INTRO_COURSE:
+            s.write(rel, body)
+        c = course.CourseDir.load(s.path)
+        assert engine.validate(c) == []
+        u = c.unit("p01.2-words")
+        assert u is not None
+        if (why := missing_tool(c, u)) is not None:
+            pytest.skip(why)
+        r = selftest.unit(c, u, 1)
+        assert r.error is None, r.error
+        assert not r.vacuous, r.vacuous
+        assert_passes(c, u, s.path / "solutions" / u.id)

@@ -702,7 +702,8 @@ class Engine:
             for _, ts in unit_tests
             for t in ts
         ) and bool(protos)
-        need_prog = any(u.target == Target.PROGRAM for u in chain)
+        # A reading stage (a project's introduction) builds nothing.
+        need_prog = any(u.target == Target.PROGRAM and not u.reading for u in chain)
         suites = rust_suites(chain) if self.lang == "rust" else []
         match self.opts.against:
             case AgainstStudent():
