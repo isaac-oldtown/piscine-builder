@@ -36,8 +36,31 @@ can fix stops the unit there and drops its cached contract, so that `--tests --o
 for a new one. A unit is kept only if `proctor selftest` passes: the tests build and run on
 empty stubs without a course error (a wrong name, a type error in a law), and every function
 has a test that fails there. The gate also rejects a suite with no laws when the harness can
-call one of the unit's functions, or when the unit is a program. Linux units are self-tested in
-the Linux container.
+call one of the unit's functions, or when the unit is a program that reads input (a program
+that reads nothing has nothing to generate). Linux units are self-tested in the Linux container.
+
+A suite that passes the gate is then cross-checked, since without a solution nothing else can
+catch a wrong expected value:
+
+- **Independent reading.** A separate call (its own system prompt, `verify-<id>` in the cache)
+  gets the student's page without the examples drawn from the tests, the earlier stages' pages
+  and `RULES.md`, never the tests. It is asked what each case's call returns or what each run
+  prints, and whether each law and Rust test holds for every correct solution, and may answer
+  that the instructions leave it open. Its answers are compared with the tests in code.
+- **Consistency.** The cases, read as a table of known results (the earlier stages' cases
+  included), must satisfy the unit's laws on every input that table covers, and two cases with
+  the same input must expect the same result.
+
+The disputed tests go back to the test writer once, with the reasons; it fixes, removes or
+keeps each one. Of a case and a law that contradict each other, only the one the reading did
+not confirm is disputed. What is still disputed after that round is dropped, and the rest must
+pass the gate again. A suite that passed is recorded with a hash in
+`.proctor/coursecrafter/verified`; a suite built before the cross-check existed, or changed
+since, is built again.
+
+A project keeps one run command: the first stage that sets `run` fixes it for every later
+stage (the request says so, a contract that changes it is sent back, and an older contract
+that differs is written again).
 
 Each request carries what the model cannot guess:
 

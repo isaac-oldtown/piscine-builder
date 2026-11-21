@@ -87,7 +87,9 @@ random:
 There is no reference solution: every expected value comes from the test itself. Laws are
 the random tests. Each check draws a new seed (`proctor check` prints it on its first line,
 `--seed HEX` replays it), each law gets its own stream of that seed, and a failing round is
-shrunk to a small input and reported with the command that replays it. A `fuzz:` list from
+shrunk to a small input and reported with the command that replays it. A law must generate
+something and use every variable it generates: `proctor validate` rejects one that would run
+the same fixed check every round. A `fuzz:` list from
 older builds, which compared the student with a reference, still loads but `proctor validate`
 reports it, and `coursecrafter build --tests` builds those units again.
 

@@ -444,3 +444,22 @@ def test_yaml_values_and_templates_match_rust() -> None:
         gen = gens.parse(v, maps)
         rng = Rng.new(9)
         assert (gens.describe(gen), [show(gen.generate(rng)) for _ in range(4)]) == want, k
+
+
+def test_a_generator_knows_which_values_it_can_produce() -> None:
+    assert g("int 0..10").admits(ValueInt(3)) is True
+    assert g("int 0..10").admits(ValueInt(11)) is False
+    assert g('string "ab" 0..3').admits(ValueStr("ba")) is True
+    assert g('string "ab" 0..3').admits(ValueStr("abc")) is False
+    assert g('string "ab" 0..3').admits(ValueStr("abab")) is False
+    assert g("list(int 0..9) 0..3").admits(expr_list([1, 2])) is True
+    assert g("list(int 0..9) 0..3").admits(expr_list([1, 20])) is False
+    assert g('lines(string "a" 1..2) 0..5').admits(ValueStr("a\naa\n")) is True
+    assert g('lines(string "a" 1..2) 0..5').admits(ValueStr("a")) is False
+    # Templates are not inverted: unknown, never assumed.
+    assert g("word").admits(ValueStr("abc")) in (True, None)
+    assert g("int 0..10").admits(ValueStr("3")) is False
+
+
+def expr_list(xs: list[int]) -> Value:
+    return ValueList([ValueInt(x) for x in xs])

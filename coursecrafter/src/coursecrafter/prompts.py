@@ -464,8 +464,9 @@ list(g) lo..hi, lines(g) lo..hi, opt(g), choice ["a", "b"], lit <value>, and nam
 
 GEN_RULES = r"""Test rules:
 - No reference solution is written or run: every expected value is computed by the test itself. Fixed cases hold small inputs whose results are obvious by inspection.
-- Random tests are laws, never inputs you invent one by one: generators describe the whole input space and each law checks a property every result must keep (the result equals an independent built-in expression, two functions agree, a roundtrip, idempotence, an invariant of the output). Every function or program the cases can call gets at least one law; generate only valid inputs unless the requirements say how invalid ones behave.
+- Random tests are laws, never inputs you invent one by one: generators describe the whole input space and each law checks a property every result must keep (the result equals an independent built-in expression, two functions agree, a roundtrip, idempotence, an invariant of the output). Every function, and every program that reads input (arguments, stdin or files), gets at least one law; a program that reads nothing gets none. A law uses every input it generates. Generate only valid inputs unless the requirements say how invalid ones behave.
 - Every function needs a test that fails when the function is an empty stub.
+- Every case and law is checked again by an independent reading of the instructions the student gets, which never sees your tests, and the cases are checked against your laws. A test it disagrees with comes back to you; a test still disputed after that is dropped. So test only what the instructions decide, and work each expected result out step by step (character by character, code point order when sorting), never from memory.
 - Deterministic apart from the seed: no timing-dependent checks, no network, no files outside the working directory.
 - For a stage, test only what it adds: the earlier stages' tests run again, unchanged, against this stage's program.
 
@@ -590,6 +591,46 @@ def note_request(title: str, teaches: list[str], brief: str) -> str:
 
 def feedback(problems: str, what: str) -> str:
     return f"The quality gate rejected your answer:\n\n{problems}\n\nFix every point and send {what} again, complete, in the same format."
+
+
+VERIFY_SYSTEM = r"""You check programming exercises for PiscineBuilder before students get them. You get the instructions a student receives and questions about what any correct solution does. Answer from those instructions alone (RULES.md is part of them), as a careful student reads them: when they leave an answer open, so that two solutions that both follow them could differ, answer `?`. Never guess and never assume a convention they do not state.
+
+Work every answer out, never estimate: go through each input character by character, count spaces and newlines, compare strings by code point when the instructions sort them, and check a property on every kind of input its generators produce, edge cases included. Short working notes before the answers are welcome.
+
+Notation (the tests' own): strings in double quotes with \n \t \" \\ escapes, lists [1, 2], maps {"a": 1}, null, true, false. A returned Ok(v) or Some(v) is v and None is null; `raises(f(x))` means the call fails (returns Err, raises or panics). run(args=[...], stdin="...") runs the program; `.out`, `.err` and `.exit` are its stdout, stderr and exit code. Built-ins: len (characters of a string, items of a list), bytes (UTF-8 length), lines (split at newlines, no empty last line), words (split on whitespace), split(s, sep), join(parts, sep), sorted (code point order for strings), reversed, unique (keeps the first of each), nonempty (drops empty and false values), flatten, sum, min, max, abs, count(s, sub) or count(list, x), contains, lower, upper, trim, chars, keys, values, get(map, key[, default]), all, any, int, float, str, is_sorted, permutation(a, b) (same items in any order), repeat(x, n), range(n) or range(lo, hi), slice(x, start[, end]) (as Python slicing), starts_with, ends_with, matches(s, regex) (a match anywhere), replace(s, old, new), concat, then(a, ..., z) (evaluates all, gives z), approx(a, b[, eps]); `[e for x in xs if c]` and `all(c for x in xs)` as in Python.
+Generators: int lo..hi, float lo..hi, bool, char "abc", string "alphabet" lo..hi (characters from the alphabet, a length in the range), word (a short lowercase ASCII word), ascii, list(g) lo..hi, lines(g) lo..hi (that many lines, each ending with \n), opt(g) (g or null), choice [...], lit v, and named templates.
+
+After any notes, reply with one line per question in an <answers> block:
+<answers>
+1: <value>                                  "the value of ...": the value in the notation above, or ?
+2: true                                     "true or false": true, false or ?; after false, the input that breaks it: false, s = "ab"
+3: out "<stdout>" err "<stderr>" exit <n>   a run; ? for any part the instructions leave open: out "x\n" err ? exit 0
+</answers>
+"""
+
+
+def verify_request(page: str, earlier: list[str], rules_md: str, questions: str) -> str:
+    """The independent reading of a unit: its page without the examples drawn
+    from the tests, and questions whose answers the tests already state."""
+    s = f"# The student's instructions\n\n{trim(page)}\n"
+    for p in earlier:
+        s += f"\n# Earlier stage of the same project (its behaviour still holds unless the instructions above change it)\n\n{trim(p)}\n"
+    s += f"\n# RULES.md\n\n{trim(rules_md)}\n"
+    s += f"\n# Questions\n\n{questions}\n\nAnswer every question in the <answers> block."
+    return s
+
+
+def cross_check_retry(problems: str) -> str:
+    """After the cross-check: the disputed tests go back to their writer."""
+    return (
+        "The tests passed the gate, but a cross-check disputes some of them. An independent reading of the student's "
+        "instructions, which never saw your tests, answered differently, or a case and a law cannot both hold:\n\n"
+        f"{problems}\n\n"
+        "For each one, work the right result out again, step by step, from the instructions alone (the student sees "
+        "nothing else). Fix a test that is wrong. Remove one that checks something the instructions leave open. Keep "
+        "one you are sure of unchanged. A test still disputed after this is dropped from the suite. Send the complete "
+        "<tests> block again (and <lib>, <support> or <scaffold> only if they change)."
+    )
 
 
 def tests_retry(problems: str) -> str:

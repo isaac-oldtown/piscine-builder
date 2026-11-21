@@ -154,6 +154,46 @@ class Gen:
                 return ValueStr("".join(out))
         raise AssertionError(type(self))
 
+    def admits(self, v: Value) -> bool | None:
+        """Whether this generator could produce `v`; `None` when it cannot tell."""
+        match (self, v):
+            case (GenInt(lo=lo, hi=hi), ValueInt(i=i)):
+                return lo <= i <= hi
+            case (GenFloat(lo=flo, hi=fhi), ValueFloat(f=f)):
+                return flo <= f <= fhi
+            case (GenBool(), ValueBool()):
+                return True
+            case (GenChar(alphabet=alphabet), ValueChar(c=c)):
+                return c in alphabet
+            case (GenStr(alphabet=alphabet, lo=lo, hi=hi), ValueStr(s=s)):
+                return lo <= len(s) <= hi and all(ch in alphabet for ch in s)
+            case (GenList(inner=inner, lo=lo, hi=hi), ValueList(items=items)):
+                if not lo <= len(items) <= hi:
+                    return False
+                each = [inner.admits(x) for x in items]
+                return False if False in each else None if None in each else True
+            case (GenLines(inner=inner, lo=lo, hi=hi), ValueStr(s=s)):
+                if s and not s.endswith("\n"):
+                    return False
+                ls = lines(s)
+                if not lo <= len(ls) <= hi:
+                    return False
+                if not isinstance(inner, GenStr | GenChoice | GenConst):
+                    return None
+                each = [inner.admits(ValueStr(x)) for x in ls]
+                return False if False in each else None if None in each else True
+            case (GenOpt(), ValueNull()):
+                return True
+            case (GenOpt(inner=inner), _):
+                return inner.admits(v)
+            case (GenChoice(values=items), _):
+                return v in items
+            case (GenConst(value=c), _):
+                return v == c
+            case (GenFmt(), _):
+                return None
+        return False
+
     def shrink(self, v: Value) -> list[Value]:
         """Smaller variants of `v` that this generator could also have produced."""
         out: list[Value] = []

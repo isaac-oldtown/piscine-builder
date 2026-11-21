@@ -1,6 +1,8 @@
 """`coursecrafter build`: curriculum -> course.
   pass 1: one contract per unit (and notes, and settings for unknown languages)
-  pass 2: tests, random laws, scaffold; gated by proctor selftest on empty stubs
+  pass 2: tests, random laws, scaffold; gated by proctor selftest on empty stubs,
+          then cross-checked (crosscheck.py): an independent reading of the
+          instructions answers every test, and the cases must satisfy the laws
 Each LLM reply is cached on disk by a hash of its request, so a re-run only
 pays for what changed. Nothing that fails the gate is kept."""
 
@@ -31,7 +33,7 @@ from proctor.compat import (
 from proctor.errors import Error
 from proctor.unit import LangConfig, Rule, Target, Unit, requirements_markdown
 
-from coursecrafter import curriculum, llm, prompts, session
+from coursecrafter import crosscheck, curriculum, llm, prompts, session
 from proctor import (
     course,
     docker,
@@ -40,6 +42,7 @@ from proctor import (
     journal,
     lang,
     program,
+    rtests,
     scaffold,
     schema,
     selftest,
@@ -293,11 +296,21 @@ class Builder:
         for i, u in enumerate(units):
             # Existing contracts are kept (rewriting one would drop its tests);
             # `--only` redoes the named units.
-            if self.unit_path(u.id).is_file() and (not self.explicit(u) or self.opts.text_only):
+            changed = None if self.opts.text_only else self.run_changed(u)
+            if (
+                self.unit_path(u.id).is_file()
+                and (not self.explicit(u) or self.opts.text_only)
+                and changed is None
+            ):
                 self.sync_contract(u)
                 self.ensure_rust_scaffold(u)
                 continue
-            self.log.say(f"[contract {i + 1}/{len(units)}] {u.id}")
+            if changed is not None:
+                self.log.say(
+                    f"[contract {i + 1}/{len(units)}] {u.id}: written again, its run command differs from {changed}'s"
+                )
+            else:
+                self.log.say(f"[contract {i + 1}/{len(units)}] {u.id}")
             # A rejected contract is reported, and the other units go on.
             try:
                 m = self.contract(u, units[:i], languages)
@@ -392,9 +405,12 @@ class Builder:
             if u.f.gradable is False:
                 self.log.say(f"[tests {i + 1}/{len(units)}] {u.id}: not gradable, skipped")
                 continue
+            again = ""
             if self.has_suite(u.id) and not self.explicit(u):
-                done_before += 1
-                continue
+                if self.verified(u.id):
+                    done_before += 1
+                    continue
+                again = ": its suite was never cross-checked, built again"
             # A stage's tests build on the previous stage's: without them they
             # would be written blind and fail for nothing.
             prev = self.previous_stage(u)
@@ -404,7 +420,7 @@ class Builder:
                 )
                 waiting.append(u.id)
                 continue
-            self.log.say(f"[tests {i + 1}/{len(units)}] {u.id}")
+            self.log.say(f"[tests {i + 1}/{len(units)}] {u.id}{again}")
             try:
                 self.tests(u, units[: i + 1], languages)
             except Error as e:
@@ -413,6 +429,7 @@ class Builder:
                     raise
                 self.log.say(f"  FAILED {u.id}: {e.msg}")
                 self.forget(f"tests-{u.id}")
+                self.forget(f"verify-{u.id}")
                 failed.append(u.id)
             else:
                 built += 1
@@ -630,6 +647,9 @@ class Builder:
                 s += f"{k}: [{', '.join(v)}]\n"
         if f.target is not None:
             s += f"target: {f.target} (fixed)\n"
+        kept = self.stage_run(u)
+        if kept is not None and f.target != "function":
+            s += f"run: {kept[1]} (fixed by {kept[0]}: every stage of the project runs this way, so keep the files it runs)\n"
         if f.done_when is not None and trim(f.done_when):
             s += f"done_when: {f.done_when}\n"
         if f.stretch:
@@ -762,21 +782,36 @@ class Builder:
                 continue
             m[k] = v
         # How the program runs is decided here, not by the model: C and Rust
-        # run what they built, and a project keeps its first stage's command.
+        # run what they built, and a project keeps its first command.
         if self.plan.language(u) in ("c", "rust"):
             _remove(m, "run")
             _remove(m, "build")
         else:
-            first: str | None = None
-            if u.parent is not None:
-                stages = self.plan.stages(u.parent)
-                if stages:
-                    first = stages[0].id
-            if first is not None and first != u.id:
-                fm = self.read_unit_map(first)
-                if fm is not None and "run" in fm:
-                    m["run"] = fm["run"]
+            kept = self.stage_run(u)
+            if kept is not None:
+                m["run"] = kept[1]
         return m
+
+    def stage_run(self, u: curriculum.Entry) -> tuple[str, Any] | None:
+        """The `run` of the first earlier stage of `u`'s project that has one,
+        with that stage's id: every later stage runs the same way."""
+        if u.parent is None or self.plan.language(u) in ("c", "rust"):
+            return None
+        for st in self.plan.stages(u.parent):
+            if st.id == u.id:
+                break
+            fm = self.read_unit_map(st.id)
+            if fm is not None and "run" in fm:
+                return st.id, fm["run"]
+        return None
+
+    def run_changed(self, u: curriculum.Entry) -> str | None:
+        """The stage whose run command `u`'s written contract does not keep."""
+        kept = self.stage_run(u)
+        m = self.read_unit_map(u.id)
+        if kept is None or m is None or m.get("target") != "program":
+            return None
+        return kept[0] if m.get("run") != kept[1] else None
 
     def check_contract(self, u: curriculum.Entry, m: Mapping, languages: Mapping) -> list[str]:
         """Mechanical checks on a contract; problems go back to the model."""
@@ -929,6 +964,11 @@ class Builder:
                                 model["requirements"] = trim(r)
                         m = self.merge_contract(u, model)
                         p = self.check_contract(u, m, languages)
+                        kept = self.stage_run(u)
+                        if kept is not None and "run" in model and model["run"] != kept[1]:
+                            p.append(
+                                f"`run` stays `{kept[1]}` as in {kept[0]} (every stage of a project runs the same way): keep it, and the files and text that go with it"
+                            )
                         if not p:
                             return m
                         problems = p
@@ -1054,6 +1094,9 @@ class Builder:
         messages = [llm.Msg.system(self.system), llm.Msg.user(req)]
         draft = Draft()
         last = ""
+        # The independent reading's verdict on each test seen so far, by key.
+        seen: dict[str, str | None] = {}
+        challenged = False
         for attempt in range(self.opts.retries + 1):
             try:
                 reply = self.chat(f"tests-{u.id}", messages)
@@ -1077,8 +1120,29 @@ class Builder:
                 self.log.log(f"  attempt {attempt + 1} rejected: {last}")
                 messages.append(llm.Msg.assistant(reply))
                 messages.append(llm.Msg.user(prompts.tests_retry(last)))
-            else:
+                continue
+            try:
+                disputed = self.cross_check(u, seen)
+            except Error as e:
+                last = e.msg
+                break
+            if not disputed:
+                self.mark_verified(u.id)
                 return
+            listed = "\n".join(f"- {why}" for _, why in disputed)
+            self.log.log(f"  cross-check disputes {len(disputed)} test(s):\n{listed}")
+            # One round back to the writer; what is still disputed after it goes.
+            if challenged or attempt == self.opts.retries:
+                try:
+                    self.drop_disputed(u, upto, languages, disputed)
+                except Error as e:
+                    last = e.msg
+                    break
+                self.mark_verified(u.id)
+                return
+            challenged = True
+            messages.append(llm.Msg.assistant(reply))
+            messages.append(llm.Msg.user(prompts.cross_check_retry(listed)))
         # Never keep a broken suite: restore the bare contract and the old lib.
         text = yamlio.dump(contract)
         write(self.unit_path(u.id), text)
@@ -1206,7 +1270,10 @@ class Builder:
         for path, body in sorted(given.items()):
             write(scaffold_dir / path, body)
         self.ensure_rust_scaffold(u)
-        # Gate: the course up to this unit must load, parse and self-test.
+        self.gate(u, upto, languages)
+
+    def gate(self, u: curriculum.Entry, upto: list[curriculum.Entry], languages: Mapping) -> None:
+        """The course up to `u`, as written, must load, parse and self-test."""
         problems = self.spec_problems(u, upto, languages)
         if problems:
             raise Error("\n".join(problems))
@@ -1237,6 +1304,129 @@ class Builder:
             f", every function caught on stubs ({r.vacuity_checked})" if r.vacuity_checked else ""
         )
         self.log.log(f"  gate OK: {len(loaded.random.laws)} law(s){caught}")
+
+    def cross_check(
+        self, u: curriculum.Entry, seen: dict[str, str | None]
+    ) -> list[tuple[list[str], str]]:
+        """The tests of `u`'s suite as written that cannot be trusted, as
+        (keys, why): those the independent reading disagrees with (it answers
+        only the ones not in `seen`, which records its verdicts), and the cases
+        and laws that contradict each other."""
+        c = course.CourseDir.load(self.root)
+        loaded = c.unit(u.id)
+        raw = self.read_unit_map(u.id)
+        if loaded is None or raw is None:
+            raise Error("unit missing after write")
+        laws = _laws(raw)
+        its = crosscheck.items(c, loaded, laws)
+        fresh = [it for it in its if it.key not in seen]
+        if fresh:
+            page, earlier, rules_md = crosscheck.context(c, loaded)
+            req = prompts.verify_request(page, earlier, rules_md, crosscheck.questions(fresh))
+            messages = [llm.Msg.system(prompts.VERIFY_SYSTEM), llm.Msg.user(req)]
+            reply = self.chat(f"verify-{u.id}", messages)
+            seen.update(crosscheck.disputes(fresh, crosscheck.answers(reply)))
+        out: list[tuple[list[str], str]] = []
+        for it in its:
+            why = seen.get(it.key)
+            if why is not None:
+                out.append(([it.key], f"{it.label}: the independent reading {why}"))
+        # Of tests that contradict each other, the ones the reading confirmed
+        # are kept: only the others are suspect.
+        for keys, why in crosscheck.conflicts(c, loaded, laws):
+            suspect = [k for k in keys if seen.get(k, "") is not None]
+            out.append((suspect or keys, why))
+        agreed = sum(1 for it in its if seen.get(it.key, "") is None)
+        self.log.log(f"  cross-check: {agreed} of {len(its)} test(s) confirmed")
+        return out
+
+    def drop_disputed(
+        self,
+        u: curriculum.Entry,
+        upto: list[curriculum.Entry],
+        languages: Mapping,
+        disputed: list[tuple[list[str], str]],
+    ) -> None:
+        """Removes the disputed tests of `u` (keys from `cross_check`), then
+        gates what is left."""
+        keys = {k for ks, _ in disputed for k in ks}
+        m = self.read_unit_map(u.id)
+        if m is None:
+            raise Error("unit missing after write")
+        n = 0
+        cases = _as_str(m.get("cases"))
+        if cases is not None:
+            ls = lines(cases)
+            kept: list[str] = []
+            for i, line in enumerate(ls):
+                t = trim(line)
+                # An `# example` mark goes with the case it marks.
+                after = trim(ls[i + 1]) if i + 1 < len(ls) else ""
+                if t in keys or (t.startswith("#") and after in keys):
+                    n += 0 if t.startswith("#") else 1
+                    continue
+                kept.append(line)
+            if any(trim(x) and not trim(x).startswith("#") for x in kept):
+                m["cases"] = "".join(f"{x}\n" for x in kept)
+            else:
+                _remove(m, "cases")
+        random = m.get("random")
+        if isinstance(random, dict) and isinstance(random.get("laws"), list):
+            laws = [x for x in random["laws"] if yamlio.dump(x) not in keys]
+            n += len(random["laws"]) - len(laws)
+            if laws:
+                random["laws"] = laws
+            else:
+                _remove(random, "laws")
+                if not random:
+                    _remove(m, "random")
+        rust = _as_str(m.get("rust_tests"))
+        if rust is not None:
+            for rt in rtests.parse(rust):
+                if rt.text in keys:
+                    rust = rust.replace(rt.text, "")
+                    n += 1
+            m["rust_tests"] = rust
+        write(self.unit_path(u.id), yamlio.dump(m))
+        self.log.say(f"  dropped {n} disputed test(s)")
+        try:
+            self.gate(u, upto, languages)
+        except Error as e:
+            raise Error(
+                f"after dropping {n} disputed test(s), the suite fails the gate: {e.msg}"
+            ) from None
+
+    def verified_path(self) -> Path:
+        return hidden(self.root) / "coursecrafter" / "verified"
+
+    def suite_hash(self, id: str) -> str:
+        m = self.read_unit_map(id) or {}
+        return fnv([yamlio.dump(m.get(k)) for k in ("cases", "rust_tests", "random")])
+
+    def verified(self, id: str) -> bool:
+        """`id`'s suite, as it is now, passed the cross-check."""
+        try:
+            text = read_text(self.verified_path())
+        except OSError:
+            return False
+        return f"{id} {self.suite_hash(id)}" in lines(text)
+
+    def mark_verified(self, id: str) -> None:
+        try:
+            text = read_text(self.verified_path())
+        except OSError:
+            text = ""
+        kept = [x for x in lines(text) if x.split(" ")[0] != id]
+        kept.append(f"{id} {self.suite_hash(id)}")
+        write(self.verified_path(), "".join(f"{x}\n" for x in sorted(kept)))
+
+
+def _laws(m: Mapping) -> list[Any]:
+    """A unit file's laws, as written."""
+    random = m.get("random")
+    if isinstance(random, dict) and isinstance(random.get("laws"), list):
+        return list(random["laws"])
+    return []
 
 
 def hidden(root: Path) -> Path:
@@ -1567,10 +1757,18 @@ def default_cargo_toml(name: str) -> str:
 
 
 def laws_apply(c: course.CourseDir, u: Unit) -> bool:
-    """Random laws can test `u`: a program, or a function the harness calls
-    (Rust methods and types are tested in `rust_tests` instead)."""
+    """Random laws can test `u`: a program that reads input (a case gives it
+    arguments, stdin or files), or a function the harness calls (Rust methods
+    and types are tested in `rust_tests` instead)."""
     if u.target == Target.PROGRAM:
-        return True
+        for _, line in u.case_lines():
+            try:
+                case = program.parse_case(line)
+            except Error:
+                return True
+            if case.args or case.stdin is not None or case.files:
+                return True
+        return False
     language = c.language(u)
     if not lang.has_harness(language):
         return False

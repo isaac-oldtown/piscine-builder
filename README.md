@@ -118,7 +118,7 @@ With a Claude Code subscription through Meridian (or any provider on localhost),
 
 1. **Plan:** Write your own curriculum and convert it with `coursecrafter convert` (recommended), plan interactively with `coursecrafter new`, or use `coursecrafter prompt` with a chat assistant and `coursecrafter import` its answer.
 2. **Review:** Inspect and edit `curriculum.md`. The plan must be approved before it can be built.
-3. **Build:** `coursecrafter build --tests` generates unit instructions and tests. Each unit must pass the generation quality checks: its tests run on empty stubs, every function has a test that fails there, and every function or program the harness can call has random laws.
+3. **Build:** `coursecrafter build --tests` generates unit instructions and tests. Each unit must pass the generation quality checks: its tests run on empty stubs, every function has a test that fails there, and every function or program the harness can call has random laws. A second, independent model call then works out each test's expected result from the student's instructions alone, and the cases are checked against the laws: disputed tests go back to the writer once, and are dropped if still disputed.
 4. **Practise:** Use `proctor next`, implement the assignment, and run `proctor check`. Project stages share a workspace and are tested together.
 
 The curriculum validator checks prerequisites, workload against available hours, project stages, and minimum viable results. Optional stretch goals can be skipped.

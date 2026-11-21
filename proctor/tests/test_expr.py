@@ -194,3 +194,9 @@ def test_err_comparisons_mean_raises() -> None:
     assert holds(r'ft_parse_port("80") == Err(1)') == Ok(False)
     assert holds(r'ft_parse_port("0") != Err(1)') == Ok(False)
     assert holds(r'ft_parse_port("80") != Err(1)') == Ok(True)
+
+
+def test_free_names_leave_out_comprehension_variables() -> None:
+    names: set[str] = set()
+    expr.free_names(expr.parse("all(len(w) <= k for w in words(s)) && x.out == y"), names)
+    assert names == {"k", "s", "x", "y"}

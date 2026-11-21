@@ -489,3 +489,35 @@ def test_a_function_stage_after_a_reading_introduction_needs_no_program() -> Non
         assert r.error is None, r.error
         assert not r.vacuous, r.vacuous
         assert_passes(c, u, s.path / "solutions" / u.id)
+
+
+LAW_UNIT = """id: d01-twice
+title: Twice
+language: python
+target: function
+module: m
+stubs: m.py
+goal: Double a number.
+functions:
+  - { name: double, sig: "def double(n: int) -> int" }
+cases: |
+  double(2) == 4
+random:
+  laws:
+"""
+
+
+def test_a_law_must_use_what_it_generates() -> None:
+    with Scratch("laws") as s:
+        s.write(".proctor/course.yaml", "title: Laws\nunits: [d01-twice]\n")
+        spec = ".proctor/units/d01-twice.yaml"
+        law = "    - { name: twice, gen: { n: int 0..9, k: int 0..9 }, check: ['double(n) == n + n'] }\n"
+        s.write(spec, LAW_UNIT + law)
+        problems = engine.validate(course.CourseDir.load(s.path))
+        assert any("generates `k` but no check uses it" in p for p in problems), problems
+        s.write(spec, LAW_UNIT + "    - { name: fixed, check: ['double(1) == 2'] }\n")
+        problems = engine.validate(course.CourseDir.load(s.path))
+        assert any("generates nothing" in p for p in problems), problems
+        law = "    - { name: twice, gen: { n: int 0..9 }, check: ['all(double(x) == x + x for x in [n])'] }\n"
+        s.write(spec, LAW_UNIT + law)
+        assert engine.validate(course.CourseDir.load(s.path)) == []

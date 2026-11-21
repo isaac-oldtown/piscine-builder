@@ -992,6 +992,24 @@ def walk(e: Expr, f: Callable[[Expr], None]) -> None:
         walk(x, f)
 
 
+def free_names(e: Expr, out: set[str]) -> None:
+    """Names `e` reads from outside (a comprehension's own variable excluded);
+    a dotted name counts as its first part."""
+    match e:
+        case ExprName(n):
+            out.add(n.split(".")[0])
+        case ExprComp(elem, var, source, cond):
+            free_names(source, out)
+            inner: set[str] = set()
+            free_names(elem, inner)
+            if cond is not None:
+                free_names(cond, inner)
+            out.update(inner - {var})
+        case _:
+            for x in _children(e):
+                free_names(x, out)
+
+
 def parse(src: str) -> Expr:
     p = Parser(toks=lex(src), pos=0)
     e = p.expr()

@@ -363,6 +363,19 @@ def law_test(c: course.CourseDir, u: Unit, law: Law, i: int, protos: list[sig.Pr
             raise Error(f"{u.id}: law check `{src}`: {e.msg}") from None
         parsed.append((src, check))
     label = label if label is not None else f"law {i + 1}"
+    # A law that ignores what it generates runs one fixed check many times.
+    if not names:
+        raise Error(
+            f"{u.id}: law `{label}` generates nothing: give it a `gen:`, or make it a fixed case"
+        )
+    used: set[str] = set()
+    for _, check in parsed:
+        expr.free_names(check, used)
+    unused = [n for n in names if n not in used]
+    if unused:
+        raise Error(
+            f"{u.id}: law `{label}` generates {', '.join(f'`{n}`' for n in unused)} but no check uses it: use every generated input, or drop it"
+        )
     return Test(
         name=f"law {label}",
         kind=KindLaw(
