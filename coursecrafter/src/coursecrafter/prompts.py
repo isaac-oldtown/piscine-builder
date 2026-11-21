@@ -371,7 +371,12 @@ Ask at most 10 questions in a conversation; after that, assume your recommended 
 # --------------------------------------------------------------- generation
 
 
-def gen_system(langs: list[str]) -> str:
+CHECKED = "- Your reply is used as it is, without asking you again: a test proctor cannot run, and any case that contradicts one of your laws (the cases are checked against them), is dropped. So write more than the minimum (several cases and at least one law per function, each simple enough to be sure of), test only what the instructions decide, and work each expected result out step by step (character by character, code point order when sorting), never from memory."
+
+CROSS_CHECKED = "- Every case and law is checked again by an independent reading of the instructions the student gets, which never sees your tests, and the cases are checked against your laws. A test it disagrees with comes back to you; a test still disputed after that is dropped. So test only what the instructions decide, and work each expected result out step by step (character by character, code point order when sorting), never from memory."
+
+
+def gen_system(langs: list[str], cross_check: bool = False) -> str:
     """The generation rules, with the notes of the course's languages only."""
     from proctor import expr
 
@@ -385,9 +390,9 @@ def gen_system(langs: list[str]) -> str:
     s += GEN_PROGRAM_TESTS
     s += (
         "Expressions: literals, == != < <= > >= && || ! + - * / %, x.field, x[i], the student's functions, "
-        f'run(args=[...], stdin="...") for programs, comprehensions ([len(w) for w in words(s) if w != ""], all(len(w) <= 5 for w in words(s))), and only these built-ins: {" ".join(expr.BUILTINS)}. There are no user functions or lambdas.\n'
+        f'run(args=[...], stdin="...") for programs, comprehensions ([len(w) for w in words(s) if w != ""], all(len(w) <= 5 for w in words(s))), and only these built-ins: {" ".join(expr.BUILTINS)}. There are no user functions, lambdas or conditional expressions (`a if c else b`: write `!c || a` and `c || b` as two checks).\n'
     )
-    s += GEN_RULES
+    s += GEN_RULES.replace("{checked}", CROSS_CHECKED if cross_check else CHECKED)
     s += "\n# Language notes\n"
     for lang in langs:
         match lang:
@@ -466,7 +471,7 @@ GEN_RULES = r"""Test rules:
 - No reference solution is written or run: every expected value is computed by the test itself. Fixed cases hold small inputs whose results are obvious by inspection.
 - Random tests are laws, never inputs you invent one by one: generators describe the whole input space and each law checks a property every result must keep (the result equals an independent built-in expression, two functions agree, a roundtrip, idempotence, an invariant of the output). Every function, and every program that reads input (arguments, stdin or files), gets at least one law; a program that reads nothing gets none. A law uses every input it generates. Generate only valid inputs unless the requirements say how invalid ones behave.
 - Every function needs a test that fails when the function is an empty stub.
-- Every case and law is checked again by an independent reading of the instructions the student gets, which never sees your tests, and the cases are checked against your laws. A test it disagrees with comes back to you; a test still disputed after that is dropped. So test only what the instructions decide, and work each expected result out step by step (character by character, code point order when sorting), never from memory.
+{checked}
 - Deterministic apart from the seed: no timing-dependent checks, no network, no files outside the working directory.
 - For a stage, test only what it adds: the earlier stages' tests run again, unchanged, against this stage's program.
 

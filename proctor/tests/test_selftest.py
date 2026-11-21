@@ -19,17 +19,21 @@ def line(r: selftest.UnitReport) -> str:
 
 def test_json_lines_round_trip() -> None:
     ok = selftest.UnitReport(unit="d01", error=None, vacuous=[], vacuity_checked=3, notes=[])
-    assert line(ok) == '{"error":null,"notes":[],"unit":"d01","vacuity_checked":3,"vacuous":[]}'
+    assert (
+        line(ok)
+        == '{"error":null,"notes":[],"unit":"d01","vacuity_checked":3,"vacuous":[],"wrong":[]}'
+    )
     ko = selftest.UnitReport(
         unit="p01.1-é",
         error="case x: course error: unknown function `g`",
         vacuous=["`f` is never tested"],
         vacuity_checked=1,
         notes=["no stub check for perl"],
+        wrong=["case x"],
     )
     assert line(ko) == (
         '{"error":"case x: course error: unknown function `g`","notes":["no stub check for perl"],'
-        '"unit":"p01.1-é","vacuity_checked":1,"vacuous":["`f` is never tested"]}'
+        '"unit":"p01.1-é","vacuity_checked":1,"vacuous":["`f` is never tested"],"wrong":["case x"]}'
     )
     for r in (ok, ko):
         assert selftest.UnitReport.from_json(json.loads(line(r))) == r

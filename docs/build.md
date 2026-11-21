@@ -33,14 +33,26 @@ roundtrip, an invariant). proctor draws those inputs from a new seed at every ch
 
 Before the first call, the contract goes through `proctor validate`: a problem no test suite
 can fix stops the unit there and drops its cached contract, so that `--tests --only <id>` asks
-for a new one. A unit is kept only if `proctor selftest` passes: the tests build and run on
+for a new one.
+
+The reply is used as it is: coursecrafter repairs it in code instead of asking again. Unknown
+keys and a bad `<lib>` or file path are ignored; a test proctor cannot parse, one that gives a
+course error on empty stubs (wrong whatever the student writes) and a Rust test that does not
+compile against the stubs are dropped, each found by trying it on its own. Cases and laws are
+then checked against each other: two cases with the same input and different results both go,
+a law that fails whatever the solution does goes, a law contradicting two cases or more goes, a
+case two laws or more contradict goes, and a law and a case that only contradict each other
+both go. Only a suite that still fails the gate after this goes back to the model. Contracts get
+the same treatment for their form (long dashes, `stubs` as a one-item list, unknown keys).
+
+A unit is kept only if `proctor selftest` passes: the tests build and run on
 empty stubs without a course error (a wrong name, a type error in a law), and every function
 has a test that fails there. The gate also rejects a suite with no laws when the harness can
 call one of the unit's functions, or when the unit is a program that reads input (a program
 that reads nothing has nothing to generate). Linux units are self-tested in the Linux container.
 
-A suite that passes the gate is then cross-checked, since without a solution nothing else can
-catch a wrong expected value:
+With `build --cross-check` (one more call per unit), a suite that passes the gate is also
+cross-checked, which catches a wrong expected value that no law contradicts:
 
 - **Independent reading.** A separate call (its own system prompt, `verify-<id>` in the cache)
   gets the student's page without the examples drawn from the tests, the earlier stages' pages
@@ -55,8 +67,8 @@ The disputed tests go back to the test writer once, with the reasons; it fixes, 
 keeps each one. Of a case and a law that contradict each other, only the one the reading did
 not confirm is disputed. What is still disputed after that round is dropped, and the rest must
 pass the gate again. A suite that passed is recorded with a hash in
-`.proctor/coursecrafter/verified`; a suite built before the cross-check existed, or changed
-since, is built again.
+`.proctor/coursecrafter/verified`; with `--cross-check`, a suite never cross-checked, or
+changed since, is built again.
 
 A project keeps one run command: the first stage that sets `run` fixes it for every later
 stage (the request says so, a contract that changes it is sent back, and an older contract

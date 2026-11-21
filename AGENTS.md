@@ -72,7 +72,8 @@ PiscineBuilder: a uv workspace (Python 3.12, typed, checked by mypy) with two pa
   `SETUP` (401 to 404) stop the build; `REQUEST` (other 4xx, a reply cut off at `MAX_TOKENS`, an empty reply)
   fails only that unit.
 - Contract and test-suite checks live in `coursecrafter/src/coursecrafter/build.py` (`check_contract`,
-  `try_tests`, `cross_check`); the cross-check's questions, answer parsing and case/law consistency are in
+  `try_tests`, `salvage` (drops what it cannot use instead of asking again), `cross_check` behind
+  `--cross-check`); the cross-check's questions, answer parsing and case/law consistency are in
   `crosscheck.py`. Prefer deciding mechanical things in code over adding prompt rules.
 
 ## Linux units

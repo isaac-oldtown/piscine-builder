@@ -49,8 +49,9 @@ USAGE = """coursecrafter: creates PiscineBuilder courses. The only part of Pisci
   coursecrafter setup [--course DIR]
         for a curriculum with Linux units: set up Docker Desktop or WSL here
         (installs or starts it after asking; `new` offers the same)
-  coursecrafter build [--course DIR] [--yes] [--tests | --no-tests | --text-only] [--only ID]... [--retries N] [--debug]
-        write the unit specs, notes and tests (uses the LLM)
+  coursecrafter build [--course DIR] [--yes] [--tests | --no-tests | --text-only] [--only ID]... [--retries N] [--cross-check] [--debug]
+        write the unit specs, notes and tests (uses the LLM); --cross-check also has
+        an independent reading of the instructions answer every test (one more call per unit)
 
 new, revise, convert and build log every call (time, tokens, errors, fixes) to .proctor/coursecrafter/logs/;
   --debug also prints it here.
@@ -477,7 +478,7 @@ def cmd_build(raw: list[str]) -> bool:
 
     valued = ["course", "only", "retries"]
     valued.extend(LLM_OPTS)
-    a = Args.parse(raw, valued, ["yes", "tests", "no-tests", "text-only", "debug"])
+    a = Args.parse(raw, valued, ["yes", "tests", "no-tests", "text-only", "debug", "cross-check"])
     course = a.course()
     file = course / "curriculum.md"
     try:
@@ -519,6 +520,7 @@ def cmd_build(raw: list[str]) -> bool:
         yes=a.has("yes"),
         text_only=a.has("text-only"),
         debug=a.has("debug"),
+        cross_check=a.has("cross-check"),
     )
     try:
         root = course.resolve(strict=True)

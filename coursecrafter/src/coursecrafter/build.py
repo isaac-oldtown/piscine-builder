@@ -1,13 +1,15 @@
 """`coursecrafter build`: curriculum -> course.
   pass 1: one contract per unit (and notes, and settings for unknown languages)
-  pass 2: tests, random laws, scaffold; gated by proctor selftest on empty stubs,
-          then cross-checked (crosscheck.py): an independent reading of the
-          instructions answers every test, and the cases must satisfy the laws
+  pass 2: tests, random laws, scaffold, in one call; repaired in code (tests
+          proctor cannot run and cases that contradict a law are dropped), then
+          gated by proctor selftest on empty stubs; with --cross-check, an
+          independent reading of the instructions answers every test too
 Each LLM reply is cached on disk by a hash of its request, so a re-run only
 pays for what changed. Nothing that fails the gate is kept."""
 
 from __future__ import annotations
 
+import copy
 import math
 import os
 import re
@@ -69,6 +71,8 @@ class Options:
     text_only: bool
     # Print the session log to the terminal as it is written.
     debug: bool
+    # Ask an independent reading of the instructions about every test (one more call per unit).
+    cross_check: bool = False
 
 
 @dataclass(kw_only=True)
@@ -96,7 +100,7 @@ class Builder:
         env_block: str,
     ) -> Builder:
         langs = sorted({plan.language(u) for u in plan.units()})
-        system = f"{prompts.gen_system(langs)}\n\n{env_block}"
+        system = f"{prompts.gen_system(langs, opts.cross_check)}\n\n{env_block}"
         log = session.Session.start(root, "build", opts.debug)
         log.log(f"model {llm.model} at {llm.base_url}")
         return Builder(
@@ -407,7 +411,7 @@ class Builder:
                 continue
             again = ""
             if self.has_suite(u.id) and not self.explicit(u):
-                if self.verified(u.id):
+                if not self.opts.cross_check or self.verified(u.id):
                     done_before += 1
                     continue
                 again = ": its suite was never cross-checked, built again"
@@ -963,6 +967,8 @@ class Builder:
                             else:
                                 model["requirements"] = trim(r)
                         m = self.merge_contract(u, model)
+                        for fix in repair_contract(m):
+                            self.log.log(f"  repaired: {fix}")
                         p = self.check_contract(u, m, languages)
                         kept = self.stage_run(u)
                         if kept is not None and "run" in model and model["run"] != kept[1]:
@@ -1121,6 +1127,8 @@ class Builder:
                 messages.append(llm.Msg.assistant(reply))
                 messages.append(llm.Msg.user(prompts.tests_retry(last)))
                 continue
+            if not self.opts.cross_check:
+                return
             try:
                 disputed = self.cross_check(u, seen)
             except Error as e:
@@ -1182,15 +1190,17 @@ class Builder:
         for key in test_keys:
             if key in tests:
                 unit[key] = tests[key]
-        extra = next((k for k in tests if not (isinstance(k, str) and k in test_keys)), _NOT_FOUND)
-        if extra is not _NOT_FOUND:
-            raise Error(
-                f"unexpected key `{extra if isinstance(extra, str) else '?'}` in <tests>; allowed: {', '.join(test_keys)}"
-            )
+        # What can be repaired here is, without asking again.
+        for k in tests:
+            if not (isinstance(k, str) and k in test_keys):
+                self.log.log(f"  ignored the unknown key `{k}` in <tests>")
         cases_text = _as_str(tests.get("cases")) or ""
         tv = tests.get("think_about")
         think = _strs(tv) if isinstance(tv, list) else []
-        think, dropped = clean_think_about(think, all_cases(tests))
+        try:
+            think, dropped = clean_think_about(think, all_cases(tests))
+        except Error as e:
+            think, dropped = [], [e.msg]
         for d in dropped:
             self.log.log(f"  think_about: dropped {d}")
         if not think:
@@ -1215,9 +1225,7 @@ class Builder:
         if contract.get("target") == "program" and not any(
             has_example(line) for line in lines(cases_text)
         ):
-            raise Error(
-                'a program needs at least one case with an exact, non-empty `out == "..."`: the instructions show it as the example'
-            )
+            self.log.log("  no case with an exact output: the instructions show no example")
         # Support files for helpers live in the hidden folder, per unit.
         support_dir = h / "support" / u.id
         shutil.rmtree(support_dir, ignore_errors=True)
@@ -1227,7 +1235,8 @@ class Builder:
             support: list[str] = []
             for path, body in sorted(draft.support.items()):
                 if ".." in path or path.startswith("/"):
-                    raise Error(f"support path `{path}` must be a plain relative name")
+                    self.log.log(f"  ignored the support file `{path}`: not a plain relative name")
+                    continue
                 write(support_dir / path, body)
                 support.append(f"support/{u.id}/{path}")
             unit["support"] = seq(support)
@@ -1244,7 +1253,8 @@ class Builder:
                 )
         for path in sorted(given):
             if path.startswith("/") or ".." in path or ":" in path:
-                raise Error(f"scaffold path `{path}` must be relative to the workspace")
+                self.log.log(f"  ignored the scaffold file `{path}`: not relative to the workspace")
+                del given[path]
         # lib.yaml: keep existing names, add new ones.
         try:
             old_lib = yamlio.load(lib_text)
@@ -1255,13 +1265,14 @@ class Builder:
             try:
                 new = yamlio.load(draft.lib)
             except Error:
-                raise Error("<lib> must be a YAML mapping of named generators") from None
+                new = None
             if isinstance(new, dict):
                 for k, v in new.items():
                     if k not in lib:
                         lib[k] = v
-            elif new is not None:
-                raise Error("<lib> must be a YAML mapping of named generators")
+            else:
+                # The laws using its generators fail validation and are dropped.
+                self.log.log("  ignored <lib>: not a YAML mapping of named generators")
         lib_out = "" if not lib else yamlio.dump(lib)
         write(h / "lib.yaml", lib_out)
         write(self.unit_path(u.id), yamlio.dump(unit))
@@ -1270,13 +1281,182 @@ class Builder:
         for path, body in sorted(given.items()):
             write(scaffold_dir / path, body)
         self.ensure_rust_scaffold(u)
-        self.gate(u, upto, languages)
+        self.salvage(u, upto, languages)
 
-    def gate(self, u: curriculum.Entry, upto: list[curriculum.Entry], languages: Mapping) -> None:
-        """The course up to `u`, as written, must load, parse and self-test."""
-        problems = self.spec_problems(u, upto, languages)
-        if problems:
-            raise Error("\n".join(problems))
+    def salvage(
+        self, u: curriculum.Entry, upto: list[curriculum.Entry], languages: Mapping
+    ) -> None:
+        """Repairs `u`'s suite as written, in code: the tests proctor cannot
+        run (spec errors, course errors on empty stubs, Rust tests that do not
+        compile) and the cases and laws that contradict each other are dropped,
+        then what is left goes through the gate. Only a suite the gate still
+        rejects goes back to the model."""
+        m = self.read_unit_map(u.id)
+        if m is None:
+            raise Error("unit missing after write")
+        dropped: list[str] = []
+
+        def drop(keys: set[str], why: dict[str, str]) -> None:
+            for key, label in suite_tests(m):
+                if key in keys and key in why:
+                    dropped.append(f"{label}: {why.pop(key)}")
+            drop_tests(m, keys)
+            write(self.unit_path(u.id), yamlio.dump(m))
+
+        def only(keep: set[str]) -> None:
+            one = copy.deepcopy(m)
+            drop_tests(one, {k for k, _ in suite_tests(m)} - keep)
+            write(self.unit_path(u.id), yamlio.dump(one))
+
+        # Tests proctor cannot even parse, each tried on its own.
+        if self.spec_problems(u, upto, languages):
+            only(set())
+            own = self.spec_problems(u, upto, languages)
+            if own:
+                write(self.unit_path(u.id), yamlio.dump(m))
+                raise Error("\n".join(own))
+            why: dict[str, str] = {}
+            for key, _ in suite_tests(m):
+                only({key})
+                p = self.spec_problems(u, upto, languages)
+                if p:
+                    why[key] = p[0]
+            drop(set(why), why)
+        # Tests that fail on empty stubs whatever the student writes.
+        for _ in range(3):
+            c, loaded, r = self.stub_report(u)
+            names = self.test_keys(c, loaded, m)
+            bad = {k for n in r.wrong for k in names.get(n, [])}
+            if bad:
+                drop(bad, {k: "wrong whatever the student writes" for k in bad})
+                continue
+            rust = [k for k, label in suite_tests(m) if label.startswith("Rust test")]
+            if r.error is None or not rust or not r.error.startswith("the tests do not build"):
+                break
+            # Tests in Rust that do not compile against the stubs, each tried on its own.
+            others = {k for k, _ in suite_tests(m)} - set(rust)
+            broken: dict[str, str] = {}
+            for key in rust:
+                only(others | {key})
+                _, _, alone = self.stub_report(u)
+                if alone.error is not None and alone.error.startswith("the tests do not build"):
+                    broken[key] = "does not compile against the stubs"
+            write(self.unit_path(u.id), yamlio.dump(m))
+            if not broken:
+                break
+            drop(set(broken), broken)
+        why = self.contradicted(u, m)
+        if why:
+            drop(set(why), why)
+        if dropped:
+            listed = "\n".join(f"    {d}" for d in dropped)
+            self.log.log(f"  dropped {len(dropped)} test(s):\n{listed}")
+        try:
+            self.gate(u, upto, languages)
+        except Error as e:
+            if not dropped:
+                raise
+            raise Error(
+                f"{e.msg}\n(after dropping {len(dropped)} test(s) proctor could not use: {'; '.join(dropped)})"
+            ) from None
+
+    def contradicted(self, u: curriculum.Entry, m: Mapping) -> dict[str, str]:
+        """The tests of unit file `m` that cannot be trusted, by key, with why.
+        Two cases that expect different results for the same input both go; a
+        law that fails whatever the solution goes. When laws and cases disagree,
+        a law contradicting two cases or more is wrong (the cases are
+        independent), so is a case two laws or more contradict, and a law and a
+        case that only disagree with each other both go. Leaves `m` on disk."""
+        laws = {yamlio.dump(x) for x in _laws(m)}
+        wrong: dict[str, str] = {}
+        against: dict[str, list[tuple[str, str]]] = {}
+
+        def found(mm: Mapping) -> list[tuple[list[str], str]]:
+            write(self.unit_path(u.id), yamlio.dump(mm))
+            c = course.CourseDir.load(self.root)
+            now = c.unit(u.id)
+            if now is None:
+                raise Error("unit missing after write")
+            try:
+                return crosscheck.conflicts(c, now, _laws(mm))
+            except Error:
+                return []
+
+        # Cases that clash with each other, with no law involved.
+        bare = copy.deepcopy(m)
+        drop_tests(bare, laws)
+        mine = {k for k, _ in suite_tests(bare)}
+        for keys, reason in found(bare):
+            for k in keys:
+                if k in mine:
+                    wrong.setdefault(k, reason)
+        # Each law alone against every case it disagrees with: it stops at its
+        # first disagreement, so those cases are taken out one by one.
+        for law in laws:
+            sim = copy.deepcopy(m)
+            drop_tests(sim, (laws - {law}) | set(wrong))
+            for _ in range(len(suite_tests(m)) + 1):
+                mine = {k for k, _ in suite_tests(sim)}
+                gone: set[str] = set()
+                for keys, reason in found(sim):
+                    hit = [k for k in keys if k in mine and k != law]
+                    if not hit:
+                        wrong.setdefault(law, reason)
+                    else:
+                        against.setdefault(law, []).extend((k, reason) for k in hit)
+                        gone.update(hit)
+                if not gone or law in wrong:
+                    break
+                drop_tests(sim, gone)
+        for law, cases in against.items():
+            if len(cases) >= 2:
+                wrong.setdefault(law, f"contradicts {len(cases)} cases: {cases[0][1]}")
+        bad_laws = laws & set(wrong)
+        by_case: dict[str, list[str]] = {}
+        for law, cases in against.items():
+            if law not in bad_laws:
+                for k, reason in cases:
+                    by_case.setdefault(k, []).append(reason)
+        for k, reasons in by_case.items():
+            if len(reasons) >= 2:
+                wrong.setdefault(k, f"contradicted by {len(reasons)} laws: {reasons[0]}")
+        for law, cases in against.items():
+            if law in bad_laws:
+                continue
+            for k, reason in cases:
+                if len(by_case[k]) < 2:
+                    wrong.setdefault(law, reason)
+                    wrong.setdefault(k, reason)
+        # Whatever still disagrees once those are gone goes too.
+        rest = copy.deepcopy(m)
+        drop_tests(rest, set(wrong))
+        mine = {k for k, _ in suite_tests(rest)}
+        for keys, reason in found(rest):
+            for k in keys:
+                if k in mine:
+                    wrong.setdefault(k, reason)
+        write(self.unit_path(u.id), yamlio.dump(m))
+        return wrong
+
+    def test_keys(self, c: course.CourseDir, u: Unit, m: Mapping) -> dict[str, list[str]]:
+        """proctor's test names of `u` -> their keys in unit file `m`."""
+        chain = c.chain(u)
+        try:
+            protos = engine.protos_for(c, chain) + engine.helpers_for(c, chain)
+            tests = engine.tests_of(c, u, protos)
+        except Error:
+            return {}
+        keys = [k for k, _ in suite_tests(m)]
+        out: dict[str, list[str]] = {}
+        if len(tests) == len(keys):
+            for t, k in zip(tests, keys, strict=True):
+                out.setdefault(t.name, []).append(k)
+        return out
+
+    def stub_report(
+        self, u: curriculum.Entry
+    ) -> tuple[course.CourseDir, Unit, selftest.UnitReport]:
+        """proctor selftest of `u` as written: its tests on empty stubs."""
         c = course.CourseDir.load(self.root)
         loaded = c.unit(u.id)
         if loaded is None:
@@ -1286,9 +1466,15 @@ class Builder:
             reports = docker.selftest(c, [loaded], seed)
             if not reports:
                 raise Error("no report from the Linux container")
-            r = reports.pop()
-        else:
-            r = selftest.unit(c, loaded, seed)
+            return c, loaded, reports.pop()
+        return c, loaded, selftest.unit(c, loaded, seed)
+
+    def gate(self, u: curriculum.Entry, upto: list[curriculum.Entry], languages: Mapping) -> None:
+        """The course up to `u`, as written, must load, parse and self-test."""
+        problems = self.spec_problems(u, upto, languages)
+        if problems:
+            raise Error("\n".join(problems))
+        c, loaded, r = self.stub_report(u)
         issues: list[str] = []
         if r.error is not None:
             issues.append(f"the tests cannot run on proctor's empty stubs: {r.error}")
@@ -1353,40 +1539,7 @@ class Builder:
         m = self.read_unit_map(u.id)
         if m is None:
             raise Error("unit missing after write")
-        n = 0
-        cases = _as_str(m.get("cases"))
-        if cases is not None:
-            ls = lines(cases)
-            kept: list[str] = []
-            for i, line in enumerate(ls):
-                t = trim(line)
-                # An `# example` mark goes with the case it marks.
-                after = trim(ls[i + 1]) if i + 1 < len(ls) else ""
-                if t in keys or (t.startswith("#") and after in keys):
-                    n += 0 if t.startswith("#") else 1
-                    continue
-                kept.append(line)
-            if any(trim(x) and not trim(x).startswith("#") for x in kept):
-                m["cases"] = "".join(f"{x}\n" for x in kept)
-            else:
-                _remove(m, "cases")
-        random = m.get("random")
-        if isinstance(random, dict) and isinstance(random.get("laws"), list):
-            laws = [x for x in random["laws"] if yamlio.dump(x) not in keys]
-            n += len(random["laws"]) - len(laws)
-            if laws:
-                random["laws"] = laws
-            else:
-                _remove(random, "laws")
-                if not random:
-                    _remove(m, "random")
-        rust = _as_str(m.get("rust_tests"))
-        if rust is not None:
-            for rt in rtests.parse(rust):
-                if rt.text in keys:
-                    rust = rust.replace(rt.text, "")
-                    n += 1
-            m["rust_tests"] = rust
+        n = drop_tests(m, keys)
         write(self.unit_path(u.id), yamlio.dump(m))
         self.log.say(f"  dropped {n} disputed test(s)")
         try:
@@ -1427,6 +1580,108 @@ def _laws(m: Mapping) -> list[Any]:
     if isinstance(random, dict) and isinstance(random.get("laws"), list):
         return list(random["laws"])
     return []
+
+
+def repair_contract(m: Mapping) -> list[str]:
+    """Fixes in place what a contract gets wrong only in form, so it costs no
+    retry: long dashes, a one-item list for `stubs`, keys the unit spec does
+    not have. Returns what was done."""
+    fixes: list[str] = []
+
+    def undash(v: Any) -> Any:
+        if isinstance(v, str):
+            return v.replace("\u2014", "-").replace("\u2013", "-")
+        if isinstance(v, list):
+            return [undash(x) for x in v]
+        if isinstance(v, dict):
+            return {k: undash(x) for k, x in v.items()}
+        return v
+
+    dashed = yamlio.dump(m)
+    if "\u2014" in dashed or "\u2013" in dashed:
+        for k in list(m):
+            m[k] = undash(m[k])
+        fixes.append("long dashes replaced by hyphens")
+    st = m.get("stubs")
+    if isinstance(st, list) and len(st) == 1 and isinstance(st[0], str):
+        m["stubs"] = st[0]
+        fixes.append("`stubs` given as a one-item list")
+    for _ in range(len(m)):
+        try:
+            schema.load(Unit, yamlio.dump(m))
+        except Error as e:
+            found = re.search(r"unknown field `([^`]+)`", e.msg)
+            if found is None or found.group(1) not in m:
+                break
+            _remove(m, found.group(1))
+            fixes.append(f"dropped the unknown key `{found.group(1)}`")
+        else:
+            break
+    return fixes
+
+
+def suite_tests(m: Mapping) -> list[tuple[str, str]]:
+    """The tests of a unit file as (key, label), in the order proctor lists
+    them: case lines, tests in Rust, then laws. The key is what identifies the
+    test in the file: the case line, the Rust test's source, the law's YAML."""
+    out: list[tuple[str, str]] = []
+    cases = _as_str(m.get("cases"))
+    for line in lines(cases or ""):
+        t = trim(line)
+        if t and not t.startswith("#"):
+            out.append((t, f"case `{llm.cut(t, 80)}`"))
+    rust = _as_str(m.get("rust_tests"))
+    if rust is not None and trim(rust):
+        out.extend((rt.text, f"Rust test `{rt.name}`") for rt in rtests.parse(rust))
+    for i, law in enumerate(_laws(m)):
+        name = law.get("name") if isinstance(law, dict) else None
+        out.append(
+            (yamlio.dump(law), f"law `{name}`" if isinstance(name, str) else f"law #{i + 1}")
+        )
+    return out
+
+
+def drop_tests(m: Mapping, keys: set[str]) -> int:
+    """Removes the tests of unit file `m` whose key (see `suite_tests`) is in
+    `keys`; returns how many went."""
+    n = 0
+    cases = _as_str(m.get("cases"))
+    if cases is not None:
+        ls = lines(cases)
+        kept: list[str] = []
+        for i, line in enumerate(ls):
+            t = trim(line)
+            # An `# example` mark goes with the case it marks.
+            after = trim(ls[i + 1]) if i + 1 < len(ls) else ""
+            if t in keys or (t.startswith("#") and after in keys):
+                n += 0 if t.startswith("#") else 1
+                continue
+            kept.append(line)
+        if any(trim(x) and not trim(x).startswith("#") for x in kept):
+            m["cases"] = "".join(f"{x}\n" for x in kept)
+        else:
+            _remove(m, "cases")
+    random = m.get("random")
+    if isinstance(random, dict) and isinstance(random.get("laws"), list):
+        laws = [x for x in random["laws"] if yamlio.dump(x) not in keys]
+        n += len(random["laws"]) - len(laws)
+        if laws:
+            random["laws"] = laws
+        else:
+            _remove(random, "laws")
+            if not random:
+                _remove(m, "random")
+    rust = _as_str(m.get("rust_tests"))
+    if rust is not None:
+        for rt in rtests.parse(rust):
+            if rt.text in keys:
+                rust = rust.replace(rt.text, "")
+                n += 1
+        if trim(rust):
+            m["rust_tests"] = rust
+        else:
+            _remove(m, "rust_tests")
+    return n
 
 
 def hidden(root: Path) -> Path:

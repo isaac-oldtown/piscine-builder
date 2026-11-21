@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +53,8 @@ class UnitReport:
     vacuous: list[str]
     vacuity_checked: int
     notes: list[str]
+    # The tests that are wrong whatever the student writes (course errors on stubs).
+    wrong: list[str] = field(default_factory=list)
 
     def ok(self) -> bool:
         return self.error is None and not self.vacuous
@@ -65,6 +67,7 @@ class UnitReport:
             "unit": self.unit,
             "vacuity_checked": self.vacuity_checked,
             "vacuous": list(self.vacuous),
+            "wrong": list(self.wrong),
         }
 
     @staticmethod
@@ -87,6 +90,7 @@ class UnitReport:
             vacuous=strings("vacuous"),
             vacuity_checked=checked if type(checked) is int and 0 <= checked <= U64_MASK else 0,
             notes=strings("notes"),
+            wrong=strings("wrong"),
         )
 
 
@@ -229,9 +233,10 @@ def unit(c: course.CourseDir, u: Unit, seed: int) -> UnitReport:
     ran = [
         i for p in v.phases if p.name == "tests" and p.status != engine.Status.SKIP for i in p.items
     ]
-    wrong = next((i for i in ran if i.course_error), None)
-    if wrong is not None:
-        r.error = f"{wrong.name}: {wrong.detail}"
+    wrong = [i for i in ran if i.course_error]
+    if wrong:
+        r.error = f"{wrong[0].name}: {wrong[0].detail}"
+        r.wrong = [i.name for i in wrong]
         return r
     failed_on_stub = [i.name for i in ran if not i.ok]
     for t in tests:
