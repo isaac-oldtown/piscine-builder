@@ -1327,26 +1327,6 @@ def judge(found: list[tuple[str, str]], expected: str) -> ProtoFinding:
     return ProtoFindingMismatch(f"found `{n}` at {at}")
 
 
-def c_defined_names(srcs: list[Source]) -> dict[str, str]:
-    """Names of functions defined in C sources (for stubs and the harness)."""
-    m: dict[str, str] = {}
-    for s in srcs:
-        for d in c_definitions(s.code):
-            m.setdefault(d.name, s.rel)
-    return dict(sorted(m.items()))
-
-
-def files_with_main(lang: str, srcs: list[Source]) -> list[Path]:
-    def has_main(s: Source) -> bool:
-        match lang:
-            case "c":
-                return any(d.name == "main" for d in c_definitions(s.code))
-            case _:
-                return False
-
-    return [Path(s.rel) for s in srcs if has_main(s)]
-
-
 # ------------------------------------------------------------- port helpers
 
 

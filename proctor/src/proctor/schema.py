@@ -39,10 +39,8 @@ class Untagged:
 
 
 U8 = Annotated[int, Bounds("u8", 0, (1 << 8) - 1)]
-U16 = Annotated[int, Bounds("u16", 0, (1 << 16) - 1)]
 U32 = Annotated[int, Bounds("u32", 0, (1 << 32) - 1)]
 U64 = Annotated[int, Bounds("u64", 0, (1 << 64) - 1)]
-I64 = Annotated[int, Bounds("i64", -(1 << 63), (1 << 63) - 1)]
 
 T = TypeVar("T")
 

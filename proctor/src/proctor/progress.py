@@ -24,7 +24,6 @@ class UnitStats:
     active: int = 0
     fails_by_cat: dict[str, int] = field(default_factory=dict)
     fails_by_item: dict[str, int] = field(default_factory=dict)
-    last_fail_seed: str | None = None
     warnings_at_pass: int | None = None
 
 
@@ -72,7 +71,6 @@ def compute(events: list[journal.Event]) -> Stats:
                         u.fails_by_cat[e.cat] = u.fails_by_cat.get(e.cat, 0) + 1
                     if e.item is not None:
                         u.fails_by_item[e.item] = u.fails_by_item.get(e.item, 0) + 1
-                    u.last_fail_seed = e.seed
                 s.checks.append(e)
             case _:
                 pass

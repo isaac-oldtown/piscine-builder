@@ -31,10 +31,6 @@ class Stdio(enum.Enum):
     def piped() -> Stdio:
         return Stdio.PIPED
 
-    @staticmethod
-    def inherit() -> Stdio:
-        return Stdio.INHERIT
-
 
 class ProgramNotFound(FileNotFoundError):
     """The program to run does not exist (Rust: `program not found` on Windows)."""
@@ -92,7 +88,6 @@ class Command:
         self.argv: list[str] = []
         self.cwd: Path | None = None
         self.env_add: dict[str, str] = {}
-        self.env_del: set[str] = set()
         self.stdin_io: Stdio | None = None
         self.stdout_io: Stdio | None = None
         self.stderr_io: Stdio | None = None
@@ -116,17 +111,11 @@ class Command:
 
     def env(self, k: str, v: str | os.PathLike[str]) -> Command:
         self.env_add[k] = os.fspath(v)
-        self.env_del.discard(k)
         return self
 
     def envs(self, m: dict[str, str]) -> Command:
         for k, v in m.items():
             self.env(k, v)
-        return self
-
-    def env_remove(self, k: str) -> Command:
-        self.env_add.pop(k, None)
-        self.env_del.add(k)
         return self
 
     def stdin(self, s: Stdio) -> Command:
@@ -154,9 +143,9 @@ class Command:
 
     def environment(self) -> dict[str, str] | None:
         """The child's environment, or None to inherit ours unchanged."""
-        if not self.env_add and not self.env_del:
+        if not self.env_add:
             return None
-        env = {k: v for k, v in os.environ.items() if k not in self.env_del}
+        env = dict(os.environ)
         if sys.platform == "win32":
             # Windows variable names are case-insensitive: replace, not duplicate.
             upper = {k.upper(): k for k in env}

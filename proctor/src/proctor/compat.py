@@ -127,17 +127,6 @@ def float_display(x: float) -> str:
     return s
 
 
-def float_debug(x: float) -> str:
-    """Rust `format!("{x:?}")` for an f64: like Display, with `.0` on whole
-    numbers, and in exponent form below 1e-4 or from 1e16 on (`1e16`, `1e-7`)."""
-    if math.isfinite(x) and x != 0 and not 1e-4 <= abs(x) < 1e16:
-        return float_exp(x)
-    s = float_display(x)
-    if s.lstrip("-").isdigit():
-        return s + ".0"
-    return s
-
-
 def float_exp(x: float) -> str:
     """Rust `format!("{x:e}")` for an f64 (`1e2`, `1.5e0`, `-2.5e-3`)."""
     if math.isnan(x):

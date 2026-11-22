@@ -223,9 +223,6 @@ class CourseDir:
                     out.append(a)
         return out
 
-    def stage_number(self, u: Unit) -> int:
-        return len(self.chain(u))
-
     def stages_of(self, project: str) -> list[Unit]:
         return [u for u in self.units if u.project == project]
 
