@@ -229,7 +229,7 @@ def test_a_reading_stage_keeps_only_its_goal_and_lesson(tmp_path: Path) -> None:
     assert build_stage is not None and b.previous_stage(build_stage) is None
 
 
-def test_suites_built_with_a_reference_are_built_again(tmp_path: Path) -> None:
+def test_only_units_with_tests_have_a_suite(tmp_path: Path) -> None:
     plan = curriculum.parse("---\ntitle: T\nlanguage: python\n---\n\n## d01-a: A\ngoal: g.\n")
     dead = llm.Llm.resolve(
         llm.Choice(provider="custom", base_url="http://127.0.0.1:9/v1", model="m"),
@@ -242,8 +242,6 @@ def test_suites_built_with_a_reference_are_built_again(tmp_path: Path) -> None:
     spec = "id: d01-a\ntitle: A\ngoal: g.\ncases: |\n  m.f(1) == 1\n"
     (units / "d01-a.yaml").write_text(spec)
     assert b.has_suite("d01-a")
-    (units / "d01-a.yaml").write_text(spec + "random:\n  fuzz: [m.f]\n")
-    assert not b.has_suite("d01-a")
     (units / "d01-a.yaml").write_text("id: d01-a\ntitle: A\ngoal: g.\n")
     assert not b.has_suite("d01-a")
 

@@ -179,10 +179,6 @@ class Law:
 @dataclass(kw_only=True)
 class Random:
     rounds: U32 | None = None
-    # `fuzz` compared the student with a hidden reference solution. References
-    # are gone: the key still loads, so that old specs are read, but `validate`
-    # reports it and nothing runs it.
-    fuzz: list[Any] = field(default_factory=list)
     laws: list[Law] = field(default_factory=list)
 
 

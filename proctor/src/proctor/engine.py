@@ -1082,10 +1082,6 @@ def validate(c: course.CourseDir) -> list[str]:
             for name in dict.fromkeys(n for t in tests for n in expression_calls(t)):
                 if name in unsupported:
                     problems.append(f"{u.id}: {unsupported[name]} (test it in `rust_tests`)")
-        if u.random.fuzz:
-            problems.append(
-                f"{u.id}: `random.fuzz` compared the student with a reference solution, which proctor no longer uses; test the behaviour with `random.laws` instead"
-            )
         if u.types is not None and language != "rust":
             problems.append(f"{u.id}: `types` is only for Rust units")
     return problems

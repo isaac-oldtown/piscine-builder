@@ -125,13 +125,9 @@ class Builder:
 
     def has_suite(self, id: str) -> bool:
         """A unit whose correction suite already passed the gate: its spec holds
-        tests (a failed unit is restored without them). A suite from before
-        references were dropped, with `random.fuzz`, is built again."""
+        tests (a failed unit is restored without them)."""
         m = self.read_unit_map(id)
         if m is None:
-            return False
-        random = m.get("random")
-        if isinstance(random, dict) and random.get("fuzz"):
             return False
         return "cases" in m or "rust_tests" in m or "random" in m
 
