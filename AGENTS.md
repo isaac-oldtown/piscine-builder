@@ -8,10 +8,7 @@ PiscineBuilder: a uv workspace (Python 3.12, typed, checked by mypy) with two pa
 - `docs/` is the reference (curriculum format, build, unit spec, languages); keep it and `README.md`
   in sync with behaviour changes.
 - The code is a port of the Rust version, archived on branch `rust` (tag `rust-final`) and no longer
-  developed; `PORTING.md` lists the port's conventions (Rust names
-  kept, keywords get a trailing `_`, `errors.Error` for `Result` errors, sibling modules imported as modules)
-  and the Rust behaviours it reproduces on purpose (YAML as `yaml_serde` reads and writes it, Rust float
-  and debug formatting in `proctor.compat`).
+  developed.
 
 ## Commands
 
@@ -50,8 +47,7 @@ PiscineBuilder: a uv workspace (Python 3.12, typed, checked by mypy) with two pa
 - Never build or store a course inside this repo; `.gitignore` keeps course files out. The user's real course
   is `..\rust`: do not modify it unless asked.
 - A course keeps its hidden data in `.proctor/` (`proctor.course.HIDDEN`), with coursecrafter's state
-  (approval hash, LLM reply cache, validator log, `logs/`) in `.proctor/coursecrafter/`. Old `.skillcheck/`
-  and `.skillchecker/` folders are migrated on load by `proctor.course.migrate`.
+  (approval hash, LLM reply cache, validator log, `logs/`) in `.proctor/coursecrafter/`.
 - Student-facing markdown (`subjects/`, `RULES.md`) is rendered by `proctor/src/proctor/render.py` and
   `proctor/src/proctor/rules.py` from unit YAML, never written by the LLM.
 - `coursecrafter build` refuses a `curriculum.md` whose hash differs from `.proctor/coursecrafter/approved`.

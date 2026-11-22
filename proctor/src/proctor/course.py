@@ -3,7 +3,6 @@ student sees `subjects/`, `notes/`, `PROGRESS.md` and their workspaces."""
 
 from __future__ import annotations
 
-import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,37 +16,6 @@ from proctor.unit import Course, LangConfig, Project, StaticCheck, Unit
 T = TypeVar("T")
 
 HIDDEN = ".proctor"
-
-# The folder's names before the grader was renamed, newest first.
-OLD_HIDDEN = [".skillchecker", ".skillcheck"]
-
-
-def migrate(root: Path) -> None:
-    """Renames an old hidden folder in `root` to `.proctor/`, and its
-    `taskmaster/` folder to `coursecrafter/`, once."""
-    new = root / HIDDEN
-
-    def rename(old: Path, new: Path) -> None:
-        try:
-            os.replace(old, new)
-        except OSError as e:
-            raise Error(
-                f"renaming {strip_verbatim(old)} to {strip_verbatim(new)}: {io_error(e)}"
-            ) from None
-
-    old = next(
-        (root / o for o in OLD_HIDDEN if (root / o / "course.yaml").is_file()),
-        None,
-    )
-    if old is not None and not new.exists():
-        rename(old, new)
-        print(
-            f"Renamed {strip_verbatim(old)} to {strip_verbatim(new)} (the grader is now proctor).",
-            file=sys.stderr,
-        )
-    old_tm, new_tm = new / "taskmaster", new / "coursecrafter"
-    if old_tm.is_dir() and not new_tm.exists():
-        rename(old_tm, new_tm)
 
 
 @dataclass(kw_only=True)
@@ -65,12 +33,7 @@ class CourseDir:
         except OSError as e:
             raise Error(f"{start}: {io_error(e)}") from None
         root = next(
-            (
-                d
-                for d in (start, *start.parents)
-                if (d / HIDDEN / "course.yaml").is_file()
-                or any((d / o / "course.yaml").is_file() for o in OLD_HIDDEN)
-            ),
+            (d for d in (start, *start.parents) if (d / HIDDEN / "course.yaml").is_file()),
             None,
         )
         if root is None:
@@ -81,7 +44,6 @@ class CourseDir:
 
     @staticmethod
     def load(root: Path) -> CourseDir:
-        migrate(root)
         hidden = root / HIDDEN
         course = read_yaml(Course, hidden / "course.yaml")
         units: list[Unit] = []

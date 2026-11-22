@@ -179,15 +179,8 @@ class Args:
         )
 
     def course(self) -> Path:
-        from proctor import course
-
         d = self.get("course")
-        dir = RustPath(d if d is not None else ".")
-        try:
-            course.migrate(dir)
-        except Error as e:
-            print(f"warning: {e.msg}", file=sys.stderr)
-        return dir
+        return RustPath(d if d is not None else ".")
 
 
 LLM_OPTS = ["provider", "base-url", "model", "api-key-env"]
