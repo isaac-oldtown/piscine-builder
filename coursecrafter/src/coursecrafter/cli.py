@@ -49,9 +49,10 @@ USAGE = """coursecrafter: creates PiscineBuilder courses. The only part of Pisci
   coursecrafter setup [--course DIR]
         for a curriculum with Linux units: set up Docker Desktop or WSL here
         (installs or starts it after asking; `new` offers the same)
-  coursecrafter build [--course DIR] [--yes] [--tests | --no-tests | --text-only] [--only ID]... [--retries N] [--cross-check] [--debug]
+  coursecrafter build [--course DIR] [--yes] [--tests | --no-tests | --text-only] [--only ID]... [--retries N] [--cross-check] [--check-model NAME] [--debug]
         write the unit specs, notes and tests (uses the LLM); --cross-check also has
-        an independent reading of the instructions answer every test (one more call per unit)
+        an independent reading of the instructions answer every test (one more call per unit);
+        --check-model NAME has a local Ollama model (127.0.0.1:11434) answer it, at no cost
 
 new, revise, convert and build log every call (time, tokens, errors, fixes) to .proctor/coursecrafter/logs/;
   --debug also prints it here.
@@ -476,9 +477,10 @@ def cmd_import(raw: list[str]) -> bool:
 def cmd_build(raw: list[str]) -> bool:
     from proctor import course as proctor_course
 
-    valued = ["course", "only", "retries"]
+    valued = ["course", "only", "retries", "check-model"]
     valued.extend(LLM_OPTS)
     a = Args.parse(raw, valued, ["yes", "tests", "no-tests", "text-only", "debug", "cross-check"])
+    check_model = a.get("check-model")
     course = a.course()
     file = course / "curriculum.md"
     try:
@@ -520,7 +522,13 @@ def cmd_build(raw: list[str]) -> bool:
         yes=a.has("yes"),
         text_only=a.has("text-only"),
         debug=a.has("debug"),
-        cross_check=a.has("cross-check"),
+        cross_check=a.has("cross-check") or check_model is not None,
+    )
+    # shortcut: Ollama's default address only, add a URL option if another local server is wanted.
+    checker = (
+        None
+        if check_model is None
+        else llm.Llm(base_url=llm.OLLAMA_URL, model=check_model, key=None)
     )
     try:
         root = course.resolve(strict=True)
@@ -538,7 +546,7 @@ def cmd_build(raw: list[str]) -> bool:
     except OSError:
         pass
     debug = opts.debug
-    builder = build.Builder.new(root, plan, llm_, opts, environment.prompt_block())
+    builder = build.Builder.new(root, plan, llm_, opts, environment.prompt_block(), checker)
     failure: Error | None = None
     ok = False
     try:

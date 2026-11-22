@@ -371,7 +371,7 @@ Ask at most 10 questions in a conversation; after that, assume your recommended 
 # --------------------------------------------------------------- generation
 
 
-CHECKED = "- Your reply is used as it is, without asking you again: a test proctor cannot run, and any case that contradicts one of your laws (the cases are checked against them), is dropped. So write more than the minimum (several cases and at least one law per function, each simple enough to be sure of), test only what the instructions decide, and work each expected result out step by step (character by character, code point order when sorting), never from memory."
+CHECKED = "- Your reply is used as it is, without asking you again: a test proctor cannot run, and any case that contradicts one of your laws (the cases are checked against them), is dropped. So write more than the minimum (several laws and a few cases per function, each simple enough to be sure of), test only what the instructions decide, and work each expected result out step by step (character by character, code point order when sorting), never from memory."
 
 CROSS_CHECKED = "- Every case and law is checked again by an independent reading of the instructions the student gets, which never sees your tests, and the cases are checked against your laws. A test it disagrees with comes back to you; a test still disputed after that is dropped. So test only what the instructions decide, and work each expected result out step by step (character by character, code point order when sorting), never from memory."
 
@@ -451,7 +451,7 @@ GEN_PROGRAM_TESTS = r"""Program target, one run per line:  [args] [@file="conten
   checks: out == "..."  out ~ "regex"  out !~ "regex"  out empty  err == / err ~ / err empty  exit N
   <<< "a b\n" => out == "2\n" exit 0
   missing.txt => err ~ "(?i)no such file" exit 2
-Strings use \n \t \" escapes. Keep fixed cases small and obviously correct by inspection.
+Strings use \n \t \" escapes. Keep fixed cases few, small and obviously correct by inspection.
 
 random:
   rounds: 200                 # default; use 20 to 40 for program targets (each round runs processes)
@@ -468,7 +468,7 @@ list(g) lo..hi, lines(g) lo..hi, opt(g), choice ["a", "b"], lit <value>, and nam
 """
 
 GEN_RULES = r"""Test rules:
-- No reference solution is written or run: every expected value is computed by the test itself. Fixed cases hold small inputs whose results are obvious by inspection.
+- No reference solution is written or run, so a result you work out in your head may be wrong: laws carry the suite, because proctor computes what they compare. Every behaviour you can state as a property (the result equals a built-in expression, agrees with another function, survives a roundtrip, keeps an invariant of the output) is a law, not a case. Fixed cases are few: edge cases, error behaviour and examples whose result needs no counting, sorting or Unicode reasoning (`count("a b") == 2`, `raises(parse_port("x"))`); never a long or tricky output worked out by hand.
 - Random tests are laws, never inputs you invent one by one: generators describe the whole input space and each law checks a property every result must keep (the result equals an independent built-in expression, two functions agree, a roundtrip, idempotence, an invariant of the output). Every function, and every program that reads input (arguments, stdin or files), gets at least one law; a program that reads nothing gets none. A law uses every input it generates. Generate only valid inputs unless the requirements say how invalid ones behave.
 - Every function needs a test that fails when the function is an empty stub.
 {checked}

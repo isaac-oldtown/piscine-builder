@@ -36,6 +36,8 @@ DEFAULT_MODEL = "claude-sonnet-5-5"
 
 # Most tokens a reply may use; a reply that reaches it is cut off.
 MAX_TOKENS = 16000
+# A local Ollama server: `--check-model` runs the cross-check there, at no cost.
+OLLAMA_URL = "http://127.0.0.1:11434/v1"
 
 # The whole request, retries excluded (ureq's `timeout_global`).
 TIMEOUT = 900

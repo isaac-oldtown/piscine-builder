@@ -90,6 +90,8 @@ class Builder:
     # Generation rules plus the student environment: one stable system
     # prompt for the whole run, so providers can cache it.
     system: str
+    # Answers the cross-check instead of `llm` (a free local model).
+    checker: Llm | None = None
 
     @staticmethod
     def new(
@@ -98,11 +100,14 @@ class Builder:
         llm: Llm,
         opts: Options,
         env_block: str,
+        checker: Llm | None = None,
     ) -> Builder:
         langs = sorted({plan.language(u) for u in plan.units()})
         system = f"{prompts.gen_system(langs, opts.cross_check)}\n\n{env_block}"
         log = session.Session.start(root, "build", opts.debug)
         log.log(f"model {llm.model} at {llm.base_url}")
+        if checker is not None:
+            log.log(f"cross-check by {checker.model} at {checker.base_url}")
         return Builder(
             root=root,
             plan=plan,
@@ -111,6 +116,7 @@ class Builder:
             opts=opts,
             provider_down=False,
             system=system,
+            checker=checker,
         )
 
     def explicit(self, e: curriculum.Entry) -> bool:
@@ -132,9 +138,11 @@ class Builder:
     def selected(self, e: curriculum.Entry) -> bool:
         return not self.opts.only or any(names(o, e) for o in self.opts.only)
 
-    def chat(self, label: str, messages: list[Msg]) -> str:
-        """Chat with on-disk caching keyed by the full request."""
-        parts = [self.llm.model]
+    def chat(self, label: str, messages: list[Msg], via: Llm | None = None) -> str:
+        """Chat (with `via`, by default the build's model) with on-disk caching
+        keyed by the full request."""
+        model = via or self.llm
+        parts = [model.model]
         parts.extend(m.content for m in messages)
         key = fnv(parts)
         path = self.reply_cache() / f"{label}-{key}.txt"
@@ -147,7 +155,7 @@ class Builder:
             return text
         purpose = label.split("-")[0]
         try:
-            reply = self.log.chat_as(self.llm, label, purpose, messages)
+            reply = self.log.chat_as(model, label, purpose, messages)
         except llm.ChatError as e:
             if e.kind == llm.Failure.REQUEST:
                 raise Error(e.msg) from None
@@ -1510,7 +1518,7 @@ class Builder:
             page, earlier, rules_md = crosscheck.context(c, loaded)
             req = prompts.verify_request(page, earlier, rules_md, crosscheck.questions(fresh))
             messages = [llm.Msg.system(prompts.VERIFY_SYSTEM), llm.Msg.user(req)]
-            reply = self.chat(f"verify-{u.id}", messages)
+            reply = self.chat(f"verify-{u.id}", messages, self.checker)
             seen.update(crosscheck.disputes(fresh, crosscheck.answers(reply)))
         out: list[tuple[list[str], str]] = []
         for it in its:

@@ -49,12 +49,16 @@ def builder(tmp_path: Path, retries: int, cross_check: bool = True) -> build.Bui
     return build.Builder.new(tmp_path, curriculum.parse(PLAN), dead, opts, "ENV")
 
 
-def scripted(b: build.Builder, replies: dict[str, list[str]]) -> list[tuple[str, str]]:
+def scripted(
+    b: build.Builder, replies: dict[str, list[str]], via: list[llm.Llm | None] | None = None
+) -> list[tuple[str, str]]:
     asked: list[tuple[str, str]] = []
 
-    def chat(label: str, messages: list[llm.Msg]) -> str:
+    def chat(label: str, messages: list[llm.Msg], model: llm.Llm | None = None) -> str:
         kind = label.split("-")[0]
         asked.append((kind, messages[-1].content))
+        if via is not None:
+            via.append(model)
         return replies[kind].pop(0)
 
     b.chat = chat  # type: ignore[method-assign]
@@ -130,6 +134,19 @@ def test_a_disputed_case_goes_back_once_then_is_dropped(tmp_path: Path) -> None:
     spec["cases"] += "double(5) == 10\n"
     build.write(b.unit_path(u.id), yamlio.dump(spec))
     assert not b.verified(u.id)
+
+
+def test_a_check_model_answers_the_cross_check_alone(tmp_path: Path) -> None:
+    if shutil.which("python") is None:
+        pytest.skip("no python")
+    b = builder(tmp_path, retries=2)
+    b.checker = llm.Llm(base_url=llm.OLLAMA_URL, model="local", key=None)
+    u = contract_written(b)
+    via: list[llm.Llm | None] = []
+    tests = TESTS.replace("double(3) == 7", "double(3) == 6")
+    scripted(b, {"tests": [tests], "verify": ["<answers>\n1: 4\n2: 6\n3: true\n</answers>"]}, via)
+    b.tests(u, b.plan.units(), {})
+    assert via == [None, b.checker]
 
 
 def test_tests_proctor_cannot_use_are_dropped_without_asking_again(tmp_path: Path) -> None:

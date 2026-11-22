@@ -70,6 +70,11 @@ pass the gate again. A suite that passed is recorded with a hash in
 `.proctor/coursecrafter/verified`; with `--cross-check`, a suite never cross-checked, or
 changed since, is built again.
 
+`--check-model NAME` (implies `--cross-check`) sends the independent reading to a local Ollama
+model at `127.0.0.1:11434` instead of the build's provider, so it costs nothing; a weaker model
+catches fewer wrong values and may dispute right ones, which then cost one more round with the
+test writer.
+
 A project keeps one run command: the first stage that sets `run` fixes it for every later
 stage (the request says so, a contract that changes it is sent back, and an older contract
 that differs is written again).
